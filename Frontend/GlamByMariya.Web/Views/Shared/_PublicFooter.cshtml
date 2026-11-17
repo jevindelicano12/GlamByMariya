@@ -1,0 +1,4 @@
+@inject IServiceProvider Services
+@{ var content = ViewData["PublishedWebsiteContent"] as GlamByMariya.Core.BusinessRules.WebsiteTextInput;
+   if (content == null) { try { var service = Services.GetService<GlamByMariya.Infrastructure.Services.WebsiteContentService>(); if (service != null) { content = (await service.PublicContent(Context.RequestAborted))?.Text; } } catch (Exception e) when (e is not OperationCanceledException) { } } }
+<footer class="public-footer"><div><strong>GLAM BY MARIYA</strong><p>Home-service makeup</p><small>© @DataStore.Now.Year Glam by Mariya</small></div><nav aria-label="Footer navigation"><a asp-controller="Home" asp-action="Index">Home</a><a asp-controller="Home" asp-action="About">About</a><a asp-controller="Home" asp-action="Services">Services</a><a asp-controller="Home" asp-action="Gallery">Gallery</a><a asp-controller="Home" asp-action="Contact">Contact</a></nav><partial name="_PublishedSocialLinks" model="content?.Links" /></footer>

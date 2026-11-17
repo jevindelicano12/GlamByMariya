@@ -1,0 +1,23 @@
+/* Keep the longer business name legible inside the existing compact sidebar. */
+.brand .brand-name{font-size:16px;letter-spacing:1px;white-space:nowrap}
+.brand .brand-name small{font-size:8px;letter-spacing:2.5px}
+@media(max-width:1150px){.brand .brand-name{font-size:14px;letter-spacing:.7px}.brand .brand-name small{font-size:7px;letter-spacing:2px}}
+
+/* Shared authenticated workspace: retain the existing grids and mobile navigation. */
+.member-layout{--bg:#FFF7F0;--ink:#49363B;--muted:#705b5f;--line:#E6D6C7;--green:#49363B;--sage:#E9BEC3}
+.member-layout .sidebar,.member-layout .topbar{background:#FFF7F0}
+.member-layout .brand-mark{border-color:#B77F89;color:#49363B}
+.member-layout .nav-label,.member-layout .sidebar nav a,.member-layout .topbar>span,.member-layout .demo-label{color:#604b50}
+.member-layout .sidebar nav a:hover,.member-layout .sidebar nav a.selected{background:#E9BEC3;color:#49363B}
+.member-layout .studio-note{background:#fffaf7;border-color:#E6D6C7}
+.member-layout .studio-note>span{color:#B77F89}
+.member-layout .stat,.member-layout .panel{border-color:#E6D6C7;box-shadow:0 5px 20px #49363b0a}
+.member-layout .stat>span,.member-layout .eyebrow{color:#795159}
+.member-layout .admin-banner{background:#E9BEC3;border-color:#E9BEC3}
+.member-layout .admin-banner p,.member-layout .admin-banner>span{color:#604b50}
+.member-layout .button:not(.secondary):not(.danger){background:#49363B;border-color:#49363B;color:#FFF7F0}
+.member-layout .button.secondary{background:#FFF7F0;border-color:#B77F89;color:#49363B}
+.member-layout .avatar{background:#E9BEC3;color:#49363B}
+.member-layout .tabs a{color:#705b5f}
+.member-layout .tabs a.active{color:#49363B;border-color:#B77F89}
+.member-layout a:focus-visible,.member-layout button:focus-visible,.member-layout input:focus-visible,.member-layout select:focus-visible,.member-layout textarea:focus-visible{outline:3px solid #B77F89;outline-offset:2px}

@@ -1,0 +1,31 @@
+# DRAFT: do not sync/create a Blueprint yet. Creation can trigger an initial deploy
+# even with autoDeployTrigger off. Use only from a NEW, separately reviewed V2 repo.
+previews:
+  generation: 'off'
+services:
+  - type: web
+    name: glam-by-mariya-v2-public
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    autoDeployTrigger: 'off'
+    healthCheckPath: /healthz
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: Deployment__Profile
+        value: v2-public-only
+      - key: PublicSite__InformationOnly
+        value: 'true'
+      - key: Authentication__DurableSessionEnforcement
+        value: 'false'
+      - key: Email__DeliveryDisabled
+        value: 'true'
+      - key: AllowedHosts
+        # Owner enters the NEW service hostname, without scheme, path or port.
+        sync: false
+# No repo URL: inherits the NEW V2 repository hosting this file.
+# No environment-group imports, credentials, disks, migration or seed commands.
+# PORT is supplied by Render and handled by Program.cs.

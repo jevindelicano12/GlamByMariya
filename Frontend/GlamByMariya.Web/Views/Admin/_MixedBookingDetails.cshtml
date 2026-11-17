@@ -1,0 +1,62 @@
+@model Booking
+@{ var payments = (List<Payment>)ViewBag.Payments; decimal paid = ViewBag.Paid; }
+<link rel="stylesheet" href="~/css/mixed-payment.css" asp-append-version="true" />
+<link rel="stylesheet" href="~/css/admin-mixed-booking.css" asp-append-version="true" />
+<div class="admin-mixed-details" data-start="@Model.Start.ToString("s")" data-status="@Model.Status">
+    <a class="subtle-link" asp-action="Appointments">All appointments</a>
+    <header class="page-heading"><div><h1>Mixed-service booking</h1><p>@Model.Reference · @Model.CustomerName · @Model.People people</p><p>@Model.Start.ToString("dddd, MMMM d, yyyy · h:mm tt") makeup start</p></div><span class="badge">@Model.Status</span></header>
+    <p class="notice">SuperAdmin-only review. Granular Admin permissions are not implemented. An uploaded screenshot is an unverified claim until the actual transfer has been checked. Travel feasibility is not verified.</p>
+    <div class="admin-mixed-columns">
+        <div class="stack">
+            <section class="panel"><partial name="_MixedPeople" model="Model" /><p>These service, add-on, price and duration records were captured at submission. Later catalog edits do not change them.</p></section>
+            <partial name="_BookingPriceDetails" model="Model" />
+            <section class="panel stack"><h3>Service location</h3><p>@Model.Address, @Model.Area</p><p>Makeup ends @Model.End.ToString("h:mm tt"); preparation ends @Model.End.AddMinutes(Model.BufferMinutesSnapshot ?? 0).ToString("h:mm tt").</p><p>Transportation expenses are separate; route feasibility requires review.</p>
+                @if (!string.IsNullOrWhiteSpace(Model.Note)) { <p class="notice">Latest note: @Model.Note</p> }
+            </section>
+        </div>
+        <div class="stack">
+            <section class="panel stack" aria-label="Private payment review"><h2>Payment review</h2>
+            @foreach (var payment in payments)
+            {
+                var proofUrl = Url.Action("Proof", "Admin", new { id = payment.Id, bookingId = Model.Id, reviewRevision = payment.PersistentReviewRevision, reviewVersion = payment.PersistentReviewVersion });
+                <article class="mixed-payment-claim" data-payment-id="@payment.Id" data-payment-revision="@payment.Revision">
+                    <h3>₱@payment.Amount.ToString("N2") claimed · @payment.Method</h3><p>Reference: @payment.Reference</p><strong class="badge">@(payment.Verified ? "Verified" : "Unverified — awaiting review")</strong>
+                    @if (payment.VerifiedAt.HasValue) { <p>Reviewed by @(DataStore.Users.FirstOrDefault(u => u.Id == payment.VerifiedBy)?.Name ?? "Recorded staff account") · @payment.VerifiedAt.Value.ToString("MMM d, yyyy h:mm tt")</p> }
+                    @if (payment.ProofPath != null || payment.ProofKey != null) {
+                        <details class="private-proof" open="@(!payment.Verified)"><summary>Inspect private payment screenshot</summary><a href="@proofUrl" target="_blank" rel="noopener">Open full-size private proof</a><img src="@proofUrl" alt="Private submitted payment screenshot for @Model.Reference" loading="lazy" /></details>
+                    }
+                    @if (payment.ProofHistory.Count > 0) { <details><summary>Earlier submitted references (@payment.ProofHistory.Count)</summary>@foreach (var previous in payment.ProofHistory) { <p>@previous.Reference · replaced @previous.ChangedAt.ToString("MMM d, yyyy h:mm tt")</p> }</details> }
+                    @if (Model.Status == "Pending Payment" && !payment.Verified) {
+                    <form asp-action="Action" method="post" class="stack" data-decision="verify">
+                        <input type="hidden" name="id" value="@Model.Id" /><input type="hidden" name="operation" value="verify" /><input type="hidden" name="paymentId" value="@payment.Id" />
+                        @if (DataStore.IsPersistent) { <input type="hidden" name="reviewRevision" value="@payment.PersistentReviewRevision" /><input type="hidden" name="reviewVersion" value="@payment.PersistentReviewVersion" /> }
+                        else { <input type="hidden" name="paymentRevision" value="@payment.Revision" /> }
+                        <p>Verification also approves this appointment after fresh availability and coverage checks. Minimum required: ₱@Model.RequiredDownPayment.ToString("N2").</p>
+                        <label class="check-label"><input type="checkbox" name="reviewed" value="true" required /> I inspected this proof and checked the actual transfer, amount and reference. I understand this also confirms the booking.</label>
+                        <button type="submit" class="button full">Verify payment and approve booking</button>
+                    </form> }
+                </article>
+            }
+            <p>Verified paid: ₱@paid.ToString("N2") · Outstanding: ₱@Math.Max(0, Model.Total - paid).ToString("N2"). No transfer is initiated by these controls.</p>
+            </section>
+            @if (Model.Status == "Pending Payment") {
+                <section class="panel stack"><h3>Request a correction</h3><form asp-action="Action" method="post" class="stack" data-decision="proof"><input type="hidden" name="id" value="@Model.Id" /><input type="hidden" name="operation" value="proof" /><label>Instructions for the Customer<textarea name="reason" required maxlength="1000" rows="3"></textarea></label><button class="button secondary" type="submit">Request replacement proof</button></form></section>
+                <section class="panel stack"><h3>Reject this request</h3><p>Rejection releases this reserved time. The booking and payment history are retained; an unverified claim does not create a verified refund.</p><form asp-action="Action" method="post" class="stack" data-decision="reject"><input type="hidden" name="id" value="@Model.Id" /><input type="hidden" name="operation" value="reject" /><label>Rejection reason<textarea name="reason" required maxlength="1000" rows="3"></textarea></label><label class="check-label"><input type="checkbox" required /> I confirm rejection and release of the reserved time.</label><button class="button danger" type="submit">Reject booking request</button></form></section>
+            }
+            @if (Model.Status == "Confirmed" && Model.PendingReschedule is { } pending) { var q = pending.Quote;
+                <section class="panel stack"><h3>Reschedule request</h3><p>Current: @q.OriginalStart.ToString("MMM d, yyyy h:mm tt")<br />Proposed: @q.ProposedStart.ToString("MMM d, yyyy h:mm tt")</p><p>Original total ₱@q.InitialTotal.ToString("N2") · Current total ₱@q.CurrentTotal.ToString("N2") · Proposed total ₱@q.ProposedTotal.ToString("N2") · Difference @((q.ProposedTotal - q.CurrentTotal) >= 0 ? "+" : "−")₱@Math.Abs(q.ProposedTotal - q.CurrentTotal).ToString("N2")</p><p>Proposed early fee ₱@q.EarlyFee.ToString("N2") · late fee ₱@q.LateFee.ToString("N2"). Customer consented @pending.ConsentedAt.ToString("MMM d, yyyy h:mm tt"). The original slot remains reserved until approval; payment differences are arranged personally.</p>
+                    <form asp-action="Action" method="post" class="stack" data-decision="reschedule"><input type="hidden" name="id" value="@Model.Id" /><input type="hidden" name="operation" value="reschedule" /><input type="hidden" name="requestedStart" value="@q.ProposedStart.ToString("s")" /><input type="hidden" name="rescheduleQuoteId" value="@q.Id" /><label class="check-label"><input type="checkbox" required /> I confirm replacing the original slot only if all checks pass.</label><button class="button" type="submit">Approve new time</button></form>
+                    <form asp-action="Action" method="post" class="stack" data-decision="decline"><input type="hidden" name="id" value="@Model.Id" /><input type="hidden" name="operation" value="decline" /><input type="hidden" name="requestedStart" value="@q.ProposedStart.ToString("s")" /><label>Reason for keeping the original time<textarea name="reason" required maxlength="1000" rows="2"></textarea></label><button class="button secondary" type="submit">Decline reschedule</button></form>
+                </section>
+            }
+            @if (Model.Status == "Confirmed" && Model.End <= DataStore.Now) {
+                <section class="panel stack"><h3>Other appointment outcomes</h3><form asp-action="Action" method="post" class="stack"><input type="hidden" name="id" value="@Model.Id" /><label>No-show / incomplete reason<textarea name="reason" required maxlength="1000" rows="2"></textarea></label><button name="operation" value="noshow" class="button secondary">Mark no-show</button><button name="operation" value="incomplete" class="button secondary">Mark incomplete</button></form></section>
+            }
+            @if (Model.RefundDue > 0) {
+                <section class="panel stack"><h3>Manual refund record</h3><p>Due ₱@Model.RefundDue.ToString("N2") · Recorded ₱@Model.Refunded.ToString("N2")</p>@if (Model.Refunded < Model.RefundDue) { <form asp-action="Action" method="post" class="stack"><input type="hidden" name="id" value="@Model.Id" /><label>Amount actually sent (₱)<input name="amount" type="number" step="0.01" min="0.01" max="@(Model.RefundDue - Model.Refunded)" required /></label><label>Refund transfer reference<input name="reference" required maxlength="150" /></label><button name="operation" value="refund" class="button secondary">Record sent refund</button></form> }<p>This records an already-sent manual refund; it does not initiate a transfer.</p></section>
+            }
+            <partial name="_StaffBookingActions" model="Model" />
+        </div>
+    </div>
+    <partial name="_BookingHistory" model="Model" />
+</div>

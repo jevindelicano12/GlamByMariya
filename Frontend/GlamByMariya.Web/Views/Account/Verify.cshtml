@@ -1,0 +1,20 @@
+@{ ViewData["Title"] = "Verify your email"; }
+<div class="auth-wrap verification-wrap">
+    <div class="eyebrow">ONE LAST STEP</div><h1>Check your inbox.</h1>
+    <p>Enter the six-digit code sent to <strong class="account-email">@ViewBag.Email</strong>.</p>
+    <section class="panel verification-card">
+        @if (ViewBag.Notice != null) { <div class="alert success" role="status">@ViewBag.Notice</div> }
+        @if (ViewBag.Error != null) { <div class="alert error" role="alert">@ViewBag.Error</div> }
+        <form asp-action="Verify" method="post" class="stack">
+            <input type="hidden" name="email" value="@ViewBag.Email" /><input type="hidden" name="returnUrl" value="@ViewBag.ReturnUrl" />
+            <label for="verification-code">Verification code</label>
+            <input id="verification-code" class="otp-input" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autocomplete="one-time-code" placeholder="000000" aria-describedby="code-help" />
+            <small id="code-help">Codes and verification requests expire. Use the latest code you received.</small>
+            <button class="button" type="submit">Verify email & continue <span>↗</span></button>
+        </form>
+        <div class="verification-resend"><p>Didn't receive your code? Check spam, or wait 60 seconds and try again.</p>
+            <form asp-action="Resend" method="post"><input type="hidden" name="email" value="@ViewBag.Email" /><input type="hidden" name="returnUrl" value="@ViewBag.ReturnUrl" /><button class="button secondary" type="submit">Resend code</button></form>
+        </div>
+        <p class="auth-switch">Wrong email? <a asp-action="Register" asp-route-returnUrl="@ViewBag.ReturnUrl">Start over</a></p>
+    </section>
+</div>

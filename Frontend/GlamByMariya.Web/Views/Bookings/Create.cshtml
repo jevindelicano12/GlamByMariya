@@ -1,0 +1,110 @@
+@{
+    ViewData["Title"] = "Home-Service Booking";
+    var services = (List<CatalogItem>)ViewBag.Services;
+    var addons = (List<CatalogItem>)ViewBag.AddOns;
+    var settings = (BusinessSettings)ViewBag.Settings;
+    var selected = services.FirstOrDefault(s => ViewBag.SelectedService == s.Id) ?? services.FirstOrDefault();
+    var flexibleBooking = !DataStore.IsPersistent || GlamByMariya.Infrastructure.Data.PreparedPersistentBooking.Enabled;
+}
+<div class="page-heading"><div><div class="eyebrow">A LITTLE TIME FOR YOU</div><h1>Home-Service Booking.</h1><p>Choose your service time and provide the address where your makeup artist will meet you.</p></div><a class="subtle-link" asp-controller="Bookings" asp-action="Index">My appointments ↗</a></div>
+<link rel="stylesheet" href="~/css/booking-steps.css" asp-append-version="true" />
+<link rel="stylesheet" href="~/css/booking-input-fixes.css" asp-append-version="true" />
+@if (!DataStore.IsPersistent) { <link rel="stylesheet" href="~/css/mixed-selection.css" asp-append-version="true" /><link rel="stylesheet" href="~/css/mixed-calendar.css" asp-append-version="true" /><link rel="stylesheet" href="~/css/mixed-payment.css" asp-append-version="true" /> }
+<form asp-action="Create" method="post" enctype="multipart/form-data" id="booking-form" class="booking-layout" data-quote-url="@Url.Action("Quote", "Bookings")" data-create-url="@Url.Action("Create", "Bookings")" data-mixed-create-url="@Url.Action("CreateMixed", "Bookings")" data-price-state="loading" data-flexible="@(flexibleBooking ? "true" : "false")">
+<input type="hidden" name="travelAcknowledged" value="false" disabled />
+<input type="hidden" name="expectedTotal" value="" />
+<input type="hidden" name="expectedMinimum" value="" />
+<input type="hidden" name="mixedStart" id="mixed-start" value="" />
+<input type="hidden" name="mixedSelection" id="mixed-selection-value" value="" />
+<input type="hidden" name="submissionId" value="@Guid.NewGuid()" />
+<input type="hidden" name="policyVersion" value="@settings.PolicyVersion" />
+<input type="hidden" name="travelReminderVersion" value="@settings.TravelReminderVersion" />
+<nav class="booking-progress" aria-label="Booking steps" hidden>
+    <a href="#look" aria-current="step"><span>01</span><div>Your look<small>Look &amp; finishing touches</small></div></a>
+    <a href="#schedule"><span>02</span><div>Your moment<small>Time &amp; service address</small></div></a>
+    <a href="#payment"><span>03</span><div>Make it yours<small>Payment &amp; review</small></div></a>
+</nav>
+<p class="booking-step-message" role="status" aria-live="polite" hidden></p>
+<section class="look-selection" aria-labelledby="look-title" data-booking-step="look">
+    <div class="look-preview">
+        <div class="look-preview-copy"><div class="eyebrow">● SELECTED LOOK · <span id="selected-look-name">@selected?.Name</span></div><h2>Makeup that<br />still feels like<br /><em>you.</em></h2><p>Thoughtful, modern artistry for the moments you want to remember.</p><small>Look inspiration · Your finish is personalized to you.</small></div>
+    </div>
+    <div class="look-options">
+        <div class="eyebrow">LET’S START WITH YOU</div><h2 id="look-title">Find your kind of beautiful.</h2><p class="look-intro">Choose the look that feels right. We’ll tailor the little details to you.</p>
+        <div class="choice-list look-cards">
+        @foreach (var s in services)
+        {
+            <label class="choice look-card"><input type="radio" name="serviceId" value="@s.Id" data-price="@s.Price" data-minutes="@s.Minutes" data-name="@s.Name" required checked="@(s == selected)" /><span><strong>@s.Name</strong><small class="look-duration">@s.Minutes MINUTES / PERSON</small><span class="look-description">@s.Description</span>@if (s.GroupPrice.HasValue) { <small>Group: ₱@s.GroupPrice.Value.ToString("N2") / person for @s.GroupMinimumPeople+ people</small> }</span><b>₱@s.Price.ToString("N2") / person</b></label>
+        }
+        </div>
+        <fieldset class="booking-type booking-type-spaced"><legend>Booking type</legend><div class="booking-type-options"><label class="booking-type-option"><input type="radio" name="bookingType" value="individual" checked /><span><strong>Individual Booking</strong><small>One person · regular service price</small></span></label><label class="booking-type-option"><input type="radio" name="bookingType" value="package" /><span><strong>Package Booking</strong><small>4+ people may receive the group price</small></span></label></div></fieldset>
+        <div class="package-people-slot"><div class="form-grid package-people-field" hidden aria-hidden="true"><label>Number of people<input type="text" name="people" value="1" inputmode="numeric" pattern="[0-9]{1,2}" maxlength="2" autocomplete="off" spellcheck="false" required disabled aria-describedby="people-help" /><small id="people-help" class="help">Choose 1–20 people. The group price applies from 4 people when available.</small></label>@if (!DataStore.IsPersistent) { <label class="mixed-toggle"><input id="mixed-mode" type="checkbox" /> Choose different services for each person</label> }</div><small class="package-people-placeholder">Choose Package Booking to enter your party size.</small></div>
+        <input type="hidden" name="package" value="auto" />
+        <p class="help">Individual bookings always use one person and the regular price. Package bookings let you choose the party size; the configured group rate applies when the minimum is reached. Transportation is separate and is not included in the makeup total.</p>
+        <p id="pricing-status" role="status" aria-live="polite"></p>
+        <div class="look-selection-footer"><div><small>Your selection</small><p id="look-selection-caption" aria-live="polite">@selected?.Name · @selected?.Minutes minutes</p></div><span class="help">Make it personal with optional extras below.</span></div>
+    </div>
+</section>
+@if (!DataStore.IsPersistent) {
+<section id="mixed-selection" class="mixed-page" data-booking-step="look" data-quote-url="@Url.Action("MixedQuote", "Bookings")" hidden>
+    <h2>Services for your group</h2><p>Choose one service and optional add-ons for each person. Individual catalog prices apply; no group discount is included.</p>
+    <p id="mixed-count-error" class="mixed-error" role="status"></p>
+    <template id="mixed-person-template"><fieldset class="mixed-person"><legend></legend><label>Makeup service<select class="mixed-service" required><option value="">Choose a service</option>@foreach (var s in services) { <option value="@s.Id">@s.Name · ₱@s.Price.ToString("N2") · @s.Minutes min</option> }</select></label><p class="mixed-error" role="status"></p><div class="mixed-addons"><span>Optional add-ons · one of each per person</span>@foreach (var a in addons) { <label><input type="checkbox" value="@a.Id" /> <span>@a.Name · ₱@a.Price.ToString("N2") · @a.Minutes min</span></label> }</div><p class="mixed-person-total">Choose a service to see this person's price.</p></fieldset></template>
+    <div id="mixed-people"></div>
+</section>
+<section id="mixed-calendar" class="panel" data-booking-step="schedule" data-availability-url="@Url.Action("MixedAvailability", "Bookings")" data-alternatives-url="@Url.Action("MixedAlternatives", "Bookings")" data-validation-url="@Url.Action("MixedValidateSlot", "Bookings")" data-today="@DataStore.Now.ToString("yyyy-MM-dd")" hidden>
+    <h2>Choose your makeup start time</h2>
+    <p>Availability is based on makeup duration, preparation time and existing appointments. Travel feasibility has not yet been verified.</p>
+    <p id="mixed-occupied" class="help"></p>
+    <div class="calendar-toolbar"><button type="button" data-mixed-prev aria-label="Previous month">‹</button><h3 data-mixed-month></h3><button type="button" data-mixed-next aria-label="Next month">›</button></div>
+    <div class="calendar-legend mixed-legend"><span><i class="mixed-available"></i>Available</span><span><i class="mixed-limited"></i>Limited</span><span><i class="mixed-none"></i>No times</span></div>
+    <div class="calendar-weekdays" aria-hidden="true"><span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span></div>
+    <div class="calendar-days" data-mixed-days aria-label="Available appointment dates"></div>
+    <p id="mixed-calendar-status" role="status" aria-live="polite"></p>
+    <h3 data-mixed-slots-heading>Choose a date</h3><div class="time-slots" data-mixed-slots></div>
+    <div data-mixed-alternatives></div>
+    <p id="mixed-time-status" role="status" aria-live="polite"></p><div id="mixed-time-quote" aria-live="polite"></div>
+    <div class="mixed-location"></div>
+    <p class="help">Choose an available time, then continue to review your group's payment. Availability is based on makeup duration, preparation time and existing appointments. Travel feasibility has not yet been verified. Transportation charges are separate.</p>
+</section>
+}
+<div id="addon-values"></div><div class="stack booking-details"><section class="panel extras-panel"><div class="step-heading"><span>✧</span><div><h3>The finishing touches.</h3><p>A little something extra, just for you. All optional.</p></div></div>@foreach (var a in addons) { @if (!flexibleBooking) { <label class="choice addon"><input type="checkbox" name="addOnIds" value="@a.Id" data-price="@a.Price" data-minutes="@a.Minutes" /><span><strong>@a.Name</strong><small>+@a.Minutes min each</small></span><b>₱@a.Price.ToString("N2") each</b></label> } else { <div class="choice addon"><span class="addon-description"><strong>@a.Name</strong><small>+@a.Minutes min each</small><b>₱@a.Price.ToString("N2") each</b></span><div class="addon-quantity-control"><label for="addon-@a.Id">Quantity</label><div class="addon-stepper"><button type="button" data-quantity-step="down" aria-label="Decrease quantity for @a.Name" disabled>−</button><input id="addon-@a.Id" type="number" class="addon-quantity" disabled required data-addon-id="@a.Id" data-name="@a.Name" data-price="@a.Price.ToString(System.Globalization.CultureInfo.InvariantCulture)" min="0" max="1" step="1" value="0" aria-label="Quantity for @a.Name" /><button type="button" data-quantity-step="up" aria-label="Increase quantity for @a.Name" disabled>+</button></div></div></div> } }</section>
+ <section class="panel"><div class="step-heading"><span>02</span><div><h3>Choose your service location</h3><p>Your makeup artist travels to the address you provide.</p></div></div><partial name="_AvailabilityCalendar" /><div class="form-grid"><label class="full">Service area<select name="area" required>@foreach (var area in settings.ServiceAreas.Split(',')) { <option>@area.Trim()</option> }</select></label><label class="full">Customer Service Address<textarea name="address" required minlength="8" maxlength="500" placeholder="House / unit number, street, barangay and landmarks" rows="3">@ViewBag.AccountAddress</textarea></label></div><p class="help">Artist hours: @settings.OpenHour:00–@settings.CloseHour:00. Availability includes your session and a @settings.BufferMinutes-minute preparation buffer. Travel time is not estimated.</p></section>
+<section class="panel"><div class="step-heading"><span>03</span><div><h3>Save your appointment</h3><p>The minimum is @settings.DownPaymentPercent.ToString("N0")% of your final discounted booking total.</p></div></div><div class="notice">@settings.PaymentInstructions<br /><br /><strong>Transportation expenses are not included.</strong> The actual transportation fee will be reimbursed separately upon the makeup artist&#39;s arrival, after presenting a receipt or agreed fare breakdown.</div><div id="mixed-review" class="mixed-review" hidden aria-labelledby="mixed-review-title"><div class="mixed-review-heading"><div><div class="eyebrow">YOUR GROUP</div><h4 id="mixed-review-title">Everyone’s look</h4></div><span id="mixed-review-count" class="badge"></span></div><div id="mixed-review-people" class="mixed-review-people"></div><dl id="mixed-review-totals" class="mixed-review-totals"></dl><p class="mixed-review-note">Travel feasibility is not verified. Transportation is a separate actual expense, reimbursed after arrival.</p></div><div class="form-grid">@if (flexibleBooking) { <fieldset><legend>Choose your payment</legend><label><input type="radio" name="paymentChoice" value="minimum" checked /> Minimum</label><label><input type="radio" name="paymentChoice" value="custom" /> Custom amount</label><label><input type="radio" name="paymentChoice" value="full" /> Full payment</label></fieldset> }<label>Payment amount (₱)<input type="number" name="deposit" step="0.01" required readonly id="deposit" value="@(selected == null ? "" : Money.Percentage(selected.Price, settings.DownPaymentPercent).ToString("F2", System.Globalization.CultureInfo.InvariantCulture))" /><small>Calculated after discounts and add-ons. Travel is discussed separately and is not collected online.</small></label><label>Payment method<select name="method"><option>GCash</option><option>Maya</option><option>Bank Transfer</option></select></label><label class="full">Payment reference<input name="reference" required maxlength="150" placeholder="Unique transaction / transfer reference number" /></label><label class="full">Payment screenshot (required)<input name="proof" type="file" accept="image/png,image/jpeg" required id="payment-proof" /><div id="payment-proof-meta" class="payment-proof-meta" aria-live="polite"></div><img id="payment-proof-preview" alt="Preview of selected payment screenshot" hidden class="payment-proof-preview" /><small>JPG or PNG · maximum 5 MB. The image contents are checked before upload. Reviewed privately by the artist; it remains unverified until the artist approves it.</small></label></div></section></div>
+ <aside class="summary panel"><div class="eyebrow">YOUR BEAUTY PLAN</div><h3>A lovely choice.</h3><div class="summary-symbol">✧</div>
+    @if (!DataStore.IsPersistent && settings.LateFeeEnabled) { <p class="help">Makeup and preparation must finish by @settings.LateEndHour:00. A late surcharge applies when makeup starts at or after @settings.LateStartHour:00, or a package starting during regular hours finishes makeup after @settings.CloseHour:00. An early-start surcharge takes priority. Travel departure and the preparation buffer do not determine the surcharge.</p> }
+    <div class="summary-row"><span>Service</span><strong id="summary-name"></strong></div>
+    <div class="summary-row"><span>Number of people</span><strong id="summary-people"></strong></div>
+    <div class="summary-row"><span>Regular price / person</span><strong id="summary-service"></strong></div>
+    <div class="summary-row"><span>Group price / person</span><strong id="summary-group-price"></strong></div>
+    <div class="summary-row"><span>Original service total</span><strong id="summary-original"></strong></div>
+    <div class="summary-row"><span>Group discount</span><strong id="summary-discount"></strong></div>
+     <div class="summary-row"><span>Selected add-ons</span><strong id="summary-addons"></strong></div>
+    <div class="summary-row"><span>Early booking surcharge</span><strong id="summary-early-fee"></strong></div>
+    <div class="summary-row"><span>Late booking surcharge</span><strong id="summary-late-fee"></strong></div>
+    <div class="summary-row total"><span>Final booking total</span><strong id="summary-total"></strong></div>
+    <div class="summary-row"><span>Required down payment (@settings.DownPaymentPercent.ToString("N0")%)</span><strong id="summary-down-payment"></strong></div>
+     <div class="summary-row"><span>Balance after down payment</span><strong id="summary-balance"></strong></div><p class="travel-note">Transportation expenses are not included. The actual transportation fee will be reimbursed separately upon the makeup artist's arrival, after presenting a receipt or agreed fare breakdown. It is separate from the remaining makeup balance.</p>
+    <div class="summary-row"><span>Makeup start</span><strong id="summary-start">Choose a time</strong></div>
+    <div class="summary-row"><span>Makeup duration</span><strong id="summary-duration"></strong></div>
+    <div class="summary-row"><span>Makeup finish</span><strong id="summary-finish">Choose a time</strong></div>
+    <div class="summary-row"><span>Estimated travel</span><strong>Not available</strong></div>
+    <div class="summary-row"><span>Estimated departure</span><strong>Not available</strong></div>
+    <p class="help">Availability checks only service and preparation. Travel is not estimated, so route feasibility must be reviewed; these times do not confirm that the artist can reach the location.</p><p class="help">@(!flexibleBooking ? "The exact configured down payment must be verified before confirmation." : "At least the required minimum must be verified before confirmation. Any remaining balance is collected after your appointment.")</p>
+     <partial name="_PaymentQr" model="(List<PaymentQrOption>)ViewBag.PaymentQr" />
+    <div class="policy"><strong>A few things to know</strong><p>Your appointment stays Pending Payment until the artist verifies the submitted payment and confirms the schedule. Cancellations of confirmed appointments incur a ₱200 deduction from verified payments. Reschedules require artist approval.</p></div><label class="check-label"><input type="checkbox" name="agreed" value="true" required /> I agree to the price and booking policies.</label><button type="submit" class="button full">Submit down payment for review <span>↗</span></button><small class="secure-note">No automatic payment is charged.</small></aside>
+<div class="booking-step-actions" hidden>
+    <button type="button" class="booking-back" data-step-back>← Back</button>
+    <span data-step-count aria-live="polite">Step 1 of 3</span>
+    @if (!DataStore.IsPersistent) { <div id="mixed-estimate-inline" class="mixed-estimate" hidden aria-live="polite"><strong>Your group estimate</strong><div id="mixed-totals"></div><p id="mixed-status" role="status"></p><p>This estimate does not reserve an appointment; time-based fees and transportation are not included.</p></div> }
+    <button type="button" class="button" data-step-next>Next: your moment →</button>
+</div>
+ </form>
+<dialog id="booking-confirmation" aria-labelledby="booking-confirmation-title"><div class="stack"><h2 id="booking-confirmation-title">A few things to know</h2><h3>Payment policy</h3><p>Your appointment stays Pending Payment until the submitted payment is verified and the schedule is confirmed. @(flexibleBooking ? "You may pay the minimum, a higher amount, or the full total." : "The configured down payment is required.")</p><h3>Transportation fee policy</h3><p>Transportation is separate from the booking total and requires review. The artist will provide a receipt or agreed fare breakdown.</p><h3>Cancellation policy</h3><p>Confirmed appointment cancellations are subject to the existing ₱200 deduction from verified payments.</p><h3>Rescheduling policy</h3><p>Rescheduling requires makeup artist approval and available schedule time.</p><h3>Booking summary</h3><dl id="confirmation-summary"></dl><label><input type="checkbox" id="confirmation-ack" /> I have read and understood the booking and transportation policies.</label><div class="button-row"><button type="button" class="button secondary" id="confirmation-back">Go Back</button><button type="button" class="button" id="confirmation-submit" disabled>Confirm Booking</button></div></div></dialog>
+<noscript><p class="help">Add-on quantity selection and the final confirmation dialog require JavaScript.</p><p class="help">Transportation expenses are not included in online payment. The actual expense is reimbursed separately upon the makeup artist&#39;s arrival after a receipt or agreed fare breakdown.</p><label class="check-label"><input form="booking-form" type="checkbox" name="travelAcknowledged" value="true" required /> I acknowledge the separate Transportation Fee Policy.</label></noscript>
+ <div class="travel-modal" id="travel-fee-modal" hidden role="dialog" aria-modal="true" aria-labelledby="travel-fee-title" aria-describedby="travel-fee-description" tabindex="-1"><div class="travel-modal-card"><div class="eyebrow">A QUICK REMINDER</div><h2 id="travel-fee-title">Transportation Fee Policy</h2><div id="travel-fee-description"><p>Transportation expenses are separate from makeup service charges and are not included in your booking total or required down payment.</p><p>The customer is responsible for reimbursing the makeup artist's actual transportation expenses upon arrival at the agreed service location.</p><p>The makeup artist will present a transportation receipt or an agreed fare breakdown before requesting payment.</p><p>The transportation amount may vary depending on ride-hailing fares, fuel expenses, toll fees, and travel distance.</p></div><label class="travel-policy-check"><input type="checkbox" id="travel-policy-ack" required /> <span>I have read, understood, and agree to the Transportation Fee Policy.</span></label><div class="travel-modal-actions"><button type="button" class="button secondary" data-travel-cancel>Back / Cancel</button><button type="button" class="button" data-travel-ack disabled>Agree &amp; Continue</button></div></div></div>
+@section Scripts {
+    <script src="~/js/booking-steps-phase2.js" asp-append-version="true"></script>
+    <script src="~/js/payment-proof-preview.js" asp-append-version="true"></script>
+    @if (!DataStore.IsPersistent) { <script src="~/js/mixed-selection-phase2.js" asp-append-version="true"></script><script src="~/js/mixed-calendar.js" asp-append-version="true"></script><script src="~/js/mixed-booking-phase3.js" asp-append-version="true"></script> }
+}

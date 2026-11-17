@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Glam by Mariya is a home-service makeup business." />
+    <title>@ViewData["Title"] · Glam by Mariya</title><link rel="icon" href="~/favicon.svg" />
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" /><link rel="stylesheet" href="~/css/branding.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/css/landing.css" asp-append-version="true" /><link rel="stylesheet" href="~/css/customer-beauty.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/css/typography-system.css" asp-append-version="true" /><link rel="stylesheet" href="~/css/public-refinement.css" asp-append-version="true" />
+</head>
+<body class="guest-layout landing-page"><div class="workspace">
+    <header class="topbar"><a class="guest-brand" asp-controller="Home" asp-action="Index" aria-label="Glam by Mariya home"><span class="guest-brand-mark" aria-hidden="true">G<span>✦</span></span><span>GLAM BY MARIYA<small>HOME-SERVICE MAKEUP</small></span></a>
+        <nav class="public-desktop-nav" aria-label="Website"><a asp-action="Index" asp-controller="Home">Home</a><a asp-action="About" asp-controller="Home">About</a><a asp-action="Services" asp-controller="Home">Services</a><a asp-action="Gallery" asp-controller="Home">Gallery</a><a asp-action="Contact" asp-controller="Home">Contact</a></nav>
+        <details class="public-menu"><summary aria-label="Toggle navigation">☰ <span>Menu</span></summary><nav aria-label="Mobile navigation"><a asp-action="Index" asp-controller="Home">Home</a><a asp-action="About" asp-controller="Home">About</a><a asp-action="Services" asp-controller="Home">Services</a><a asp-action="Gallery" asp-controller="Home">Gallery</a><a asp-action="Contact" asp-controller="Home">Contact</a></nav></details>
+    </header>
+    <main>@RenderBody()<partial name="_PublicFooter" /></main>
+</div></body></html>

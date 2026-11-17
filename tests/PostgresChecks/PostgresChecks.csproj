@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup>
+  <ItemGroup><ProjectReference Include="../../Frontend/GlamByMariya.Web/GlamByMariya.Web.csproj" /></ItemGroup>
+  <ItemGroup><PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.13" /></ItemGroup>
+  <ItemGroup>
+    <Using Include="GlamByMariya.Core.BusinessRules" />
+    <Using Include="GlamByMariya.Core.Entities" />
+    <Using Include="GlamByMariya.Core.Interfaces" />
+    <Using Include="GlamByMariya.Infrastructure.Data" />
+    <Using Include="GlamByMariya.Infrastructure.Services" />
+    <Using Include="GlamByMariya.Infrastructure.Integrations" />
+    <Using Include="GlamByMariya.Web.Controllers" />
+    <Using Include="GlamByMariya.Web.ViewModels" />
+    <Using Include="GlamByMariya.Web.Middleware" />
+    <Using Include="GlamByMariya.Web.Security" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,9 @@
+global using GlamByMariya.Core.BusinessRules;
+global using GlamByMariya.Core.Entities;
+global using GlamByMariya.Core.Interfaces;
+global using GlamByMariya.Infrastructure.Data;
+global using GlamByMariya.Infrastructure.Integrations;
+global using GlamByMariya.Infrastructure.Services;
+global using GlamByMariya.Web.Middleware;
+global using GlamByMariya.Web.Security;
+global using GlamByMariya.Web.ViewModels;

@@ -1,0 +1,42 @@
+@model WebsiteContentEditorModel
+@{ ViewData["Title"] = "Website Content Management"; }
+<link rel="stylesheet" href="~/css/website-content.css" asp-append-version="true" />
+<div class="website-content-page">
+    <div class="page-heading"><div><div class="eyebrow">SUPERADMIN</div><h1>Website Content Management</h1><p>Manage the words and photos visitors see on your website.</p></div></div>
+    @if (Context.RequestServices.GetService<GlamByMariya.Infrastructure.Integrations.DemoGalleryStore>() != null) { <p class="website-content-notice">Gallery photos are managed separately and persist locally. <a asp-controller="DemoGallery" asp-action="Index">Gallery Management →</a></p> }
+    @if (ViewData["DemoTextEditing"] is true) { <div class="website-content-notice" role="status">Demo only: draft and published text are held in memory and reset when the application stops.</div> }
+    @if (ViewData["DemoPersistentText"] is true) { <div class="website-content-notice" role="status">Demo only: text and website images are stored locally on this computer. This is not production persistence.</div> }
+    @if (!Model.Enabled) {
+    <div class="website-content-notice" role="status"><strong>Editing is not available yet.</strong> Drafts, previews, uploads and publishing require verified persistent database and private storage. No changes can be saved from this screen.</div>
+    <div class="website-content-grid">
+        <section class="website-content-card"><h2>Hero</h2><p>Headline, introduction and hero photo.</p><fieldset disabled><label>Headline<input placeholder="Hero headline" maxlength="160" /></label><label>Description<textarea rows="3" maxlength="1000"></textarea></label><label>Hero photo<input type="file" accept="image/jpeg,image/png" /></label></fieldset></section>
+        <section class="website-content-card"><h2>About Me</h2><p>Artist title, biography and profile photo.</p><fieldset disabled><label>Heading<input maxlength="160" /></label><label>Biography<textarea rows="4" maxlength="5000"></textarea></label><label>Profile photo<input type="file" accept="image/jpeg,image/png" /></label></fieldset></section>
+        <section class="website-content-card"><h2>Home service &amp; contact</h2><p>Explain your service and provide approved public details.</p><fieldset disabled><label>Home-service description<textarea rows="3" maxlength="2000"></textarea></label><label>Service areas<textarea rows="2" maxlength="1000"></textarea></label><label>Contact details<textarea rows="3" maxlength="2000"></textarea></label><label>Social links<textarea rows="2" placeholder="Approved HTTPS links"></textarea></label></fieldset></section>
+        <section class="website-content-card"><h2>Gallery</h2><p>Genuine results, captions, alt text, visibility and order. Up to 20 photos.</p><fieldset disabled><label>Gallery photo<input type="file" accept="image/jpeg,image/png" /></label><label>Alternative text<input maxlength="250" /></label><label>Caption<input maxlength="500" /></label></fieldset></section>
+        <section class="website-content-card"><h2>Frequently asked questions</h2><p>Up to 15 questions and answers.</p><fieldset disabled><label>Question<input maxlength="300" /></label><label>Answer<textarea rows="3" maxlength="3000"></textarea></label></fieldset></section>
+    </div>
+    } else if (!Model.HasDraft) {
+        <div class="website-content-notice">No draft exists yet. Create a draft to edit website text and, when enabled, images.</div>
+        <form asp-action="CreateDraftForm" method="post"><button class="button" type="submit">Create draft</button></form>
+    } else {
+        <partial name="_TextEditor" model="Model" />
+        @if (ViewData["DemoPersistentText"] is true) {
+            var images = ViewData["DemoDraftImages"] as IReadOnlyList<GlamByMariya.Infrastructure.Services.WebsiteImageReference> ?? [];
+            <div class="website-content-grid demo-content-images">
+            @foreach (var role in new[] { "hero", "portrait" }) {
+                var existing = images.FirstOrDefault(x => x.Role == role);
+                <section class="website-content-card"><h2>@(role == "hero" ? "Homepage hero image" : "About Me portrait")</h2>
+                    @if (existing != null) { <img class="demo-content-preview" src="@Url.Action("DraftImage", "WebsiteContent", new { id = existing.Id })" alt="@existing.AltText" /> } else { <p>No image saved in this draft.</p> }
+                    <form asp-action="SaveDemoImage" method="post" enctype="multipart/form-data" class="stack demo-image-form">
+                        <input type="hidden" name="draftId" value="@Model.DraftId" /><input type="hidden" name="revision" value="@Model.Revision" /><input type="hidden" name="role" value="@role" />
+                        <label>JPG or PNG, up to 5 MB<input type="file" name="image" accept="image/jpeg,image/png" required /></label>
+                        <img class="demo-content-preview" data-selected-preview alt="Selected image preview" hidden />
+                        <label>Alternative text<input name="altText" maxlength="250" required /></label>
+                        <button class="button secondary" type="submit">Save image to draft</button>
+                    </form>
+                </section>
+            }
+            </div><script src="~/js/website-image-preview.js" asp-append-version="true"></script>
+        }
+    }
+</div>

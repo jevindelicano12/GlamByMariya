@@ -1,0 +1,4 @@
+@model IReadOnlyList<GlamByMariya.Infrastructure.Services.WebsiteImageReference>
+@{ var gallery = Model.Where(x => x.Role == "gallery" && x.Visible).OrderBy(x => x.SortOrder).ThenBy(x => x.Id).ToList(); }
+@if (gallery.Count == 0) { <div class="public-empty">Approved makeup photos will appear here when available.</div> }
+else { <div class="public-gallery">@foreach (var image in gallery) { <figure><span class="gallery-frame"><img src="@Url.Action("Image", "WebsiteImages", new { id = image.Id })" alt="@image.AltText" loading="lazy" decoding="async" /></span>@if (!string.IsNullOrWhiteSpace(image.Caption)) { <figcaption>@image.Caption</figcaption> }</figure> }</div> }

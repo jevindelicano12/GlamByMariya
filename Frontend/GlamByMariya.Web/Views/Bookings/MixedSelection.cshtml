@@ -1,0 +1,18 @@
+@{
+    ViewData["Title"] = "Choose services for your group";
+    var services = (List<CatalogItem>)ViewBag.Services;
+    var addons = (List<CatalogItem>)ViewBag.AddOns;
+}
+<link rel="stylesheet" href="~/css/mixed-selection.css" asp-append-version="true" />
+<div class="mixed-page">
+    <a class="subtle-link" asp-action="Create">← Back to booking</a>
+    <header><h1>Choose services for your group.</h1><p>Select a look and optional finishing touches for each person. Individual catalog prices apply; no group discount is included.</p></header>
+    <form id="mixed-selection" data-quote-url="@Url.Action("MixedQuote", "Bookings")">
+        @Html.AntiForgeryToken()
+        <label class="mixed-people">Number of people<input id="mixed-count" type="text" inputmode="numeric" pattern="[0-9]{1,2}" maxlength="2" value="2" aria-describedby="mixed-count-help mixed-count-error" /><small id="mixed-count-help">Choose 2–20 people.</small><span id="mixed-count-error" class="mixed-error" role="status"></span></label>
+        <template id="mixed-person-template"><fieldset class="mixed-person"><legend></legend><label>Makeup service<select class="mixed-service" required><option value="">Choose a service</option>@foreach (var s in services) { <option value="@s.Id">@s.Name · ₱@s.Price.ToString("N2") · @s.Minutes min</option> }</select></label><p class="mixed-error" role="status"></p><div class="mixed-addons"><span>Optional add-ons · one of each per person</span>@foreach (var a in addons) { <label><input type="checkbox" value="@a.Id" /> <span>@a.Name · ₱@a.Price.ToString("N2") · @a.Minutes min</span></label> }</div><p class="mixed-person-total">Choose a service to see this person's price.</p></fieldset></template>
+        <div id="mixed-people"></div>
+        <section class="mixed-estimate" aria-live="polite"><h2>Your group estimate</h2><div id="mixed-totals">Choose a service for each person to calculate your estimate.</div><p id="mixed-status" role="status"></p><p>Appointment-time fees will be recalculated when scheduling is available. Transportation is separate.</p><button type="button" class="button" disabled aria-describedby="mixed-unavailable">Next: your moment →</button><p id="mixed-unavailable">Mixed-service booking and date selection are not yet available. This estimate does not reserve an appointment.</p></section>
+    </form>
+</div>
+@section Scripts { <script src="~/js/mixed-selection.js" asp-append-version="true"></script> }

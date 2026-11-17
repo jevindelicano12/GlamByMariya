@@ -1,0 +1,29 @@
+@model List<CatalogItem>
+@{ ViewData["Title"] = "Home-Service Makeup"; var authenticated = User.Identity?.IsAuthenticated == true; var content = ViewData["PublishedWebsiteContent"] as GlamByMariya.Core.BusinessRules.WebsiteTextInput; var images = ViewData["PublishedWebsiteImages"] as IReadOnlyList<GlamByMariya.Infrastructure.Services.WebsiteImageReference> ?? []; var hero = images.FirstOrDefault(x => x.Role == "hero" && x.Visible); var portrait = images.FirstOrDefault(x => x.Role == "portrait" && x.Visible); }
+<section class="public-hero" id="home" aria-labelledby="hero-title">
+    <div class="public-hero-copy">
+        <div class="eyebrow">HOME-SERVICE MAKEUP</div>
+        <h1 id="hero-title">@if (!string.IsNullOrWhiteSpace(content?.HeroHeadline)) { @content.HeroHeadline } else { <text>Beauty that<br />comes to you.</text> }</h1>
+        <p>@(string.IsNullOrWhiteSpace(content?.HeroDescription) ? "Glam by Mariya brings home-service makeup to your chosen location for your special moments." : content.HeroDescription)</p>
+        <div class="public-buttons">
+            @if (Context.Items.ContainsKey("InformationOnly")) { <a class="public-button" asp-controller="Home" asp-action="Contact">Contact</a> }
+            else if (authenticated) { <a class="public-button" asp-controller="Bookings" asp-action="Create">Book Now</a> }
+            else { <a class="public-button" asp-controller="Account" asp-action="Register" asp-route-returnUrl="@Url.Action("Create", "Bookings")">Book Now</a> }
+            <a class="public-button outline" href="#makeup-services">View Services</a>
+        </div>
+        <div class="public-benefits"><span><b aria-hidden="true">⌂</b> Home-Service<br />Only</span><span><b aria-hidden="true">▦</b> @if (Context.Items.ContainsKey("InformationOnly")) { <text>Contact for<br />Details</text> } else { <text>Book Your<br />Schedule</text> }</span><span><b aria-hidden="true">✧</b> Event-Ready<br />Looks</span></div>
+    </div>
+    <div class="photo-placeholder hero-placeholder">@if (hero != null) { <img src="@Url.Action("Image", "WebsiteImages", new { id = hero.Id })" alt="@hero.AltText" loading="eager" fetchpriority="high" decoding="async" /> } else { <span class="image-placeholder-label">Hero photo not yet available</span> }</div>
+</section>
+<section class="public-about" id="about" aria-labelledby="about-title">
+    <div class="photo-placeholder portrait-placeholder">@if (portrait != null) { <img src="@Url.Action("Image", "WebsiteImages", new { id = portrait.Id })" alt="@portrait.AltText" loading="lazy" decoding="async" /> } else { <span class="image-placeholder-label">Artist portrait not yet available</span> }</div>
+    <div><div class="eyebrow">ABOUT THE ARTIST</div><h2 id="about-title">@(string.IsNullOrWhiteSpace(content?.AboutHeading) ? "Meet Mariya" : content.AboutHeading)</h2><p>@(string.IsNullOrWhiteSpace(content?.AboutBiography) ? "Glam by Mariya offers makeup services at your chosen location. One makeup artist travels to you for your appointment." : content.AboutBiography)</p><a class="public-button" asp-controller="Home" asp-action="About">Learn More</a></div>
+</section>
+<section class="public-section" id="makeup-services" aria-labelledby="services-title">
+    <div class="eyebrow">MAKEUP SERVICES</div><h2 id="services-title">Services</h2>
+    <partial name="_PublicServices" model="Model" />
+</section>
+<section class="public-section" id="gallery" aria-labelledby="gallery-title"><div class="eyebrow">PORTFOLIO</div><h2 id="gallery-title">Gallery</h2><partial name="_PublishedGallery" model="images" /></section>
+<section class="public-section public-contact" id="contact" aria-labelledby="contact-title"><div><div class="eyebrow">HOME-SERVICE MAKEUP</div><h2 id="contact-title">Contact</h2><p>@(string.IsNullOrWhiteSpace(content?.ContactDetails) ? "Public contact details will be available once provided by the owner." : content.ContactDetails)</p></div><div><h3>Makeup at your location</h3><p>@(string.IsNullOrWhiteSpace(content?.HomeServiceDescription) ? "One makeup artist travels to your chosen location for your appointment." : content.HomeServiceDescription)</p>@if (Context.Items.ContainsKey("InformationOnly")) { <a class="public-button" asp-controller="Home" asp-action="Contact">Contact</a> } else if (authenticated) { <a class="public-button" asp-controller="Bookings" asp-action="Create">Book Now</a> } else { <a class="public-button" asp-controller="Account" asp-action="Register" asp-route-returnUrl="@Url.Action("Create", "Bookings")">Book Now</a> }</div></section>
+@{ var faqs = (content?.Faqs ?? []).Where(x => !string.IsNullOrWhiteSpace(x.Question) && !string.IsNullOrWhiteSpace(x.Answer)).Take(15).ToList(); }
+@if (faqs.Count > 0) { <section class="public-section public-faq" aria-labelledby="faq-title"><div class="eyebrow">HELPFUL DETAILS</div><h2 id="faq-title">Frequently asked questions</h2><div class="faq-list">@foreach (var faq in faqs) { <details class="faq-item"><summary>@faq.Question</summary><p>@faq.Answer</p></details> }</div></section> }

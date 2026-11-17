@@ -1,0 +1,44 @@
+@model Booking
+@if (!DataStore.IsPersistent && User.IsInRole("SuperAdmin"))
+{
+    @if (Model.Status is "Pending Payment" or "Confirmed")
+    {
+        <section class="panel stack" aria-labelledby="staff-cancellation-heading">
+            <h3 id="staff-cancellation-heading">Cancel this appointment</h3>
+            <p>The appointment will be cancelled and its reserved time released. Payment proof and history stay unchanged. Mariya will contact the customer about verified payments and any applicable refund; no refund is sent or marked completed here.</p>
+            <form asp-controller="Admin" asp-action="Action" method="post" class="stack" data-decision="staff-cancel">
+                <input type="hidden" name="id" value="@Model.Id" /><input type="hidden" name="operation" value="cancel" />
+                <label>Cancellation reason<textarea name="reason" required maxlength="1000" rows="3"></textarea></label>
+                <label class="check-label"><input type="checkbox" name="confirmed" value="true" required /> I confirm the business is cancelling this appointment.</label>
+                <button type="submit" class="button danger">Cancel appointment</button>
+            </form>
+        </section>
+    }
+    @if (Model.Status == "Confirmed" && Model.End <= DataStore.Now)
+    {
+        <section class="panel stack" aria-labelledby="manual-completion-heading">
+            <h3 id="manual-completion-heading">Mark appointment completed</h3>
+            <p>Only mark completed after every makeup service has finished. This action does not collect, verify or settle any payment.</p>
+            <form asp-controller="Admin" asp-action="Action" method="post" class="stack" data-decision="manual-complete">
+                <input type="hidden" name="id" value="@Model.Id" /><input type="hidden" name="operation" value="complete" />
+                <label class="check-label"><input type="checkbox" name="confirmed" value="true" required /> I confirm all makeup services are finished.</label>
+                <button type="submit" class="button">Mark as completed</button>
+            </form>
+        </section>
+    }
+    @if (Model.Status == "Cancelled" && Model.StaffCancelledAt.HasValue)
+    {
+        @foreach (var claim in ((List<Payment>)ViewBag.Payments).Where(p => !p.Verified))
+        {
+            <section class="panel stack"><h3>Review payment receipt</h3><p>Check the actual transfer and inspect the submitted proof first. Verifying the receipt does not restore the appointment or issue a refund.</p>
+                <form asp-controller="Admin" asp-action="Action" method="post" class="stack" data-decision="verify-cancelled-receipt">
+                    <input type="hidden" name="id" value="@Model.Id" /><input type="hidden" name="operation" value="verify-cancelled-receipt" /><input type="hidden" name="paymentId" value="@claim.Id" /><input type="hidden" name="paymentRevision" value="@claim.Revision" />
+                    <label class="check-label"><input type="checkbox" name="reviewed" value="true" required /> I checked the proof and confirmed the payment was received.</label>
+                    <button class="button secondary" type="submit">Verify payment receipt</button>
+                </form>
+            </section>
+        }
+    }
+}
+@if (Model.StaffCancelledAt.HasValue) { <section class="panel stack"><h3>Business cancellation</h3><p>Cancelled by SuperAdmin on @Model.StaffCancelledAt.Value.ToString("MMM d, yyyy h:mm tt").</p><p>Reason: @Model.StaffCancellationReason</p><p>Payment and any applicable refund must be reviewed and arranged personally; no refund amount is assigned automatically.</p></section> }
+@if (Model.CompletedAt.HasValue) { <section class="panel stack"><h3>Appointment completed</h3><p>Manually marked completed on @Model.CompletedAt.Value.ToString("MMM d, yyyy h:mm tt") by @(DataStore.Users.FirstOrDefault(u => u.Id == Model.CompletedBy)?.Name ?? "SuperAdmin"). Payment status is separate.</p></section> }

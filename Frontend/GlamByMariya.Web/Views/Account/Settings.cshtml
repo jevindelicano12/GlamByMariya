@@ -1,0 +1,54 @@
+@model GlamByMariya.Core.Entities.AccountSettingsPage
+@{ ViewData["Title"] = "Account settings"; var verified = Model.Preferences.VerifiedAt.HasValue && Model.Preferences.VerifiedEmail.Equals(Model.User.Email, StringComparison.OrdinalIgnoreCase); }
+<div class="page-heading"><div><div class="eyebrow">YOUR BEAUTY SPACE</div><h1>Account settings</h1><p>Your details, security and preferences, all in one place.</p></div><span class="pill">@Model.User.Role</span></div>
+<div class="settings-grid">
+<section class="panel settings-card" aria-labelledby="profile-title">
+    <div class="profile-photo">@if (Model.Preferences.AvatarUrl != null) { <img src="@Model.Preferences.AvatarUrl" alt="Your profile picture" width="88" height="88" /> } else { <span aria-label="Default profile picture">@(Model.User.Name.Length > 0 ? Model.User.Name[..1] : "L")</span> }</div>
+    <form asp-action="UploadAvatar" method="post" enctype="multipart/form-data" class="stack">
+        <label>Profile picture<input type="file" name="avatar" accept="image/jpeg,image/png" required /></label>
+        @if (Context.RequestServices.GetService<GlamByMariya.Infrastructure.Integrations.DemoAvatarStore>() != null) { <small>JPG or PNG, up to 2 MB. This account's picture stays on this computer across restarts and is visible only while signed in as this account.</small> } else { <small>JPG or PNG, up to 2 MB. When configured, pictures are stored in cloud storage and accessible by their public link.</small> }
+        <button class="button secondary" type="submit">Upload profile picture</button>
+    </form>
+    @if (Model.Preferences.AvatarUrl != null) { <form asp-action="RemoveAvatar" method="post"><button class="text-button" type="submit">Remove picture</button></form> }
+    <div><div class="eyebrow">PERSONAL DETAILS</div><h2 id="profile-title">Your profile</h2><p>Keep your booking address up to date. Contact the business to request a name correction.</p></div>
+    <form asp-action="SaveProfile" method="post" class="stack">
+        @if (Model.User.Role == "Customer") { <div class="form-grid"><label>First name<input value="@Model.User.FirstName" readonly /></label><label>Last name<input value="@Model.User.LastName" readonly /></label></div> } else { <div class="form-grid"><label>First name<input name="firstName" value="@Model.User.FirstName" required maxlength="50" autocomplete="given-name" /></label><label>Last name<input name="lastName" value="@Model.User.LastName" required maxlength="50" autocomplete="family-name" /></label></div> }
+        @if (Model.User.Role == "Customer") { <div class="form-grid"><label>Suffix<input value="@(string.IsNullOrEmpty(Model.User.Suffix) ? "Not provided" : Model.User.Suffix)" readonly /></label><label>Birthday<input value="@(Model.User.Birthday?.ToString("MMMM d, yyyy") ?? "Not provided")" readonly /></label></div> }
+        <div class="form-grid">@if (Model.User.Role == "Customer" && Model.User.Birthday.HasValue) { <input type="hidden" name="age" value="@Model.User.Age" /> } else { <label>Age<input name="age" type="number" min="@(Model.User.Role == "Customer" ? "0" : "13")" max="@(Model.User.Role == "Customer" ? "9999" : "120")" value="@Model.User.Age" required /></label> }<label>Gender<select name="gender"><option value="">Prefer not to say</option>@foreach (var gender in GlamByMariya.Core.BusinessRules.RegistrationRules.Genders) { <option value="@gender" selected="@(gender == Model.User.Gender)">@gender</option> }</select></label></div>
+        <label>Address<textarea name="address" rows="3" minlength="8" maxlength="500" required autocomplete="street-address">@Model.User.Address</textarea></label>
+        <button class="button" type="submit">Save profile <span>↗</span></button>
+    </form>
+</section>
+<section class="panel settings-card" aria-labelledby="email-title">
+    <div><div class="eyebrow">EMAIL & IDENTITY</div><h2 id="email-title">Your email</h2><p class="account-email">@Model.User.Email</p></div>
+    <span class="email-status @(verified ? "is-verified" : "")">@(verified ? "✓ Email verified" : "Email verification needed")</span>
+    @if (verified) { <p>Verified @Model.Preferences.VerifiedAt!.Value.ToString("MMM d, yyyy"). This is your sign-in and security email.</p> }
+    else {
+        <p>Confirm ownership with a six-digit code. Check your inbox and spam folder.</p>
+        <form asp-action="SendEmailVerification" method="post"><button class="button secondary" type="submit">Send verification code</button></form>
+        <form asp-action="ConfirmEmail" method="post" class="stack"><label>Verification code<input class="otp-input" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required placeholder="000000" /></label><button class="button" type="submit">Verify email <span>↗</span></button></form>
+        <small>Codes expire after 15 minutes. Wait 60 seconds before resending.</small>
+    }
+</section>
+<section class="panel settings-card" aria-labelledby="password-title">
+    <div><div class="eyebrow">ACCOUNT SECURITY</div><h2 id="password-title">Change password</h2><p>Use 8–128 characters, including an English letter (A–Z) and a number (0–9). Symbols and other characters are allowed; some, such as emoji, count as two.</p></div>
+    <form asp-action="ChangePassword" method="post" class="stack">
+        <label>Current password<input name="currentPassword" type="password" required autocomplete="current-password" /></label>
+        <label>New password<input name="newPassword" type="password" required minlength="8" maxlength="128" autocomplete="new-password" /></label>
+        <label>Confirm new password<input name="confirmPassword" type="password" required minlength="8" maxlength="128" autocomplete="new-password" /></label>
+        <small>Changing your password signs you out. Other sessions expire when they next access the app.</small>
+        <button class="button" type="submit">Update password <span>↗</span></button>
+    </form>
+    <a class="account-link" asp-action="ForgotPassword">Forgot your current password?</a>
+</section>
+<section class="panel settings-card" aria-labelledby="notifications-title">
+    <div><div class="eyebrow">MAKE IT YOURS</div><h2 id="notifications-title">Notifications</h2><p>Choose what appears in your appointment workspace.</p></div>
+    <form asp-action="SaveNotifications" method="post" class="stack">
+        <label class="preference-toggle"><input name="notificationsEnabled" type="checkbox" value="true" checked="@Model.Preferences.NotificationsEnabled" /><span><strong>In-app booking notifications</strong><small>Show booking updates, payment reviews and reschedule messages.</small></span></label>
+        <p>Security emails and verification codes are always sent when requested. Email booking reminders are not currently available.</p>
+        <button class="button" type="submit">Save preferences <span>↗</span></button>
+    </form>
+    <div class="settings-divider"></div><h3>Your session</h3><p>Signed in as @Model.User.Name.</p>
+    <form asp-controller="Account" asp-action="Logout" method="post"><button class="button secondary" type="submit">Sign out</button></form>
+</section>
+</div>

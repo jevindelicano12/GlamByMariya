@@ -1,0 +1,38 @@
+.admin-mixed-columns { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; align-items: start; }
+.admin-mixed-details { color: #49363d; }
+.admin-mixed-details .panel, .admin-mixed-details .stack, .admin-mixed-columns > div { min-width: 0; }
+.admin-mixed-details p, .admin-mixed-details label, .admin-mixed-details .detail-row { font-size: 14px; line-height: 1.7; }
+.admin-mixed-details p, .admin-mixed-details .detail-row > span { color: #604b50; }
+.admin-mixed-details .mixed-review { margin-top: 0; }
+.admin-mixed-details .booking-price-details { margin-bottom: 0; }
+.admin-mixed-details h1 { font-size: 36px; }
+.admin-mixed-details .page-heading p { margin-top: 8px; }
+.admin-mixed-details .badge { white-space: normal; }
+.admin-mixed-details .detail-row { gap: 16px; }
+.admin-mixed-details .detail-row strong { min-width: 0; overflow-wrap: anywhere; }
+.mixed-payment-claim { padding: 16px 0; display: grid; gap: 16px; min-width: 0; }
+.mixed-payment-claim p { overflow-wrap: anywhere; }
+.private-proof { padding: 14px; background: #fff8f4; border: 1px solid #e8d8c8; border-radius: 12px; }
+.private-proof img { display: block; width: 100%; max-height: 380px; object-fit: contain; margin-top: 14px; }
+.private-proof a { display: inline-block; margin-top: 12px; text-decoration: underline; text-underline-offset: 4px; }
+.admin-mixed-details summary { cursor: pointer; min-height: 44px; padding: 8px 0; font-weight: 600; }
+.admin-mixed-details .check-label { align-items: flex-start; gap: 10px; }
+.admin-mixed-details .check-label input { flex: none; margin-top: 5px; }
+.admin-mixed-details button { min-height: 44px; white-space: normal; }
+.admin-mixed-details button:disabled { opacity: .65; cursor: not-allowed; }
+.admin-mixed-details textarea { width: 100%; }
+.admin-mixed-details a:focus-visible, .admin-mixed-details button:focus-visible, .admin-mixed-details input:focus-visible, .admin-mixed-details textarea:focus-visible, .admin-mixed-details summary:focus-visible { outline: 3px solid #76394d; outline-offset: 3px; }
+.booking-history { margin-top: 24px; }
+.booking-history article { padding: 14px 0; border-top: 1px solid #e8d8c8; overflow-wrap: anywhere; }
+.booking-history p, .booking-history small { color: #604b50; }
+.admin-appointment-row small { color: #604b50; line-height: 1.6; }
+.admin-appointment-row > div { min-width: 0; overflow-wrap: anywhere; }
+.calendar-item > div { min-width: 0; overflow-wrap: anywhere; }
+@media (prefers-reduced-motion: no-preference) { .admin-mixed-details button, .admin-mixed-details summary { transition: background-color 160ms ease-out, border-color 160ms ease-out; } }
+@media (max-width: 1000px) { .admin-mixed-columns { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 580px) {
+  .admin-mixed-details h1 { font-size: 28px; }
+  .admin-mixed-details .detail-row { flex-direction: column; align-items: start; gap: 4px; }
+  .admin-mixed-details .detail-row strong { text-align: left; }
+  .admin-mixed-details .panel { padding: 18px; }
+}

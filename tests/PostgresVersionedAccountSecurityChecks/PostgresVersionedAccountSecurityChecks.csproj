@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors><NuGetAudit>false</NuGetAudit></PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../Backend/GlamByMariya.Core/BusinessRules/AccountSessionSecurityGuard.cs" Link="AccountSessionSecurityGuard.cs" />
+    <Compile Include="../../Backend/GlamByMariya.Core/BusinessRules/AccountSession.cs" Link="AccountSession.cs" />
+    <Compile Include="../../Backend/GlamByMariya.Core/BusinessRules/AuthenticationIdentityPolicy.cs" Link="AuthenticationIdentityPolicy.cs" />
+    <Compile Include="../../Backend/GlamByMariya.Infrastructure/Services/DurableSessionAuthorization.cs" Link="DurableSessionAuthorization.cs" />
+    <Compile Include="../../Backend/GlamByMariya.Infrastructure/Services/VersionedSessionAuthorization.cs" Link="VersionedSessionAuthorization.cs" />
+    <Compile Include="../../Backend/GlamByMariya.Infrastructure/Services/RepositoryAccountSecuritySnapshotProvider.cs" Link="RepositoryAccountSecuritySnapshotProvider.cs" />
+    <Compile Include="../../Backend/GlamByMariya.Infrastructure/Data/PostgresAccountSecurityReadSource.cs" Link="PostgresAccountSecurityReadSource.cs" />
+    <Compile Include="../../Backend/GlamByMariya.Infrastructure/Data/PostgresVersionedAccountSecurityProvider.cs" Link="PostgresVersionedAccountSecurityProvider.cs" />
+    <Using Include="GlamByMariya.Core.BusinessRules" />
+  </ItemGroup>
+</Project>

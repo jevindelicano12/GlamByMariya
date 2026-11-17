@@ -1,0 +1,87 @@
+/* Refinements use the existing blush, cream and cocoa workspace palette. */
+:where(.customer-layout, .staff-layout, .guest-layout) :is(.button, button.booking-back) {
+  transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease, transform 120ms ease;
+}
+:where(.customer-layout, .staff-layout, .guest-layout) :is(.button, button.booking-back):focus-visible {
+  outline: 3px solid #49363B;
+  outline-offset: 3px;
+}
+:where(.customer-layout, .staff-layout, .guest-layout) :is(button, input, select, textarea):disabled {
+  cursor: not-allowed;
+}
+.booking-page #booking-form .booking-progress a {
+  transition: background-color 180ms ease, border-color 180ms ease, color 180ms ease;
+}
+.booking-page #booking-form :is(input, select, textarea):focus-visible {
+  outline: 3px solid #49363B;
+  outline-offset: 3px;
+}
+.booking-page #booking-form :is(.booking-step-message, .booking-next-status, .availability-status) {
+  overflow-wrap: anywhere;
+}
+.staff-layout .staff-action-status {
+  margin: 0;
+  color: #604B50;
+  font-size: .875rem;
+  font-weight: 600;
+}
+.staff-layout form[aria-busy="true"] button:disabled {
+  cursor: wait;
+}
+.staff-layout :is(.alert, .notice) { overflow-wrap: anywhere; }
+.staff-layout .badge.pending { background: #FFF0C8; color: #5E4709; }
+.staff-layout .badge.confirmed { background: #E9BEC3; color: #49363B; }
+.staff-layout .badge.payment-correction { background: #FAEAEB; color: #76394D; }
+.payment-correction-notice {
+  margin-block: 1rem;
+  padding: 1rem;
+  border: 1px solid #B77F89;
+  border-radius: 10px;
+  background: #FFF7F0;
+  color: #49363B;
+  overflow-wrap: anywhere;
+}
+.payment-correction-notice p { margin-top: .25rem; color: #49363B; }
+.booking-page #booking-form[data-submission-state="submitting"] button[type="submit"]::after {
+  content: "";
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 1em;
+  height: 1em;
+  margin-inline-start: .55em;
+  border: 2px solid currentColor;
+  border-inline-end-color: transparent;
+  border-radius: 50%;
+  vertical-align: -.15em;
+  animation: booking-processing 800ms linear infinite;
+}
+@keyframes booking-processing { to { transform: rotate(1turn); } }
+@media (prefers-reduced-motion: no-preference) {
+  .account-menu[open] .account-menu-panel {
+    animation: menu-appear 160ms ease-out both;
+  }
+  @keyframes menu-appear {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+}
+@media (hover: hover) and (pointer: fine) {
+  :where(.customer-layout, .staff-layout, .guest-layout) :is(.button, button.booking-back):not(:disabled):hover {
+    box-shadow: 0 4px 12px #49363b24;
+  }
+  :where(.customer-layout, .staff-layout, .guest-layout) :is(.button, button.booking-back):not(:disabled):active {
+    transform: translateY(1px);
+  }
+  .booking-page #booking-form .look-card:hover {
+    box-shadow: 0 4px 12px #49363b1a;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :where(.customer-layout, .staff-layout, .guest-layout) :is(.button, button.booking-back),
+  .booking-page #booking-form .booking-progress a { transition: none; }
+  :where(.customer-layout, .staff-layout, .guest-layout) :is(.button, button.booking-back):active { transform: none; }
+  .booking-page #booking-form[data-submission-state="submitting"] button[type="submit"]::after {
+    animation: none;
+    border-inline-end-color: currentColor;
+  }
+}

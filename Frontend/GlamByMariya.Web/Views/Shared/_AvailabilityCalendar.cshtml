@@ -1,0 +1,15 @@
+<div class="availability-picker" data-booking-id="@ViewData["AvailabilityBookingId"]" data-today="@DataStore.Now.ToString("yyyy-MM-dd")" data-availability-url="@Url.Action("Availability", "Bookings")" data-validation-url="@Url.Action("ValidateSlot", "Bookings")">
+    <div class="availability-calendar" hidden>
+        <div class="calendar-toolbar"><button type="button" data-month-prev aria-label="Previous month">‹</button><h4 data-month-label></h4><button type="button" data-month-next aria-label="Next month">›</button><button type="button" data-refresh class="text-button">Refresh ↻</button></div>
+        <div class="calendar-legend"><span><i class="available"></i>Available for request</span><span><i class="limited"></i>Limited availability</span><span><i class="full"></i>Fully booked</span><span><i class="unavailable"></i>Unavailable</span><span><i class="past"></i>Date has passed</span></div>
+        <div class="calendar-weekdays" aria-hidden="true"><span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span></div>
+        <div class="calendar-days" data-calendar-days aria-label="Makeup artist availability dates"></div>
+        <div class="slot-heading"><h4 data-slots-label>Choose an available date</h4><small data-duration-label></small></div>
+        <div class="time-slots" data-time-slots aria-label="Appointment times"></div>
+        <p class="availability-status calendar-status" data-calendar-status role="status" aria-live="polite">Checking availability…</p>
+        <p class="availability-status validation-status" data-validation-status role="status" aria-live="polite"></p>
+        <p class="help">Available times are not guarantees of confirmation. Final confirmation depends on payment verification and Admin approval. @(DataStore.IsPersistent ? "Persistent pending reservation behavior is not yet verified." : "A successfully submitted pending request reserves service and preparation time until rejected or otherwise released. Reschedule requests do not reserve the proposed time until approved.") Availability uses service and preparation time only; travel is not estimated. Times use the business timezone. Availability refreshes every 15 seconds.</p>
+    </div>
+    <label data-date-fallback>Appointment date & time<input type="datetime-local" name="start" required min="@DataStore.Now.ToString("yyyy-MM-ddTHH:mm")" /></label>
+    <noscript><p class="help">Enable JavaScript for the live calendar. Your chosen time is still checked by the server on submission.</p></noscript>
+</div>

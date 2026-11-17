@@ -1,0 +1,35 @@
+.mixed-page { max-width: 1060px; margin: 0 auto; color: #49363D; }
+.mixed-page header { margin: 18px 0 28px; max-width: 65ch; }
+.mixed-page header p { margin-top: 10px; color: #604B50; }
+#mixed-selection { display: grid; gap: 20px; }
+.mixed-people { display: grid; gap: 5px; max-width: 250px; color: #49363D; font-weight: 600; }
+.mixed-people input, .mixed-service { width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid #9B7D81; border-radius: 7px; background: #fff; color: #49363D; }
+.mixed-people small { color: #604B50; }
+#mixed-people { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.mixed-person { min-width: 0; margin: 0; padding: 20px; border: 1px solid #E8D8C8; border-radius: 12px; background: #fff; }
+.mixed-person legend { padding: 0 6px; font-weight: 700; color: #76394D; }
+.mixed-person > label { display: grid; gap: 6px; font-weight: 600; }
+.mixed-addons { display: grid; gap: 8px; margin-top: 18px; }
+.mixed-addons > span { font-weight: 600; }
+.mixed-addons label { display: flex; flex-direction: row; align-items: center; gap: 10px; min-height: 36px; }
+.mixed-addons input { width: 18px; height: 18px; accent-color: #A6536B; flex: none; }
+.mixed-person-total { margin-top: 16px; color: #49363D; font-weight: 600; font-variant-numeric: tabular-nums; }
+.mixed-error { display: block; color: #8A233C; font-size: .875rem; }
+.mixed-page [aria-invalid="true"] { border: 2px solid #9D283F; }
+.mixed-estimate { padding: 22px; border: 1px solid #E8D8C8; border-radius: 12px; background: #FFF8F4; }
+.mixed-estimate h2 { margin-bottom: 10px; }
+.mixed-estimate p { margin-top: 10px; color: #604B50; }
+#mixed-totals { color: #49363D; font-weight: 700; line-height: 1.7; font-variant-numeric: tabular-nums; }
+.mixed-estimate button { margin-top: 14px; }
+.mixed-page input:focus-visible, .mixed-page select:focus-visible, .mixed-page a:focus-visible { outline: 3px solid #49363D; outline-offset: 3px; }
+@media (prefers-reduced-motion: no-preference) { .mixed-person { animation: mixed-appear .2s ease-out; } .mixed-page input, .mixed-page select { transition: border-color .2s ease, background-color .2s ease; } @keyframes mixed-appear { from { opacity: .7; transform: translateY(5px); } } }
+@media (max-width: 700px) { #mixed-people { grid-template-columns: minmax(0, 1fr); } .mixed-person { padding: 16px; } }
+#mixed-selection[hidden], #mixed-estimate-inline[hidden] { display: none; }
+#booking-form #mixed-selection { max-width: none; gap: 14px; padding: 22px; border: 1px solid #E8D8C8; border-radius: 12px; background: #FFF8F4; }
+#booking-form .mixed-toggle { display: flex; align-items: center; gap: 9px; }
+#booking-form .mixed-toggle input { width: 18px; height: 18px; accent-color: #A6536B; }
+#mixed-estimate-inline { flex: 1 1 100%; padding: 14px 18px; }
+#mixed-estimate-inline p { margin: 5px 0 0; }
+#booking-form.is-mixed .look-cards, #booking-form.is-mixed .look-selection-footer { display: none; }
+#booking-form.is-mixed .booking-step-actions { flex-wrap: wrap; }
+#booking-form.is-mixed .booking-step-actions [data-step-count] { flex-basis: 100%; }

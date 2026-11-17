@@ -1,0 +1,14 @@
+@model RescheduleQuote
+@{ ViewData["Title"] = "Review reschedule"; var difference = Model.ProposedTotal - Model.CurrentTotal; }
+<div class="page-heading"><div><h1>Review your new time</h1><p>Your current appointment remains reserved until SuperAdmin approves the request. The proposed time is not reserved yet.</p></div></div>
+<section class="panel stack" style="max-width:720px">
+    <div class="detail-row"><span>Current appointment</span><strong>@Model.OriginalStart.ToString("MMM d, yyyy · h:mm tt")</strong></div>
+    <div class="detail-row"><span>Requested makeup start</span><strong>@Model.ProposedStart.ToString("MMM d, yyyy · h:mm tt")</strong></div>
+    <div class="detail-row"><span>Original booking total</span><strong>₱@Model.InitialTotal.ToString("N2")</strong></div>
+    <div class="detail-row"><span>Current approved total</span><strong>₱@Model.CurrentTotal.ToString("N2")</strong></div>
+    <div class="detail-row"><span>Early / late fee in proposed total</span><strong>₱@Model.EarlyFee.ToString("N2") / ₱@Model.LateFee.ToString("N2")</strong></div>
+    <div class="detail-row"><span>Proposed total</span><strong>₱@Model.ProposedTotal.ToString("N2")</strong></div>
+    <div class="detail-row"><span>Difference from current total</span><strong>@(difference >= 0 ? "+" : "−")₱@Math.Abs(difference).ToString("N2")</strong></div>
+    <p>Payment differences are arranged personally with Glam by Mariya. No automatic charge or refund is made. Travel feasibility has not been verified.</p>
+    <form asp-action="ConfirmReschedule" method="post" class="stack"><input type="hidden" name="id" value="@Model.BookingId" /><input type="hidden" name="quoteId" value="@Model.Id" /><label class="check-label"><input type="checkbox" name="agreed" value="true" required /> I agree to the proposed total of ₱@Model.ProposedTotal.ToString("N2") for @Model.ProposedStart.ToString("MMM d, yyyy · h:mm tt").</label><button class="button" type="submit">Submit request for approval</button><a asp-action="Details" asp-route-id="@Model.BookingId">Go back without requesting</a></form>
+</section>

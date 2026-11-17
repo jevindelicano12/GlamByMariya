@@ -1,0 +1,20 @@
+@model Booking
+@if (Model.History.Count > 0)
+{
+    <section class="panel stack booking-history" aria-label="Booking decision history">
+        <h3>Decision history</h3><p>Demo history is in memory only. It is not durable or tamper-resistant.</p>
+        @foreach (var entry in Model.History.OrderByDescending(h => h.At))
+        {
+            <article><strong>@entry.Action · @entry.Status</strong><p>@entry.ActorName · @entry.At.ToString("MMM d, yyyy h:mm tt")</p>
+                @if (!string.IsNullOrWhiteSpace(entry.Reason)) { <p>@entry.Reason</p> }
+                <small>Makeup start recorded: @entry.Start.ToString("MMM d, yyyy h:mm tt")@if (entry.RequestedStart.HasValue) { <text> · Proposed: @entry.RequestedStart.Value.ToString("MMM d, yyyy h:mm tt")</text> }</small>
+            </article>
+        }
+    </section>
+}
+@if (Model.RescheduleConsents.Count > 0) {
+    <section class="panel stack booking-history"><h3>Rescheduling price history</h3><p>Demo history is in memory only.</p>
+    @foreach (var consent in Model.RescheduleConsents) { var q = consent.Quote; var approval = Model.ApprovedReschedules.FirstOrDefault(a => a.Quote.Id == q.Id);
+        <article><strong>@(approval == null ? "Customer consent recorded" : "Approved")</strong><p>@q.OriginalStart.ToString("MMM d, yyyy h:mm tt") → @q.ProposedStart.ToString("MMM d, yyyy h:mm tt")</p><p>Previous ₱@q.CurrentTotal.ToString("N2") · Proposed ₱@q.ProposedTotal.ToString("N2") · Difference @((q.ProposedTotal - q.CurrentTotal) >= 0 ? "+" : "−")₱@Math.Abs(q.ProposedTotal - q.CurrentTotal).ToString("N2")</p><small>Customer @consent.CustomerId · consented @consent.ConsentedAt.ToString("MMM d, yyyy h:mm tt")@if (approval != null) { <text> · Approved by @approval.ApprovedBy at @approval.ApprovedAt.ToString("MMM d, yyyy h:mm tt")</text> }</small></article>
+    }</section>
+}

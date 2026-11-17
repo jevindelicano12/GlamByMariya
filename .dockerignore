@@ -1,0 +1,56 @@
+# Keep the image lean and secret-free.
+bin/
+obj/
+**/bin/
+**/obj/
+out/
+.vs/
+.git/
+.gitignore
+App_Data/*
+!App_Data/
+!App_Data/Certificates/
+App_Data/Certificates/*
+!App_Data/Certificates/supabase-prod-ca-2021.crt
+Frontend/GlamByMariya.Web/App_Data/*
+!Frontend/GlamByMariya.Web/App_Data/
+!Frontend/GlamByMariya.Web/App_Data/Certificates/
+Frontend/GlamByMariya.Web/App_Data/Certificates/*
+!Frontend/GlamByMariya.Web/App_Data/Certificates/supabase-prod-ca-2021.crt
+tests/
+*.user
+*.md
+docs/
+
+# Local configuration and credential files must not enter build context.
+/.env
+/.env.*
+/secrets.json
+/credentials.json
+**/.env
+**/.env.*
+**/secrets.json
+**/credentials.json
+**/appsettings.*.json
+
+# Private keys and PKCS#12 bundles; retain the existing public CA exception.
+**/*.[kK][eE][yY]
+**/*.[pP][fF][xX]
+**/*.[pP]12
+**/*.[pP][eE][mM]
+**/*.[pP]8
+**/*.[jJ][kK][sS]
+**/*.[kK][eE][yY][sS][tT][oO][rR][eE]
+**/*.[kK][dD][bB][xX]
+
+# Local agent and design workspace state are not application inputs.
+/.agents/
+/.impeccable/
+/scripts/
+/staging/
+
+# out/ is already excluded above.
+/temp/
+/tmp/
+/node_modules/
+/deploy/

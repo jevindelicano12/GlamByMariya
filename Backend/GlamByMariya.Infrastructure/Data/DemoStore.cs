@@ -1,0 +1,206 @@
+using GlamByMariya.Core.Entities;
+using GlamByMariya.Infrastructure.Services;
+using Microsoft.AspNetCore.Identity;
+using System.Security.Cryptography;
+
+namespace GlamByMariya.Infrastructure.Data;
+
+// Singleton demo implementation. All writes and consistent reads use Gate.
+// Replace these repository implementations with EF Core when persistence is required.
+public class DemoStore : IStudioStore, IAdminProvisioningStore, IVerifiedProviderCustomerStore
+{
+    private readonly DemoCatalogSnapshot? catalogSnapshot;
+    private readonly Dictionary<Guid, AdminProvisioningSnapshot> adminProvisioning = [];
+    private readonly Dictionary<Guid, (Guid AccountId, string Email)> providerCustomers = [];
+    public bool IsPersistent => false;
+    public DateTime Now => DateTime.Now;
+    public object Gate { get; } = new();
+    public List<CatalogItem> Services { get; } = [
+        new() { Name = "Soft Glam", Description = "Fresh, luminous skin and softly defined eyes. Your everyday beauty, elevated.", Price = 600, GroupPrice = 525, GroupMinimumPeople = 4, Minutes = 60, Category = "The everyday edit" },
+        new() { Name = "Glamour Makeup", Description = "Sculpted definition, statement eyes and a flawless finish that lasts all night.", Price = 750, Minutes = 90, Category = "The occasion edit" },
+        new() { Name = "Bridal Makeup", Description = "An exquisite, camera-ready look made for your most unforgettable day. Priced for one bride.", Price = 1500, Minutes = 120, Category = "The bridal edit" }
+    ];
+    public List<CatalogItem> AddOns { get; } = [
+        new() { Name = "Lash application", Description = "A little extra definition", Price = 250, Minutes = 15 },
+        new() { Name = "Hair styling", Description = "Complete your look", Price = 800, Minutes = 45 },
+        new() { Name = "Touch-up kit", Description = "Stay fresh throughout the day", Price = 350, Minutes = 0 }
+    ];
+    public List<Booking> Bookings { get; } = [];
+    public List<Payment> Payments { get; } = [];
+    public List<AppUser> Users { get; } = [];
+    public List<Notification> Notifications { get; } = [];
+    public List<AuditLog> AuditLogs { get; } = [];
+    private readonly List<DemoAdminActivity> adminActivity = [];
+    public IReadOnlyList<DemoAdminActivity> AdminActivity() { lock (Gate) return adminActivity.ToArray(); }
+    public void RecordAdminActivity(Guid actor, string action, string targetType, Guid targetId)
+    {
+        lock (Gate)
+        {
+            var user = Users.SingleOrDefault(u => u.Id == actor && u.IsActive && u.Role is Roles.Admin or Roles.SuperAdmin);
+            if (user != null) adminActivity.Add(new(actor, user.Name, user.Role, action, targetType, targetId, DateTimeOffset.UtcNow));
+        }
+    }
+    public List<AvailabilityBlock> Blocks { get; } = [];
+    public BusinessSettings Settings { get; } = new();
+    public DemoStore(DemoCatalogSnapshot? catalogSnapshot = null, string[]? passwords = null, bool presentationAccounts = false)
+    {
+        passwords ??= Enumerable.Range(0, 3).Select(_ => Convert.ToHexString(RandomNumberGenerator.GetBytes(32))).ToArray();
+        if (passwords.Length != 3 || passwords.Any(string.IsNullOrWhiteSpace))
+            throw new ArgumentException("Three Demo account passwords are required.", nameof(passwords));
+        this.catalogSnapshot = catalogSnapshot;
+        if (catalogSnapshot != null)
+        {
+            var loaded = catalogSnapshot.LoadOrInitialize(Services, AddOns);
+            Services.Clear(); Services.AddRange(loaded.Services);
+            AddOns.Clear(); AddOns.AddRange(loaded.AddOns);
+        }
+        AppUser customer;
+        if (presentationAccounts)
+        {
+            AddUser("Demo", "Admin", "presentation-admin@example.test", passwords[0], "Admin", 35, "Others", "Address on file");
+            AddUser("Demo", "Owner", "presentation-owner@example.test", passwords[1], "SuperAdmin", 35, "Others", "Address on file");
+            customer = AddUser("Demo", "Customer", "presentation-customer@example.test", passwords[2], "Customer", 28, "Others", "24 Sample Street, Demo Barangay");
+        }
+        else
+        {
+            AddUser("Makeup", "Artist", "admin@lumiere.demo", passwords[0], "Admin", 35, "Others", "Address on file");
+            AddUser("Business", "Owner", "owner@lumiere.demo", passwords[1], "SuperAdmin", 35, "Others", "Address on file");
+            customer = AddUser("Alex", "Morgan", "customer@lumiere.demo", passwords[2], "Customer", 28, "Others", "24 Sample Street, Demo Barangay");
+        }
+        var service = Services.FirstOrDefault(x => x.Active && !x.Archived);
+        if (service != null)
+        {
+            var booking = new Booking { CustomerId = customer.Id, CustomerName = customer.Name, Service = new(service.Id, service.Name, service.Price, service.Minutes), Start = DateTime.Today.AddDays(2).AddHours(10), BufferMinutesSnapshot = Settings.BufferMinutes, Address = "24 Sample Street", Area = "Quezon City", TravelFee = Settings.TravelFee };
+            Bookings.Add(booking);
+            Payments.Add(new() { BookingId = booking.Id, Amount = booking.RequiredDownPayment, Method = "GCash", Reference = "DEMO-REFERENCE-001" });
+        }
+    }
+    public AppUser AddUser(string firstName, string lastName, string email, string password, string role = "Customer", int age = 0, string gender = "", string address = "")
+    {
+        var user = new AppUser { Name = $"{firstName} {lastName}".Trim(), FirstName = firstName, LastName = lastName, Age = age, Gender = gender, Address = address, Email = email, Role = role };
+        user.PasswordHash = new PasswordHasher<AppUser>().HashPassword(user, password);
+        Users.Add(user);
+        return user;
+    }
+    public AppUser CreateElevatedUser(string firstName, string lastName, string email, string password, string role, int age, string gender, string address)
+    {
+        if (role is not ("Admin" or "SuperAdmin")) throw new InvalidOperationException("Invalid elevated role.");
+        if (Users.Any(x => x.Email.Equals(email.Trim(), StringComparison.OrdinalIgnoreCase))) throw new InvalidOperationException("This email is already registered.");
+        return AddUser(firstName, lastName, email, password, role, age, gender, address);
+    }
+    public AppUser? FindVerifiedCustomer(Guid subject, string email)
+    {
+        lock (Gate)
+        {
+            if (subject == Guid.Empty || string.IsNullOrWhiteSpace(email) || !providerCustomers.TryGetValue(subject, out var binding) ||
+                !string.Equals(binding.Email, email.Trim(), StringComparison.OrdinalIgnoreCase)) return null;
+            var matches = Users.Where(u => u.Email.Equals(binding.Email, StringComparison.OrdinalIgnoreCase)).Take(2).ToList();
+            return matches.Count == 1 && matches[0].Id == binding.AccountId && matches[0].IsActive && matches[0].Role == Roles.Customer ? matches[0] : null;
+        }
+    }
+    public AppUser CreateVerifiedCustomer(Guid subject, EmailVerificationService.PendingRegistration pending)
+    {
+        lock (Gate)
+        {
+            if (subject == Guid.Empty || pending.ProviderSubject != subject || string.IsNullOrWhiteSpace(pending.Email) ||
+                providerCustomers.ContainsKey(subject) || Users.Any(u => u.Email.Equals(pending.Email.Trim(), StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidOperationException("The account identity could not be verified. Contact support.");
+            var user = AddUser(pending.FirstName, pending.LastName, pending.Email.Trim(), pending.Password, Roles.Customer, pending.Age, pending.Gender, pending.Address);
+            user.Suffix = pending.Suffix; user.Birthday = pending.Birthday;
+            providerCustomers.Add(subject, (user.Id, user.Email));
+            return user;
+        }
+    }
+    public virtual AppUser CreatePendingInvitedAdmin(string firstName, string lastName, string email,
+        string password, int age, string gender, string address, Guid invitationId)
+    {
+        if (invitationId == Guid.Empty) throw new InvalidOperationException("The invitation is invalid.");
+        var error = RegistrationRules.Validate(firstName, lastName, email, age, gender, address, password);
+        if (error != null) throw new InvalidOperationException(error);
+        lock (Gate)
+        {
+            var user = CreateElevatedUser(firstName, lastName, email, password, "Admin", age, gender, address);
+            user.IsActive = false;
+            adminProvisioning.Add(user.Id, new(user.Id, invitationId, AdminProvisioningState.Pending, null));
+            return user;
+        }
+    }
+    public virtual void MarkAdminProvisioningOutcome(Guid accountId, AdminProvisioningState outcome)
+    {
+        if (outcome is not (AdminProvisioningState.NotAttempted or AdminProvisioningState.Rejected or AdminProvisioningState.Unknown))
+            throw new InvalidOperationException("Invalid Admin provisioning outcome.");
+        lock (Gate)
+        {
+            var current = GetAdminProvisioning(accountId) ?? throw new InvalidOperationException("Pending Admin provisioning was not found.");
+            if (current.State != AdminProvisioningState.Pending) throw new InvalidOperationException("Admin provisioning is no longer pending.");
+            adminProvisioning[accountId] = current with { State = outcome };
+        }
+    }
+    public virtual void ConfirmAdminProvisioning(Guid accountId, Guid invitationId, string email, SupabaseProvisioningResult provisioningResult)
+    {
+        if (accountId == Guid.Empty || invitationId == Guid.Empty || string.IsNullOrWhiteSpace(email)
+            || provisioningResult is null || !provisioningResult.IsConfirmed
+            || provisioningResult.ProviderUserId is not { } supabaseUserId || supabaseUserId == Guid.Empty)
+            throw new InvalidOperationException("A confirmed Supabase identity is required.");
+        var normalizedEmail = email.Trim();
+        lock (Gate)
+        {
+            var current = GetAdminProvisioning(accountId) ?? throw new InvalidOperationException("Pending Admin provisioning was not found.");
+            var user = Users.SingleOrDefault(x => x.Id == accountId);
+            if (current.AccountId != accountId || current.InvitationId != invitationId || user == null
+                || user.Role != "Admin" || !string.Equals(user.Email.Trim(), normalizedEmail, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("The pending Admin identity could not be confirmed.");
+            if (adminProvisioning.Values.Any(x => x.AccountId != accountId && x.InvitationId == invitationId))
+                throw new InvalidOperationException("This invitation is already correlated to another local account.");
+            if (adminProvisioning.Values.Any(x => x.AccountId != accountId && x.SupabaseUserId == supabaseUserId))
+                throw new InvalidOperationException("This Supabase identity is already linked to another account.");
+
+            if (current.State == AdminProvisioningState.Confirmed)
+            {
+                if (current.SupabaseUserId == supabaseUserId && user.IsActive) return;
+                throw new InvalidOperationException("The confirmed Admin identity does not match this request.");
+            }
+            if (current.State != AdminProvisioningState.Pending || current.SupabaseUserId != null || user.IsActive)
+                throw new InvalidOperationException("The pending Admin identity could not be confirmed.");
+
+            adminProvisioning[accountId] = current with { State = AdminProvisioningState.Confirmed, SupabaseUserId = supabaseUserId };
+            user.IsActive = true;
+        }
+    }
+    public virtual AdminProvisioningSnapshot? GetAdminProvisioning(Guid accountId)
+    {
+        lock (Gate) return adminProvisioning.GetValueOrDefault(accountId);
+    }
+    public void SaveCatalog(string kind, CatalogItem item, Guid actor)
+    {
+        var list = kind == "service" ? Services : AddOns;
+        if (!list.Any(x => x.Id == item.Id)) list.Add(item);
+        PersistCatalog();
+    }
+    public void DeleteCatalog(string kind, CatalogItem item, Guid actor) { (kind == "service" ? Services : AddOns).Remove(item); PersistCatalog(); }
+    private void PersistCatalog()
+    {
+        if (catalogSnapshot == null) return;
+        try { catalogSnapshot.Save(Services, AddOns); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            var previous = catalogSnapshot.LoadOrInitialize([], []);
+            Services.Clear(); Services.AddRange(previous.Services);
+            AddOns.Clear(); AddOns.AddRange(previous.AddOns);
+            throw new InvalidOperationException("Demo catalog save could not be confirmed; reload before retrying.", e);
+        }
+    }
+    public void SaveSettings(BusinessSettings settings, Guid actor) { }
+    public void AddBlock(AvailabilityBlock block, Guid actor)
+    {
+        lock (Gate)
+        {
+            if (block.From >= block.To || string.IsNullOrWhiteSpace(block.Reason) ||
+                Bookings.Any(b => (b.Status is "Confirmed" or "Pending Payment") && block.From < b.End.AddMinutes(b.BufferMinutesSnapshot ?? Settings.BufferMinutes) && block.To > b.Start))
+                throw new InvalidOperationException("Enter a valid block that does not overlap a reserved appointment.");
+            Blocks.Add(block);
+        }
+    }
+    public void RemoveBlock(Guid id, Guid actor) => Blocks.RemoveAll(x => x.Id == id);
+    public void RecordAudit(Guid actor, string message) => AuditLogs.Add(new(actor, message, Now));
+}

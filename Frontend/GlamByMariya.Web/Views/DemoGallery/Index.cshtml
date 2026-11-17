@@ -1,0 +1,23 @@
+@model IReadOnlyList<GlamByMariya.Infrastructure.Integrations.DemoGalleryPhoto>
+@{ ViewData["Title"] = "Gallery Management"; }
+<div class="public-page">
+    <h1>Gallery Management</h1>
+    <p>Uploads are immediately visible in the gallery and remain on this computer after restart. Only upload photos you have permission to display.</p>
+    <form asp-action="Upload" method="post" enctype="multipart/form-data">
+        <p><label>JPG or PNG, up to 5 MB <input type="file" name="photo" accept="image/jpeg,image/png" required /></label></p>
+        <p><label>Alternative text <input name="altText" maxlength="250" required /></label></p>
+        <p><label>Caption (optional) <input name="caption" maxlength="500" /></label></p>
+        <button class="button" type="submit">Upload photo</button>
+    </form>
+    <h2>Stored and archived photos</h2>
+    <p>Archiving hides a photo from the public gallery while preserving its file. Restore it whenever you are ready.</p>
+    @if (Model.Count == 0) { <p>No photos uploaded yet.</p> }
+    <div class="public-gallery">
+    @foreach (var photo in Model) {
+        <figure><img src="@Url.Action("Photo", "DemoGallery", new { id = photo.Id })" alt="@photo.AltText" loading="lazy" />
+            <figcaption>@photo.AltText @photo.Caption — @(photo.Visible ? "Visible" : "Archived")</figcaption>
+            <form asp-action="Visibility" method="post"><input type="hidden" name="id" value="@photo.Id" /><input type="hidden" name="visible" value="@(!photo.Visible ? "true" : "false")" /><button type="submit">@(photo.Visible ? "Archive" : "Restore")</button></form>
+        </figure>
+    }
+    </div>
+</div>

@@ -1,0 +1,11 @@
+@model GlamByMariya.Infrastructure.Services.WebsiteContentVersion
+@{ ViewData["Title"] = "Draft preview"; }
+<link rel="stylesheet" href="~/css/website-content.css" asp-append-version="true" />
+<div class="website-content-page"><p class="website-content-notice" role="status">Private draft preview — not published.</p>
+@{ var images = ViewData["DemoDraftImages"] as IReadOnlyList<GlamByMariya.Infrastructure.Services.WebsiteImageReference> ?? []; }
+@foreach (var image in images) { <section><h2>@(image.Role == "hero" ? "Hero image" : "About Me portrait")</h2><img class="demo-content-preview" src="@Url.Action("DraftImage", "WebsiteContent", new { id = image.Id })" alt="@image.AltText" /></section> }
+<h1>@Model.Text.HeroHeadline</h1><p>@Model.Text.HeroDescription</p>
+<section><h2>@Model.Text.AboutHeading</h2><p>@Model.Text.AboutBiography</p></section>
+<section><h2>Home service</h2><p>@Model.Text.HomeServiceDescription</p><p>@Model.Text.ServiceAreaInformation</p></section>
+<section><h2>Contact</h2><p>@Model.Text.ContactDetails</p><ul>@foreach (var link in Model.Text.Links ?? []) { <li>@link.Label: @link.Url</li> }</ul></section>
+<section><h2>Frequently asked questions</h2>@foreach (var faq in Model.Text.Faqs ?? []) { <h3>@faq.Question</h3><p>@faq.Answer</p> }</section></div>

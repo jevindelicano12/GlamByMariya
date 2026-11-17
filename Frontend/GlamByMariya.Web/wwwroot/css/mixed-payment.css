@@ -1,0 +1,39 @@
+.mixed-review { margin: 24px 0; color: #49363d; min-width: 0; }
+.mixed-review-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.mixed-review-heading .eyebrow { display: none; }
+.mixed-review-people { display: grid; gap: 0; margin: 12px 0 20px; }
+.mixed-review-people article { padding: 16px 0; border-bottom: 1px solid #e8d8c8; min-width: 0; overflow-wrap: anywhere; }
+.mixed-review-people h4 { font: 600 14px/1.5 var(--sans); color: #76394d; margin-bottom: 4px; }
+.mixed-review-people p { font-size: 14px; line-height: 1.6; color: #604b50; margin: 4px 0; }
+.mixed-review-people strong { display: block; font-size: 14px; margin-top: 8px; font-variant-numeric: tabular-nums; }
+.mixed-review-totals { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px 16px; margin: 16px 0; font-size: 14px; font-variant-numeric: tabular-nums; }
+.mixed-review-totals dt { color: #604b50; }
+.mixed-review-totals dd { text-align: right; margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.mixed-review-note { color: #604b50; font-size: 14px; line-height: 1.7; max-width: 70ch; }
+.mixed-location { margin: 24px 0 16px; }
+.payment-proof-meta { font-size: 14px; color: #604b50; overflow-wrap: anywhere; }
+[aria-invalid="true"] + .payment-proof-meta { color: #8a233c; }
+.payment-proof-preview { object-fit: contain; background: #fff; max-height: 260px; }
+#booking-form.is-mixed [name="proof"] { padding: 12px; min-height: 48px; max-width: 100%; }
+#booking-form.is-mixed [name="proof"]::file-selector-button { border: 1px solid #9b7d81; border-radius: 6px; padding: 10px; margin-right: 10px; color: #49363d; background: #fff8f4; cursor: pointer; }
+#booking-form.is-mixed .summary-row strong { overflow-wrap: anywhere; min-width: 0; }
+#booking-form.is-mixed .summary-row, #booking-form.is-mixed .summary .help, #booking-form.is-mixed .travel-note, #booking-form.is-mixed .notice { font-size: 14px; line-height: 1.6; color: #604b50; }
+#booking-form.is-mixed .summary-symbol { display: none; }
+#booking-form.is-mixed .summary { align-self: start; }
+#booking-form.is-mixed .summary-row:has(#summary-service), #booking-form.is-mixed .summary-row:has(#summary-group-price), #booking-form.is-mixed .summary-row:has(#summary-addons) { display: none; }
+#booking-form.is-mixed input:focus-visible, #booking-form.is-mixed select:focus-visible, #booking-form.is-mixed button:focus-visible, .booking-receipt a:focus-visible { outline: 3px solid #76394d; outline-offset: 3px; }
+.booking-receipt { max-width: 880px; margin: 0 auto; }
+.booking-receipt-header { margin-bottom: 28px; }
+.booking-receipt-header p { color: #604b50; margin: 12px 0; max-width: 65ch; }
+.booking-reference { display: inline-block; color: #76394d; font: 600 16px/1.6 var(--sans); }
+.booking-receipt .detail-row, .customer-layout .detail-row { gap: 16px; }
+.booking-receipt .detail-row, .customer-layout .booking-price-details .detail-row { font-size: 14px; line-height: 1.6; }
+.booking-receipt .detail-row > span, .customer-layout .booking-price-details .detail-row > span { color: #604b50; }
+.booking-receipt .detail-row strong, .customer-layout .detail-row strong { min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 580px) {
+  .booking-receipt-header h1 { font-size: 32px; }
+  .booking-receipt .detail-row { flex-direction: column; gap: 4px; align-items: start; }
+  .booking-receipt .detail-row strong { text-align: left; }
+  .booking-receipt .button-row { flex-direction: column; }
+  #booking-form.is-mixed .booking-details [name="proof"] { font-size: 13px; }
+}

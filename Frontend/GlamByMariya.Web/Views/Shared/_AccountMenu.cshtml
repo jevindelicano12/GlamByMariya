@@ -1,0 +1,26 @@
+@using System.Security.Claims
+@inject GlamByMariya.Infrastructure.Services.AccountSettingsService AccountSettings
+@{
+    var id = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+    var preferences = AccountSettings.Get(id);
+    var name = User.Identity?.Name ?? "Member";
+}
+<details class="account-menu">
+    <summary aria-label="Account settings menu" title="Account settings">
+        <span class="avatar">@if (preferences.AvatarUrl != null) { <img src="@preferences.AvatarUrl" alt="" /> } else { @(name.Length > 0 ? name[..1] : "G") }</span>
+        <span class="account-menu-name">@name<small>@(GlamByMariya.Core.Entities.Roles.IsSuperAdmin(User) ? "System owner" : User.IsInRole("Admin") ? "Business administrator" : "Customer account")</small></span>
+        <span aria-hidden="true">⌄</span>
+    </summary>
+    <div class="account-menu-panel">
+        <div class="account-menu-heading"><strong>@name</strong><small>@User.FindFirstValue(ClaimTypes.Email)</small></div>
+        <a asp-controller="Account" asp-action="Settings" asp-fragment="profile-title">My profile <span>↗</span></a>
+        <a asp-controller="Account" asp-action="Settings" asp-fragment="email-title">Email verification</a>
+        <a asp-controller="Account" asp-action="Settings" asp-fragment="password-title">Password & security</a>
+        <form asp-controller="Account" asp-action="SaveNotifications" method="post" class="account-menu-preferences">
+            <label class="notification-switch"><span>Booking notifications<small>In-app updates</small></span><input type="checkbox" role="switch" name="notificationsEnabled" value="true" checked="@preferences.NotificationsEnabled" /><span class="switch-track" aria-hidden="true"></span></label>
+            <button type="submit" class="button secondary">Save preference</button>
+        </form>
+        <a asp-controller="Account" asp-action="Settings">All account settings</a>
+        <form asp-controller="Account" asp-action="Logout" method="post"><button type="submit" class="text-button">Sign out</button></form>
+    </div>
+</details>

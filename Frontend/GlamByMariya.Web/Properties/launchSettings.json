@@ -1,0 +1,21 @@
+{
+  "profiles": {
+    "GlamByMariya.Web": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "ConnectionStrings__MakeupDatabase": " ",
+        "Database__Provider": "Demo",
+        "Database__ProjectId": "hqllkbjhufhvyooacajy",
+        "Database__Host": "aws-1-ap-northeast-1.pooler.supabase.com",
+        "Database__Port": "5432",
+        "Database__Name": "postgres",
+        "Database__Username": "glam_v2_backend.hqllkbjhufhvyooacajy",
+        "Database__Schema": "public",
+        "Database__RootCertificate": "C:/Users/jevin/Downloads/prod-ca-2021 (3).crt"
+      },
+      "applicationUrl": "http://127.0.0.1:63400"
+    }
+  }
+}

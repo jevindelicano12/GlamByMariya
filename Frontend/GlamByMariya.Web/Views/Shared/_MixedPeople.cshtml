@@ -1,0 +1,20 @@
+@model Booking
+@if (Model.MixedPeople.Count > 0)
+{
+    <section class="mixed-review" aria-label="Per-person booked services">
+        <h3>Everyone’s booked look</h3>
+        <div class="mixed-review-people">
+        @for (var i = 0; i < Model.MixedPeople.Count; i++)
+        {
+            var person = Model.MixedPeople[i];
+            <article><h4>Person @(i + 1)</h4><p>@person.Service.Name · ₱@person.Service.Price.ToString("N2")</p>
+            @foreach (var addon in person.AddOns) { <p>@addon.Name × @addon.Quantity · ₱@((addon.Price * addon.Quantity).ToString("N2"))</p> }
+            @if (person.AddOns.Count == 0) { <p>No add-ons</p> }
+            <p>Add-on total · ₱@person.AddOns.Sum(a => a.Price * a.Quantity).ToString("N2")</p>
+            <strong>₱@person.Total.ToString("N2") · @person.DurationMinutes min</strong></article>
+        }
+        </div>
+        <div class="detail-row"><span>Combined makeup duration</span><strong>@((int)(Model.End - Model.Start).TotalMinutes) minutes</strong></div>
+        <div class="detail-row"><span>Preparation buffer</span><strong>@Model.BufferMinutesSnapshot minutes</strong></div>
+    </section>
+}

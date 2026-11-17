@@ -1,0 +1,23 @@
+{
+  "status": "proposal-only-no-provisioning",
+  "target": "127.0.0.1:5432/glam_auth_mvc_workflow_test",
+  "schema": "booking_test",
+  "identities": [
+    { "label": "synthetic-customer-a", "id": "10000000-0000-4000-8000-000000000001" },
+    { "label": "synthetic-customer-b", "id": "10000000-0000-4000-8000-000000000002" }
+  ],
+  "identityWarning": "Placeholders only; never create or modify public authentication records. A trusted synthetic identity strategy is unresolved.",
+  "artistId": "20000000-0000-4000-8000-000000000001",
+  "service": { "id": "30000000-0000-4000-8000-000000000001", "name": "Synthetic service", "price": 100, "minutes": 60, "groupPrice": null, "groupMinimum": 2, "active": true },
+  "addon": { "id": "40000000-0000-4000-8000-000000000001", "name": "Synthetic add-on", "price": 50, "minutes": 15, "quantity": 1 },
+  "area": "Synthetic test area",
+  "address": "Synthetic test address",
+  "people": 1,
+  "package": "auto",
+  "settings": { "timeZone": "UTC", "openHour": 0, "closeHour": 24, "bufferMinutes": 15, "downPaymentPercent": 50, "earlyFeeEnabled": false, "lateFeeEnabled": false },
+  "startUtc": "2099-01-15T10:00:00Z",
+  "submissionId": "50000000-0000-4000-8000-000000000001",
+  "competingSubmissionId": "50000000-0000-4000-8000-000000000002",
+  "expected": { "total": 150, "minimum": 75, "durationMinutes": 75, "reservedMinutes": 90, "identicalReplay": "same booking", "changedReplay": "rejected", "overlappingBooking": "one winner" },
+  "retention": "Retain all records. No cleanup, reset or drop without separate explicit approval. Stop if identifiers already exist."
+}

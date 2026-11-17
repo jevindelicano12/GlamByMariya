@@ -1,0 +1,26 @@
+@model List<Booking>
+@{ ViewData["Title"] = "Appointments"; var month = (DateTime)ViewBag.Month; var blocks = (List<AvailabilityBlock>)ViewBag.Blocks; var previous = month.AddMonths(-1); var next = month.AddMonths(1); }
+<div class="page-heading"><div><div class="eyebrow">BOOKING MANAGEMENT</div><h1>Appointments</h1><p>Calendar view: confirmed appointments, pending requests and blocked time.</p></div><a class="button secondary" asp-action="Index" asp-route-view="appointments">List view</a></div>
+<section class="panel">
+    <div class="calendar-month-heading"><a asp-action="Calendar" asp-route-year="@previous.Year" asp-route-month="@previous.Month" aria-label="Previous month">← Previous</a><h2>@month.ToString("MMMM yyyy")</h2><a asp-action="Calendar" asp-route-year="@next.Year" asp-route-month="@next.Month" aria-label="Next month">Next →</a></div>
+    <p>@(DataStore.IsPersistent ? "Persistent pending reservation behavior has not been verified." : "Pending and confirmed requests reserve service time and their preparation buffer.") Travel time is not estimated.</p>
+    <div class="admin-month" role="group" aria-label="@month.ToString("MMMM yyyy") appointments">
+    @foreach (var day in new[] { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" }) { <strong class="calendar-weekday">@day</strong> }
+    @for (var blank = 0; blank < (int)month.DayOfWeek; blank++) { <span class="calendar-blank" aria-hidden="true"></span> }
+    @for (var day = 1; day <= DateTime.DaysInMonth(month.Year, month.Month); day++) {
+        var date = month.AddDays(day - 1); var entries = Model.Where(b => b.Start.Date == date).ToList(); var blocked = blocks.Any(b => b.From < date.AddDays(1) && b.To > date);
+        <a class="admin-calendar-day" href="#day-@day" aria-label="@date.ToString("MMMM d"): @entries.Count appointment requests@(blocked ? ", blocked time" : "")"><strong>@day</strong><span>@if (entries.Count > 0) { <text>@entries.Count appointment(s)</text> } @if (blocked) { <text> · Blocked time</text> }</span></a>
+    }
+    </div>
+</section>
+<section class="panel"><h2>Appointments this month</h2>
+@if (!Model.Any()) { <p>No appointments this month.</p> }
+@foreach (var group in Model.GroupBy(b => b.Start.Day)) {
+    <div id="day-@group.Key"><h3>@month.AddDays(group.Key - 1).ToString("dddd, MMMM d")</h3>
+    @foreach (var b in group) { <a asp-action="Details" asp-route-id="@b.Id" class="calendar-item"><div><strong>@b.CustomerName · @b.Service.Name</strong><p>@b.Start.ToString("h:mm tt") – @b.End.ToString("h:mm tt") · @b.Area</p><span class="badge">@b.Status</span></div><span>↗</span></a> }
+    </div>
+}
+</section>
+@if (User.IsInRole("SuperAdmin")) {
+<div class="two-column"><section class="panel"><h3>Block unavailable time</h3><form asp-action="Block" method="post" class="stack"><label>From<input type="datetime-local" name="from" required /></label><label>Until<input type="datetime-local" name="to" required /></label><label>Reason<input name="reason" required /></label><button class="button secondary">Add time block ＋</button></form></section><section class="panel"><h3>Unavailable time</h3>@foreach (var b in blocks) { <div class="block-item"><strong>@b.Reason</strong><p>@b.From.ToString("MMM d, h:mm tt") – @b.To.ToString("MMM d, h:mm tt")</p><form asp-action="Unblock" method="post"><input name="id" type="hidden" value="@b.Id" /><button class="text-button">Remove block</button></form></div> }@if (!blocks.Any()) { <p>No time blocks added.</p> }</section></div>
+}

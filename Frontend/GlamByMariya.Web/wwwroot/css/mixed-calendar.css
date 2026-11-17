@@ -1,0 +1,18 @@
+#mixed-calendar { width: 100%; max-width: 880px; justify-self: center; color: #49363d; }
+#mixed-calendar > p { margin: 12px 0; }
+#mixed-calendar .calendar-day { grid-column: auto; width: auto; min-width: 0; cursor: pointer; }
+#mixed-calendar .calendar-day small { font-size: 10px; }
+#mixed-calendar .calendar-weekdays { font-size: 11px; }
+#mixed-calendar .mixed-legend { margin: 0 0 14px; font-size: 11px; color: #6d565c; }
+#mixed-calendar .mixed-legend i { width: 9px; height: 9px; }
+#mixed-calendar .mixed-legend i.mixed-available { background: #a6536b; }
+#mixed-calendar .mixed-legend i.mixed-limited { background: #c59835; }
+#mixed-calendar .mixed-legend i.mixed-none { background: #b7aca4; }
+#mixed-calendar .calendar-day.full, #mixed-calendar .calendar-day.unavailable:not(:disabled) { background: #f4f1ee; border-color: #cfc1b9; border-style: dashed; color: #6f625c; }
+#mixed-calendar .calendar-day[aria-pressed="true"], #mixed-calendar .time-slot[aria-pressed="true"] { outline: 2px solid #76394d; outline-offset: 2px; }
+#mixed-calendar .calendar-day:focus-visible, #mixed-calendar .time-slot:focus-visible, #mixed-calendar button:focus-visible { outline: 3px solid #49363d; outline-offset: 2px; }
+#mixed-calendar [data-mixed-slots-heading], #mixed-calendar [data-mixed-alternatives] h3 { margin: 20px 0 10px; }
+#mixed-calendar [data-mixed-alternatives] { display: grid; gap: 8px; }
+#mixed-calendar .mixed-suggestion { text-align: left; padding: 12px; border: 1px solid #d7b7b6; border-radius: 8px; background: #fff8f4; color: #49363d; overflow-wrap: anywhere; }
+#mixed-time-quote { font-weight: 700; line-height: 1.7; font-variant-numeric: tabular-nums; }
+@media (prefers-reduced-motion: no-preference) { #mixed-calendar button { transition: background-color .18s ease, border-color .18s ease; } }

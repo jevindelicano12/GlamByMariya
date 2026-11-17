@@ -1,0 +1,14 @@
+@{ ViewData["Title"] = "Access denied"; var staff = GlamByMariya.Core.Entities.Roles.IsStaff(User); }
+<div class="page-heading"><div><div class="eyebrow">403 · ACCESS DENIED</div><h1>Access denied</h1><p>You do not have permission to open this page.</p></div></div>
+<section class="panel stack">
+    <p>Your account permissions have not changed. Use the navigation to return to a page available to your account.</p>
+    @if (User.Identity?.IsAuthenticated == true)
+    {
+        <a class="button" asp-controller="@(staff ? "Admin" : "Bookings")" asp-action="Index">Return to dashboard</a>
+    }
+    else
+    {
+        <a class="button" asp-controller="Account" asp-action="Login">Sign in</a>
+    }
+    <a class="subtle-link" asp-controller="Home" asp-action="Index">Explore home-service makeup</a>
+</section>

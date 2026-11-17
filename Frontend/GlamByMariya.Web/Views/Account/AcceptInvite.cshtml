@@ -1,0 +1,21 @@
+@{ ViewData["Title"] = "Accept administrator invitation"; }
+<div class="auth-wrap verification-wrap">
+    <div class="eyebrow">ADMINISTRATOR INVITATION</div><h1>Set up your account.</h1>
+    <p>You were invited as <strong class="account-email">@ViewBag.Email</strong>. Complete your details and password — the Admin role is assigned automatically.</p>
+    <section class="panel verification-card">
+        @if (ViewBag.Error != null) { <div class="alert error" role="alert">@ViewBag.Error</div> }
+        @if (ViewBag.AcceptanceUnavailable != true)
+        {
+        <form asp-action="AcceptInvite" method="post" class="stack">
+            <input type="hidden" name="email" value="@ViewBag.Email" /><input type="hidden" name="token" value="@ViewBag.Token" />
+            <div class="form-grid"><label>First name<input name="firstName" required maxlength="50" autocomplete="given-name" /></label><label>Last name<input name="lastName" required maxlength="50" autocomplete="family-name" /></label></div>
+            <div class="form-grid"><label>Age<input name="age" type="number" required min="13" max="120" /></label><label>Gender<select name="gender"><option value="">Select (optional)</option><option>Male</option><option>Female</option><option>Others</option></select></label></div>
+            <label>Address<textarea name="address" required minlength="8" maxlength="500" rows="2"></textarea></label>
+            <label>Password<input name="password" type="password" required minlength="8" maxlength="128" autocomplete="new-password" /></label>
+            <small>Use 8–128 characters, including an English letter (A–Z) and a number (0–9). Symbols and other characters are allowed; some, such as emoji, count as two.</small>
+            <small>Single-use link. If it expired or was already used, ask the Super Admin for a new invitation.</small>
+            <button class="button" type="submit">Create administrator account <span>↗</span></button>
+        </form>
+        }
+    </section>
+</div>

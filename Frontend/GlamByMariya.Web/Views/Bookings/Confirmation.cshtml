@@ -1,0 +1,17 @@
+@model Booking
+@{ ViewData["Title"] = "Booking submitted · " + Model.Reference; var payments = (List<Payment>)ViewBag.Payments; }
+<link rel="stylesheet" href="~/css/mixed-payment.css" asp-append-version="true" />
+<div class="booking-receipt">
+    <header class="booking-receipt-header"><h1>Booking request received.</h1><p>Your request is saved. It is not a confirmed appointment or verified payment.</p><strong class="booking-reference">@Model.Reference</strong></header>
+    <section class="panel stack" aria-label="Submission receipt">
+        <h2>Your appointment request</h2>
+        <div class="detail-row"><span>Makeup start</span><strong>@Model.Start.ToString("dddd, MMMM d, yyyy · h:mm tt")</strong></div>
+        <div class="detail-row"><span>Booking status</span><strong>@Model.Status</strong></div>
+        <div class="detail-row"><span>Payment status</span><strong>@(payments.All(p => !p.Verified) ? "Unverified — awaiting Admin review" : Model.PaymentStatus)</strong></div>
+        <div class="detail-row"><span>Booking total</span><strong>₱@Model.Total.ToString("N2")</strong></div>
+        <div class="detail-row"><span>Claimed payment submitted</span><strong>₱@(Model.MixedSubmission?.ClaimedAmount.ToString("N2") ?? payments.Sum(p => p.Amount).ToString("N2"))</strong></div>
+        <p class="mixed-review-note">An uploaded screenshot is a payment claim, not proof of a confirmed transfer. An authorized Admin must review the transfer and appointment. Travel feasibility has not been verified; transportation is separate.</p>
+        <partial name="_MixedPeople" model="Model" />
+        <div class="button-row"><a class="button" asp-action="Details" asp-route-id="@Model.Id">View appointment details</a><a class="button secondary" asp-action="Index">My appointments</a></div>
+    </section>
+</div>

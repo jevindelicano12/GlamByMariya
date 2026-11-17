@@ -1,0 +1,28 @@
+:root {
+    --type-body: 1rem;
+    --type-main: clamp(1.75rem, 2.4vw, 2rem);
+    --type-section: clamp(1.375rem, 2vw, 1.625rem);
+    --type-card: 1.1875rem;
+    --type-helper: .875rem;
+}
+body { font-size: var(--type-body); }
+main h1, main .page-heading h1, main .hero h2 { font-size: var(--type-main); line-height: 1.2; }
+main h2, main .section-title h2, main .admin-banner h2 { font-size: var(--type-section); }
+main h3, main .service-body h3 { font-size: var(--type-card); }
+main p, main td, main th { font-size: var(--type-body); }
+main small, main .help, main .badge, main .field-error { font-size: var(--type-helper); }
+main label { font-size: .9375rem; }
+main input, main select, main textarea, main button, main .button { font-size: 1rem; }
+.sidebar nav a, .customer-desktop-nav a, .public-desktop-nav a, .customer-mobile-menu nav a { font-size: .9375rem; }
+.calendar-month-heading { display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap; margin-bottom:1rem; }
+.admin-month { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:.35rem; margin:1rem 0; }
+.calendar-weekday { text-align:center; font-size:.875rem; }
+.admin-calendar-day { min-width:0; min-height:4.5rem; padding:.4rem; border:1px solid #e8d8c8; border-radius:.4rem; display:flex; flex-direction:column; color:#49363d; }
+.admin-calendar-day:hover, .admin-calendar-day:focus-visible { background:#f8e8eb; outline:2px solid #a6536b; }
+.admin-calendar-day span { font-size:.8125rem; overflow-wrap:anywhere; }
+.payment-proof-preview { max-width:100%; max-height:240px; }
+@media (max-width:600px) {
+    .admin-month { gap:.15rem; }
+    .admin-calendar-day { min-height:3.5rem; padding:.2rem; }
+    .admin-calendar-day span { font-size:.75rem; }
+}
