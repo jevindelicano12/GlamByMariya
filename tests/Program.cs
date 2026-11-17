@@ -51,6 +51,34 @@ if (args.Contains("--cancellation-policy-only"))
         "confirmed booking 3 days away cancels with PHP 200 fee and refund of verified paid minus fee");
     Console.WriteLine($"All {checks} cancellation policy checks passed."); return;
 }
+if (args.Contains("--exact-deposit-only"))
+{
+    var demo = new DemoStore(); var flow = new BookingService(demo, demo, demo, demo, demo);
+    var customerUser = demo.Users.First(u => u.Role == Roles.Customer); var ownerUser = demo.Users.First(u => u.Role == Roles.SuperAdmin);
+    var look = demo.Services.First(); var start = DateTime.Today.AddDays(29).AddHours(8);
+    var quote = flow.Quote(look.Id, [], 1, "auto", start);
+    Check(quote.RequiredDownPayment < quote.FinalTotal, "test service has a balance after the down payment");
+    var n = 0;
+    Booking Submit(decimal amount) => flow.Create(customerUser.Id, look.Id, [], start, "24 Synthetic Street", "Quezon City", amount, "GCash",
+        $"EXACT-REF-{++n}", "synthetic-proof.png", true, 1, "auto", true, quote.FinalTotal, quote.RequiredDownPayment);
+    var before = demo.Bookings.Count;
+    Reject(() => Submit(quote.RequiredDownPayment + 1), "a higher custom amount is rejected");
+    Reject(() => Submit(quote.FinalTotal), "full payment is rejected online");
+    Reject(() => Submit(quote.RequiredDownPayment - 1), "less than the down payment is rejected");
+    Check(demo.Bookings.Count == before, "rejected amounts create no booking");
+    var booking = Submit(quote.RequiredDownPayment);
+    Check(booking.Status == "Pending Payment" && demo.Payments.Single(p => p.BookingId == booking.Id).Amount == quote.RequiredDownPayment, "the exact down payment is accepted");
+    var claim = demo.Payments.Single(p => p.BookingId == booking.Id);
+    claim.Amount = quote.RequiredDownPayment + 50;
+    Reject(() => flow.AdminAction(booking, "verify", ownerUser.Id, "", 0, ""), "verification rejects a claim that is not the exact down payment");
+    claim.Amount = quote.RequiredDownPayment;
+    flow.AdminAction(booking, "verify", ownerUser.Id, "", 0, "");
+    Check(booking.Status == "Confirmed", "exact claim verifies and confirms");
+    PreparedPersistentBooking.ValidateClaim(quote.RequiredDownPayment, quote);
+    Check(true, "database-path claim check accepts the exact down payment");
+    Reject(() => PreparedPersistentBooking.ValidateClaim(quote.FinalTotal, quote), "database-path claim check rejects full payment");
+    Console.WriteLine($"All {checks} exact deposit checks passed."); return;
+}
 if (args.Contains("--payment-window-only"))
 {
     var demo = new DemoStore(); var flow = new BookingService(demo, demo, demo, demo, demo);
@@ -262,10 +290,18 @@ if (args.Contains("--persistent-quote-only"))
     var quote = workflow.Quote(service.Id, []);
     var persistent = System.Reflection.DispatchProxy.Create<IPersistentStudioStore, PersistentQuoteProxy>();
     var proxy = (PersistentQuoteProxy)persistent;
+    proxy.TestServices = store.Services;
     var persistentFlow = new BookingService(persistent, persistent, persistent, persistent, persistent);
-    Reject(() => persistentFlow.Create(customer.Id, service.Id, [], DateTime.Today.AddDays(1), "Test address", "Quezon City", 1, "GCash", "REF", null, true, travelAcknowledged: true), "persistent submission requires a reviewed quote");
+    var persistentStart = DateTime.Today.AddDays(2).AddHours(10);
+    Reject(() => persistentFlow.Create(customer.Id, service.Id, [], persistentStart, "Test address", "Quezon City", 1, "GCash", "REF", null, true, travelAcknowledged: true), "persistent submission requires a reviewed quote");
     Check(proxy.Arguments == null, "missing quote never reaches persistent repository");
-    persistentFlow.Create(customer.Id, service.Id, [], DateTime.Today.AddDays(1), "Test address", "Quezon City", 1, "GCash", "REF", null, true, travelAcknowledged: true, expectedTotal: quote.FinalTotal, expectedMinimum: quote.RequiredDownPayment);
+    var taken = new Booking { CustomerId = Guid.NewGuid(), Status = "Confirmed", Start = persistentStart, Service = new(service.Id, service.Name, service.Price, service.Minutes), BufferMinutesSnapshot = 45 };
+    proxy.TestBookings.Add(taken);
+    Reject(() => persistentFlow.Create(customer.Id, service.Id, [], persistentStart, "Test address", "Quezon City", 1, "GCash", "REF", null, true, travelAcknowledged: true, expectedTotal: quote.FinalTotal, expectedMinimum: quote.RequiredDownPayment),
+        "persistent submission for an already reserved time is rejected before the database insert");
+    Check(proxy.Arguments == null, "overlapping submission never reaches persistent repository");
+    proxy.TestBookings.Remove(taken);
+    persistentFlow.Create(customer.Id, service.Id, [], persistentStart, "Test address", "Quezon City", 1, "GCash", "REF", null, true, travelAcknowledged: true, expectedTotal: quote.FinalTotal, expectedMinimum: quote.RequiredDownPayment);
     Check(proxy.Arguments != null && (decimal?)proxy.Arguments[14] == quote.FinalTotal && (decimal?)proxy.Arguments[15] == quote.RequiredDownPayment, "persistent workflow forwards both reviewed amounts to repository");
     BookingService.ValidateExpectedQuote(quote, quote.FinalTotal, quote.RequiredDownPayment);
     Check(true, "matching reviewed total and minimum accepted");
@@ -519,13 +555,18 @@ if (args.Contains("--staff-cancellation-completion-only"))
         var serviceItem = local.Services.First();
         var start = DateTime.Today.AddDays(25).AddHours(8);
         var quoted = testFlow.Quote(serviceItem.Id, [], 1, "auto", start);
-        var submitted = scenario == "full" ? quoted.FinalTotal : quoted.RequiredDownPayment;
-        var appointment = testFlow.Create(client.Id, serviceItem.Id, [], start, "Synthetic service address", "Quezon City", submitted, "GCash", "FINANCE-" + scenario, "synthetic-proof.png", true, 1, "auto", true, quoted.FinalTotal, quoted.RequiredDownPayment);
+        // Online payment is always the exact down payment; "full" adds the balance collected afterwards.
+        var appointment = testFlow.Create(client.Id, serviceItem.Id, [], start, "Synthetic service address", "Quezon City", quoted.RequiredDownPayment, "GCash", "FINANCE-" + scenario, "synthetic-proof.png", true, 1, "auto", true, quoted.FinalTotal, quoted.RequiredDownPayment);
         var deposit = local.Payments.Single(p => p.BookingId == appointment.Id);
         Reject(() => testFlow.AdminAction(appointment, "verify", client.Id, "", 0, ""), $"{scenario}: Customer cannot verify payment");
         Check(!deposit.Verified && testFlow.Paid(appointment) == 0, $"{scenario}: unverified claim is not collected");
         if (scenario == "unpaid") appointment.Status = "Confirmed";
         else testFlow.AdminAction(appointment, "verify", testOwner.Id, "", 0, "");
+        if (scenario == "full")
+        {
+            local.Payments.Add(new() { BookingId = appointment.Id, Amount = quoted.FinalTotal - quoted.RequiredDownPayment, Method = "Cash", Reference = "FINANCE-full-balance", Verified = true });
+            appointment.VerifiedPaid = testFlow.Paid(appointment);
+        }
         var originalTotal = appointment.Total; var originalPaid = testFlow.Paid(appointment);
         var originalCount = local.Payments.Count; var originalRef = deposit.Reference; var wasVerified = deposit.Verified;
         appointment.Start = DateTime.Today.AddDays(-2).AddHours(8);
@@ -700,8 +741,10 @@ if (args.Contains("--mixed-pricing-only"))
     {
         var paymentStart = bookingDay.AddDays(index);
         var paymentQuote = mixedFlow.QuoteMixed(threeMixed, paymentStart);
-        var paidMixed = mixedFlow.CreateMixed(mixedCustomer.Id, threeMixed, paymentStart, "Synthetic address", "Quezon City", amount, "GCash", "MIXED-AMOUNT-" + index, "synthetic-proof.png", true, true, paymentQuote.FinalTotal, paymentQuote.RequiredDownPayment, policyVersion: mixedStore.Settings.PolicyVersion, travelReminderVersion: mixedStore.Settings.TravelReminderVersion);
-        Check(mixedStore.Payments.Single(p => p.BookingId == paidMixed.Id).Amount == amount && mixedFlow.Paid(paidMixed) == 0, index == 1 ? "custom mixed payment remains an unverified claim" : "full mixed payment remains an unverified claim");
+        var paymentsBefore = mixedStore.Payments.Count;
+        Reject(() => mixedFlow.CreateMixed(mixedCustomer.Id, threeMixed, paymentStart, "Synthetic address", "Quezon City", amount, "GCash", "MIXED-AMOUNT-" + index, "synthetic-proof.png", true, true, paymentQuote.FinalTotal, paymentQuote.RequiredDownPayment, policyVersion: mixedStore.Settings.PolicyVersion, travelReminderVersion: mixedStore.Settings.TravelReminderVersion),
+            index == 1 ? "custom mixed payment is rejected; only the exact down payment is accepted" : "full mixed payment is rejected; only the exact down payment is accepted");
+        Check(mixedStore.Payments.Count == paymentsBefore, "rejected mixed payment amount creates no payment");
     }
     var replayKey = Guid.NewGuid();
     var replayDay = bookingDay.AddDays(5);
@@ -949,14 +992,14 @@ if (args.Contains("--transportation-only"))
     Check(quote.ExtrasTotal == extra.Price * 2 && quote.DurationMinutes == look.Minutes * 4 + extra.Minutes * 2, "quantity pricing and duration use two add-ons");
     Reject(() => serviceCheck.Quote(look.Id, [extra.Id, extra.Id], 1, "auto"), "add-on quantity cannot exceed party size");
     demo.Settings.OpenHour = 0; demo.Settings.CloseHour = 23; demo.Settings.BufferMinutes = 0;
-    var booking = serviceCheck.Create(person.Id, look.Id, [extra.Id, extra.Id], DateTime.Today.AddDays(10), "Synthetic address", "Quezon City", quote.FinalTotal, "GCash", "SYNTHETIC-QUANTITY", null, true, 4, "group", true);
+    var booking = serviceCheck.Create(person.Id, look.Id, [extra.Id, extra.Id], DateTime.Today.AddDays(10), "Synthetic address", "Quezon City", quote.RequiredDownPayment, "GCash", "SYNTHETIC-QUANTITY", null, true, 4, "group", true);
     Check(booking.Total == quote.FinalTotal && booking.End == booking.Start.AddMinutes(quote.DurationMinutes) && booking.AddOns.Single().Quantity == 2, "booking snapshots quantity and duration");
-    Check(serviceCheck.Paid(booking) == 0 && demo.Payments.Single(p => p.BookingId == booking.Id).Amount == quote.FinalTotal, "full claimed amount remains unverified");
+    Check(serviceCheck.Paid(booking) == 0 && demo.Payments.Single(p => p.BookingId == booking.Id).Amount == quote.RequiredDownPayment, "exact down payment claim remains unverified");
     Reject(() => serviceCheck.Create(person.Id, look.Id, [], DateTime.Today.AddDays(11), "Synthetic address", "Quezon City", 0, "GCash", "SYNTHETIC-LOW", null, true, 1, "auto", true), "below-minimum claim rejected");
     var individual = serviceCheck.Quote(look.Id, []);
     Reject(() => serviceCheck.Create(person.Id, look.Id, [], DateTime.Today.AddDays(11), "Synthetic address", "Quezon City", individual.FinalTotal + 1, "GCash", "SYNTHETIC-HIGH", null, true, 1, "auto", true), "above-total claim rejected");
     serviceCheck.AdminAction(booking, "verify", demo.Users.First(u => u.Role == "Admin").Id, "", 0, "");
-    Check(serviceCheck.Paid(booking) == quote.FinalTotal && booking.Status == "Confirmed", "explicit review verifies full claimed payment");
+    Check(serviceCheck.Paid(booking) == quote.RequiredDownPayment && booking.Status == "Confirmed", "explicit review verifies the exact down payment");
     Console.WriteLine($"All {checks} focused Demo transportation checks passed.");
     return;
 }
@@ -1324,11 +1367,19 @@ public class PersistentQuoteProxy : System.Reflection.DispatchProxy
     public List<AppUser> TestUsers { get; set; } = [];
     public List<Booking> TestBookings { get; set; } = [];
     public List<Payment> TestPayments { get; set; } = [];
+    public List<CatalogItem> TestServices { get; set; } = new DemoStore().Services;
+    public List<CatalogItem> TestAddOns { get; set; } = [];
+    public BusinessSettings TestSettings { get; set; } = new();
     private readonly object gate = new();
     protected override object? Invoke(System.Reflection.MethodInfo? method, object?[]? args)
     {
         if (method?.Name == "get_IsPersistent") return true;
         if (method?.Name == "get_Gate") return gate;
+        if (method?.Name == "get_Now") return DateTime.Now;
+        if (method?.Name == "get_Services") return TestServices;
+        if (method?.Name == "get_AddOns") return TestAddOns;
+        if (method?.Name == "get_Settings") return TestSettings;
+        if (method?.Name == "get_Blocks") return new List<AvailabilityBlock>();
         if (method?.Name == "get_Users") return TestUsers;
         if (method?.Name == "get_Bookings") return TestBookings;
         if (method?.Name == "get_Payments") return TestPayments;

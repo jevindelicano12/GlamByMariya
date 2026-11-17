@@ -5,6 +5,12 @@ public static class Money
     public static decimal Round(decimal amount) => decimal.Round(amount, 2, MidpointRounding.AwayFromZero);
     public static decimal Half(decimal total) => Round(total * 0.5m);
     public static decimal Percentage(decimal total, decimal percent) => Round(total * percent / 100m);
+    // Online payments collect exactly the required down payment (same rule as the database and Xendit invoice).
+    public static void RequireExactDeposit(decimal amount, decimal required)
+    {
+        if (amount != required)
+            throw new InvalidOperationException($"The down payment must be exactly ₱{required:N2}.");
+    }
 }
 
 public record BookingQuote(string Service, int People, string Package, decimal RegularPrice,

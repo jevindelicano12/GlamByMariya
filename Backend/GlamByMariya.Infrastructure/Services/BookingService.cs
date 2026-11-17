@@ -261,6 +261,8 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
         {
             if (!expectedTotal.HasValue || !expectedMinimum.HasValue) throw new InvalidOperationException("Review the current price before submitting.");
             if (!PreparedPersistentBooking.Enabled && addOnIds.Distinct().Count() != addOnIds.Length) throw new InvalidOperationException("Add-on quantities are not yet available in persistent storage.");
+            // Friendly early check; the database trigger stays the final authority under concurrency.
+            CheckSlot(start, Quote(serviceId, addOnIds, people, package).DurationMinutes);
             return database.SubmitBooking(userId, serviceId, addOnIds, start, address, area, deposit, method, reference, proof, agreed, travelAcknowledged, people, package, expectedTotal, expectedMinimum);
         }
         lock (store.Gate)
@@ -275,7 +277,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             CheckSlot(start, quote.DurationMinutes);
             var user = store.Users.First(x => x.Id == userId);
             var b = new Booking { CustomerId = userId, CustomerName = user.Name, Service = new(service.Id, service.Name, service.Price, service.Minutes), AddOns = selected.GroupBy(x => x.Id).Select(g => new PriceSnapshot(g.Key, g.First().Name, g.First().Price, g.First().Minutes, g.Count())).ToList(), Start = start, BufferMinutesSnapshot = store.Settings.BufferMinutes, Address = address.Trim(), Area = area, TravelFee = 0, EarlyFeeSnapshot = quote.EarlyFee, LateFeeSnapshot = quote.LateFee, TransportationPolicyAcknowledgedAt = store.Now, People = people, Package = package, AppliedPricePerPerson = quote.AppliedPricePerPerson, GroupPrice = quote.GroupPrice, GroupMinimumPeople = quote.GroupMinimumPeople, DownPaymentPercentSnapshot = store.Settings.DownPaymentPercent, RequiredDownPaymentSnapshot = quote.RequiredDownPayment, PaymentDueAt = PaymentWindow.DueAt(store.Now) };
-            if (Money.Round(deposit) != deposit || deposit < quote.RequiredDownPayment || deposit > quote.FinalTotal) throw new InvalidOperationException($"Choose an amount from ₱{quote.RequiredDownPayment:N2} to ₱{quote.FinalTotal:N2}, with at most two decimal places.");
+            Money.RequireExactDeposit(deposit, quote.RequiredDownPayment);
             if (method == "Cash") throw new InvalidOperationException("Use GCash, Maya or Bank Transfer for your down payment.");
             CheckReference(method, reference);
             bookings.Bookings.Add(b);
@@ -393,7 +395,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
                     if (b.Status != "Pending Payment") throw new InvalidOperationException("Only pending down payments can be verified.");
                     EnsurePaymentWindowOpen(b);
                     var deposit = payments.Payments.SingleOrDefault(p => p.BookingId == b.Id) ?? throw new InvalidOperationException("No down payment was submitted.");
-                    if (deposit.Amount < b.RequiredDownPayment || deposit.Amount > b.Total || Money.Round(deposit.Amount) != deposit.Amount) throw new InvalidOperationException("The submitted payment must be between the required minimum and the booking total.");
+                    Money.RequireExactDeposit(deposit.Amount, b.RequiredDownPayment);
                     CheckReference(deposit.Method, deposit.Reference, deposit.Id);
                     // Validate everything before changing either payment or booking under the same lock.
                     if (!store.Settings.ServiceAreas.Split(',').Any(x => x.Trim().Equals(b.Area, StringComparison.OrdinalIgnoreCase))) throw new InvalidOperationException("This address is outside the configured service area.");
@@ -510,7 +512,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
                 throw new InvalidOperationException("This makeup start time is no longer available. Choose another available time.");
             if (expectedTotal != quote.FinalTotal || expectedMinimum != quote.RequiredDownPayment) throw new InvalidOperationException("The booking price or minimum payment changed. Please review the updated quote before submitting.");
             CheckSlot(start, quote.DurationMinutes);
-            if (Money.Round(deposit) != deposit || deposit < quote.RequiredDownPayment || deposit > quote.FinalTotal) throw new InvalidOperationException($"Choose an amount from ₱{quote.RequiredDownPayment:N2} to ₱{quote.FinalTotal:N2}, with at most two decimal places.");
+            Money.RequireExactDeposit(deposit, quote.RequiredDownPayment);
             if (method == "Cash") throw new InvalidOperationException("Use GCash, Maya or Bank Transfer for your down payment.");
             CheckReference(method, reference);
             var user = store.Users.First(x => x.Id == userId);
