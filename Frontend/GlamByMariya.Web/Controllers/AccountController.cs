@@ -511,7 +511,8 @@ public class AccountController(
         AppUser created;
         lock (store.Gate)
         {
-            try { created = store.AddUser(reg.FirstName, reg.LastName, reg.Email, reg.Password, "Customer", reg.Age, reg.Gender, reg.Address); }
+            // The held registration carries only a password hash, never the password.
+            try { created = store.AddCustomerWithPasswordHash(reg.FirstName, reg.LastName, reg.Email, reg.PasswordHash ?? "", reg.Age, reg.Gender, reg.Address); }
             catch (InvalidOperationException e) { ViewBag.Error = e.Message; return View("Login"); }
             created.Suffix = reg.Suffix; created.Birthday = reg.Birthday;
         }

@@ -221,6 +221,10 @@ if (customerAuthTest)
     builder.Services.AddHttpClient("supabase-auth").ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder.Services.AddScoped<SupabaseAuthService>();
 builder.Services.AddScoped<BrevoEmailSender>();
+// Email codes: PostgreSQL when a database is configured (survives restarts), memory otherwise.
+builder.Services.AddSingleton<IEmailCodeStore>(sp => sp.GetService<NpgsqlDataSource>() is { } emailCodeSource && builder.Configuration["Database:Schema"] == "public"
+    ? new PostgresEmailCodeStore(emailCodeSource)
+    : new MemoryEmailCodeStore(sp.GetRequiredService<Microsoft.Extensions.Caching.Memory.IMemoryCache>()));
 builder.Services.AddScoped<EmailVerificationService>();
 builder.Services.AddScoped<AccountSettingsService>();
 builder.Services.AddScoped<AvatarStorageService>();

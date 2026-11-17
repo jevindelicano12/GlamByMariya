@@ -16,6 +16,8 @@ public interface IStudioStore : IServiceRepository, IAddOnRepository, IBookingRe
     List<AvailabilityBlock> Blocks { get; }
     BusinessSettings Settings { get; }
     AppUser AddUser(string firstName, string lastName, string email, string password, string role = "Customer", int age = 0, string gender = "", string address = "");
+    // Customer registration after the email code: the password was validated and hashed before it was held.
+    AppUser AddCustomerWithPasswordHash(string firstName, string lastName, string email, string passwordHash, int age, string gender, string address);
     // Elevated roles only (Admin, SuperAdmin). Never called with Customer and
     // never with browser-supplied role input; callers are bootstrap/invite flows.
     AppUser CreateElevatedUser(string firstName, string lastName, string email, string password, string role, int age, string gender, string address);

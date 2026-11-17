@@ -195,13 +195,25 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
         var user=new AppUser { FirstName=firstName.Trim(),LastName=lastName.Trim(),Name=$"{firstName.Trim()} {lastName.Trim()}",
             Email=email.Trim(),Age=age,Gender=gender,Address=address.Trim(),Role=role };
         user.PasswordHash=new PasswordHasher<AppUser>().HashPassword(user,password);
+        InsertLegacyUser(user,role,age,gender);
+        return user;
+    }
+    public virtual AppUser AddCustomerWithPasswordHash(string firstName,string lastName,string email,string passwordHash,int age,string gender,string address)
+    {
+        if(string.IsNullOrWhiteSpace(passwordHash)) throw new InvalidOperationException("Registration expired. Please register again.");
+        var error=RegistrationRules.ValidateProfile(firstName,lastName,email,age,gender,address,enforceLegacyAge:false);
+        if(error!=null) throw new InvalidOperationException(error);
+        var user=new AppUser { FirstName=firstName.Trim(),LastName=lastName.Trim(),Name=$"{firstName.Trim()} {lastName.Trim()}",
+            Email=email.Trim(),Age=age,Gender=gender,Address=address.Trim(),Role="Customer",PasswordHash=passwordHash };
+        InsertLegacyUser(user,"Customer",age,gender);
+        return user;
+    }
+    private void InsertLegacyUser(AppUser user,string role,int age,string gender) =>
         Transaction(Actor,()=>db.Database.ExecuteSqlInterpolated($"""
             INSERT INTO makeup.app_users(id,role_id,first_name,last_name,age_at_registration,gender,address,email,password_hash)
             SELECT {user.Id},id,{user.FirstName},{user.LastName},{age},{gender},{user.Address},{user.Email},{user.PasswordHash}
             FROM makeup.roles WHERE name={role}
             """));
-        return user;
-    }
     public virtual AppUser CreateElevatedUser(string firstName,string lastName,string email,string password,string role,int age,string gender,string address)
     {
         if(role is not ("Admin" or "SuperAdmin")) throw new InvalidOperationException("Invalid elevated role.");

@@ -14,7 +14,11 @@ public static partial class RegistrationRules
     private static partial Regex NameCharacters();
 
     // Returns an error message, or null when the submission is valid.
-    public static string? Validate(string firstName, string lastName, string email, int age, string gender, string address, string password, bool enforceLegacyAge = true)
+    public static string? Validate(string firstName, string lastName, string email, int age, string gender, string address, string password, bool enforceLegacyAge = true) =>
+        ValidateProfile(firstName, lastName, email, age, gender, address, enforceLegacyAge) ?? PasswordPolicy.ValidateNewPassword(password);
+
+    // Profile fields only, for accounts created from an already-hashed password.
+    public static string? ValidateProfile(string firstName, string lastName, string email, int age, string gender, string address, bool enforceLegacyAge = true)
     {
         if (string.IsNullOrWhiteSpace(firstName) || firstName.Trim().Length > 50 || !NameCharacters().IsMatch(firstName.Trim()))
             return "Enter your first name (letters only, up to 50 characters).";
@@ -28,6 +32,6 @@ public static partial class RegistrationRules
             return "Choose a valid option for gender.";
         if (string.IsNullOrWhiteSpace(address) || address.Trim().Length < 8 || address.Trim().Length > 500)
             return "Enter your address (8–500 characters).";
-        return PasswordPolicy.ValidateNewPassword(password);
+        return null;
     }
 }

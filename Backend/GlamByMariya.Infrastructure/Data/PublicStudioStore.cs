@@ -401,6 +401,20 @@ public sealed class PublicStudioStore(
         return user;
     }
 
+    public override AppUser AddCustomerWithPasswordHash(string firstName, string lastName, string email, string passwordHash, int age, string gender, string address)
+    {
+        if (string.IsNullOrWhiteSpace(passwordHash)) throw new InvalidOperationException("Registration expired. Please register again.");
+        var error = RegistrationRules.ValidateProfile(firstName, lastName, email, age, gender, address, enforceLegacyAge: false);
+        if (error != null) throw new InvalidOperationException(error);
+        var user = new AppUser
+        {
+            FirstName = firstName.Trim(), LastName = lastName.Trim(), Name = $"{firstName.Trim()} {lastName.Trim()}",
+            Email = email.Trim(), Age = age, Gender = gender, Address = address.Trim(), Role = "Customer", PasswordHash = passwordHash
+        };
+        Transaction(ActorId, () => pdb.Database.ExecuteSqlInterpolated($"INSERT INTO public.customers(app_id, full_name, first_name, last_name, age_at_registration, gender, address, email, password_hash, is_active) VALUES({user.Id}, {user.Name}, {user.FirstName}, {user.LastName}, {age}, {gender}, {user.Address}, {user.Email}, {user.PasswordHash}, true)"));
+        return user;
+    }
+
     public override AppUser CreateElevatedUser(string firstName, string lastName, string email, string password, string role, int age, string gender, string address)
         => CreateElevatedUserCore(firstName, lastName, email, password, role, age, gender, address, false);
 

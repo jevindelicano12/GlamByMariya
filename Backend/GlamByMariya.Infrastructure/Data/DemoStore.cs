@@ -82,6 +82,16 @@ public class DemoStore : IStudioStore, IAdminProvisioningStore, IVerifiedProvide
         Users.Add(user);
         return user;
     }
+    public AppUser AddCustomerWithPasswordHash(string firstName, string lastName, string email, string passwordHash, int age, string gender, string address)
+    {
+        if (string.IsNullOrWhiteSpace(passwordHash)) throw new InvalidOperationException("Registration expired. Please register again.");
+        var error = RegistrationRules.ValidateProfile(firstName, lastName, email, age, gender, address, enforceLegacyAge: false);
+        if (error != null) throw new InvalidOperationException(error);
+        if (Users.Any(x => x.Email.Equals(email.Trim(), StringComparison.OrdinalIgnoreCase))) throw new InvalidOperationException("This email is already registered.");
+        var user = new AppUser { Name = $"{firstName.Trim()} {lastName.Trim()}", FirstName = firstName.Trim(), LastName = lastName.Trim(), Age = age, Gender = gender, Address = address.Trim(), Email = email.Trim(), Role = Roles.Customer, PasswordHash = passwordHash };
+        Users.Add(user);
+        return user;
+    }
     public AppUser CreateElevatedUser(string firstName, string lastName, string email, string password, string role, int age, string gender, string address)
     {
         if (role is not ("Admin" or "SuperAdmin")) throw new InvalidOperationException("Invalid elevated role.");

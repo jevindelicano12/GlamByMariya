@@ -623,6 +623,15 @@ sealed class FakeStore : DemoStore, IStudioStore, ISupabaseIdentityStore
         return user;
     }
 
+    // Registration now creates the account from the held password hash.
+    AppUser IStudioStore.AddCustomerWithPasswordHash(string firstName, string lastName, string email, string passwordHash, int age, string gender, string address)
+    {
+        AddUserCalls++;
+        var user = base.AddCustomerWithPasswordHash(firstName, lastName, email, passwordHash, age, gender, address);
+        AddedUsers.Add(user);
+        return user;
+    }
+
     AppUser IStudioStore.CreateElevatedUser(string firstName, string lastName, string email, string password, string role, int age, string gender, string address)
     {
         ElevatedCalls++;

@@ -51,6 +51,71 @@ if (args.Contains("--cancellation-policy-only"))
         "confirmed booking 3 days away cancels with PHP 200 fee and refund of verified paid minus fee");
     Console.WriteLine($"All {checks} cancellation policy checks passed."); return;
 }
+if (args.Contains("--email-codes-only"))
+{
+    // Store rules, checked directly on the memory store (the Postgres store follows the same contract).
+    var codeStore = new MemoryEmailCodeStore(new Microsoft.Extensions.Caching.Memory.MemoryCache(new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions()));
+    var t0 = DateTime.UtcNow;
+    Check(codeStore.Consume("reset", "a@example.test", "H1", 5, t0).Result == EmailCodeCheck.Missing, "no code means Missing");
+    codeStore.Save("reset", " A@Example.TEST ", "H1", t0.AddMinutes(15), null);
+    Check(codeStore.Peek("reset", "a@example.test", t0) != null, "email is normalized (case and spaces)");
+    for (var i = 0; i < 5; i++) Check(codeStore.Consume("reset", "a@example.test", "WRONG", 5, t0).Result == EmailCodeCheck.Wrong, $"wrong code {i + 1} counts an attempt");
+    Check(codeStore.Consume("reset", "a@example.test", "H1", 5, t0).Result == EmailCodeCheck.Locked, "after 5 wrong codes even the right code is locked");
+    codeStore.Save("reset", "a@example.test", "H2", t0.AddMinutes(15), null);
+    Check(codeStore.Consume("reset", "a@example.test", "H2", 5, t0).Result == EmailCodeCheck.Ok, "a new code resets the attempt counter");
+    Check(codeStore.Consume("reset", "a@example.test", "H2", 5, t0).Result == EmailCodeCheck.Missing, "a correct code is single use");
+    codeStore.Save("registration", "a@example.test", "R1", t0.AddMinutes(15), "{}");
+    codeStore.Consume("registration", "a@example.test", "WRONG", 5, t0);
+    codeStore.Save("reset", "a@example.test", "H3", t0.AddMinutes(15), null);
+    Check(codeStore.Consume("registration", "a@example.test", "R1", 5, t0).Result == EmailCodeCheck.Ok && codeStore.Consume("reset", "a@example.test", "H3", 5, t0).Result == EmailCodeCheck.Ok,
+        "registration and reset codes have separate attempt counters");
+    codeStore.Save("reset", "a@example.test", "H4", t0.AddMinutes(1), null);
+    Check(codeStore.Consume("reset", "a@example.test", "H4", 5, t0.AddMinutes(2)).Result == EmailCodeCheck.Expired, "an old code is Expired");
+    Check(codeStore.TryStartCooldown("reset", "a@example.test", TimeSpan.FromSeconds(60), t0) && !codeStore.TryStartCooldown("reset", "a@example.test", TimeSpan.FromSeconds(60), t0),
+        "a second request inside the cooldown is refused");
+    Check(codeStore.TryStartCooldown("registration", "a@example.test", TimeSpan.FromSeconds(60), t0), "a reset cooldown does not block registration");
+    codeStore.ClearCooldown("reset", "a@example.test");
+    Check(codeStore.TryStartCooldown("reset", "a@example.test", TimeSpan.FromSeconds(60), t0), "a cleared cooldown allows an immediate retry");
+
+    // Service behaviour with a fake Brevo delivery that captures the emailed code.
+    var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Email:BrevoApiKey"] = "synthetic-key", ["Email:From"] = "sender@example.test" }).Build();
+    var delivery = new CapturingBrevoDelivery();
+    var cache = new Microsoft.Extensions.Caching.Memory.MemoryCache(new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions());
+    var serviceStore = new MemoryEmailCodeStore(cache);
+    var brevo = new BrevoEmailSender(delivery, config, Microsoft.Extensions.Logging.Abstractions.NullLogger<BrevoEmailSender>.Instance);
+    var codes = new EmailVerificationService(cache, config, Microsoft.Extensions.Logging.Abstractions.NullLogger<EmailVerificationService>.Instance, new SyntheticWebEnv(), brevo, serviceStore);
+    var email = "new.customer@example.test";
+    await codes.RequestRegistrationCodeAsync(email, new("New", "Customer", email, 30, "Others", "24 Synthetic Street", "Secret123!"));
+    var held = serviceStore.Peek("registration", email, DateTime.UtcNow)!;
+    Check(!held.Contains("Secret123!") && held.Contains("PasswordHash"), "the held registration stores a password hash, never the password");
+    Reject(() => codes.RequestRegistrationCodeAsync(email, new("New", "Customer", email, 30, "Others", "24 Synthetic Street", "Secret123!")).GetAwaiter().GetResult(), "a second registration email inside 60 seconds is refused");
+    Reject(() => codes.ConfirmRegistrationCode(email, "000000" == delivery.LastCode ? "111111" : "000000"), "a wrong registration code is rejected");
+    var pending = codes.ConfirmRegistrationCode(email, delivery.LastCode!);
+    Check(pending.Password == "" && pending.PasswordHash is { } hash &&
+        new Microsoft.AspNetCore.Identity.PasswordHasher<AppUser>().VerifyHashedPassword(new AppUser(), hash, "Secret123!") != Microsoft.AspNetCore.Identity.PasswordVerificationResult.Failed,
+        "the confirmed registration returns a hash that matches the original password");
+    var demo = new DemoStore();
+    var created = demo.AddCustomerWithPasswordHash(pending.FirstName, pending.LastName, pending.Email, pending.PasswordHash!, pending.Age, pending.Gender, pending.Address);
+    Check(created.Role == Roles.Customer && created.PasswordHash == pending.PasswordHash, "a customer account is created from the held hash");
+    Reject(() => demo.AddCustomerWithPasswordHash(pending.FirstName, pending.LastName, pending.Email, pending.PasswordHash!, pending.Age, pending.Gender, pending.Address), "the same email cannot be registered twice");
+    Reject(() => demo.AddCustomerWithPasswordHash("New", "Customer", "other@example.test", "", 30, "Others", "24 Synthetic Street"), "an empty password hash is rejected");
+
+    await codes.RequestPasswordResetCodeAsync(email);
+    Reject(() => codes.RequireResetVerified(email), "reset is not verified before the code is entered");
+    codes.ConfirmPasswordResetCode(email, delivery.LastCode!);
+    codes.RequireResetVerified(email);
+    Check(true, "a correct reset code marks the reset as verified");
+    codes.ClearResetVerified(email);
+    Reject(() => codes.RequireResetVerified(email), "clearing the reset verification works");
+
+    delivery.Fail = true;
+    var failing = "failing@example.test";
+    Reject(() => codes.RequestPasswordResetCodeAsync(failing).GetAwaiter().GetResult(), "a failed email send is reported");
+    delivery.Fail = false;
+    await codes.RequestPasswordResetCodeAsync(failing);
+    Check(delivery.LastCode != null, "after a failed send the customer can retry immediately");
+    Console.WriteLine($"All {checks} email code checks passed."); return;
+}
 if (args.Contains("--persistent-reschedule-only"))
 {
     var persistent = System.Reflection.DispatchProxy.Create<IPersistentStudioStore, PersistentQuoteProxy>();
@@ -1423,4 +1488,28 @@ public class PersistentQuoteProxy : System.Reflection.DispatchProxy
         Arguments = args;
         return new Booking();
     }
+}
+// Fake Brevo delivery for email code checks: captures the 6-digit code instead of sending.
+public sealed class CapturingBrevoDelivery : HttpMessageHandler, IHttpClientFactory
+{
+    public string? LastCode { get; private set; }
+    public bool Fail { get; set; }
+    public HttpClient CreateClient(string name) => new(this, disposeHandler: false);
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        if (Fail) return new HttpResponseMessage(System.Net.HttpStatusCode.ServiceUnavailable);
+        using var json = System.Text.Json.JsonDocument.Parse(await request.Content!.ReadAsStringAsync(cancellationToken));
+        var match = System.Text.RegularExpressions.Regex.Match(json.RootElement.GetProperty("textContent").GetString()!, @"\b\d{6}\b");
+        LastCode = match.Success ? match.Value : null;
+        return new HttpResponseMessage(System.Net.HttpStatusCode.Created);
+    }
+}
+public sealed class SyntheticWebEnv : Microsoft.AspNetCore.Hosting.IWebHostEnvironment
+{
+    public string WebRootPath { get; set; } = Path.GetTempPath();
+    public Microsoft.Extensions.FileProviders.IFileProvider WebRootFileProvider { get; set; } = new Microsoft.Extensions.FileProviders.NullFileProvider();
+    public string ApplicationName { get; set; } = "WorkflowChecks";
+    public Microsoft.Extensions.FileProviders.IFileProvider ContentRootFileProvider { get; set; } = new Microsoft.Extensions.FileProviders.NullFileProvider();
+    public string ContentRootPath { get; set; } = Path.GetTempPath();
+    public string EnvironmentName { get; set; } = "Production";
 }

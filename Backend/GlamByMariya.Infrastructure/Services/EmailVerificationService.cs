@@ -1,57 +1,68 @@
 using System.Net.Mail;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Caching.Memory;
 
 namespace GlamByMariya.Infrastructure.Services;
 
 /// <summary>
-/// Local 6-digit email verification codes. Used when Supabase Auth is not
-/// configured, or as the pending-registration holder so no account exists
-/// before the email code is verified. Codes are SHA-256 hashed at rest,
-/// expire in 15 minutes, allow 5 attempts, and resends are rate-limited to 60s.
-/// Registration requires configured email delivery; the development outbox
-/// remains available only to the other existing local email workflows.
+/// Local 6-digit email verification codes, sent through Brevo. Codes are SHA-256
+/// hashed at rest, expire in 15 minutes, allow 5 wrong attempts, and resends are
+/// rate-limited to 60s. Each purpose (registration, password reset, account email)
+/// has its own code, attempt counter and cooldown. Storage is an IEmailCodeStore:
+/// memory for Demo/local, PostgreSQL in database mode so codes survive restarts.
+/// A pending registration keeps only a password hash, never the password itself.
 /// </summary>
-public sealed class EmailVerificationService(
-    IMemoryCache cache, IConfiguration config, ILogger<EmailVerificationService> log, IWebHostEnvironment env,
-    BrevoEmailSender brevo)
+public sealed class EmailVerificationService
 {
     public sealed record PendingRegistration(
-        string FirstName, string LastName, string Email, int Age, string Gender, string Address, string Password, Guid? ProviderSubject = null, string? Suffix = null, DateOnly? Birthday = null);
+        string FirstName, string LastName, string Email, int Age, string Gender, string Address, string Password, Guid? ProviderSubject = null, string? Suffix = null, DateOnly? Birthday = null,
+        string? PasswordHash = null);
 
-    private static string Key(string scope, string email) => $"emailcode:{scope}:{email.Trim().ToLowerInvariant()}";
-    private sealed record CodeEntry(string CodeHash, DateTime ExpiresAt);
-    private sealed record ResetEntry(string CodeHash, DateTime ExpiresAt);
-    private static readonly object VerificationGate = new();
-    private sealed record AccountCode(string Hash, DateTime Expires, int Attempts);
+    public const int MaxAttempts = 5;
+    private static readonly TimeSpan CodeLifetime = TimeSpan.FromMinutes(15);
+    private static readonly TimeSpan ResendCooldown = TimeSpan.FromSeconds(60);
+    private const string Registration = "registration";
+    private const string Reset = "reset";
+    private const string ResetVerified = "reset-ok";
+    private static string Account(Guid userId) => "account:" + userId.ToString("N");
+
+    private readonly IMemoryCache cache;
+    private readonly IConfiguration config;
+    private readonly ILogger<EmailVerificationService> log;
+    private readonly IWebHostEnvironment env;
+    private readonly BrevoEmailSender brevo;
+    private readonly IEmailCodeStore store;
+
+    // Kept for existing callers and tests: memory-backed codes.
+    public EmailVerificationService(IMemoryCache cache, IConfiguration config, ILogger<EmailVerificationService> log, IWebHostEnvironment env,
+        BrevoEmailSender brevo) : this(cache, config, log, env, brevo, new MemoryEmailCodeStore(cache)) { }
+
+    public EmailVerificationService(IMemoryCache cache, IConfiguration config, ILogger<EmailVerificationService> log, IWebHostEnvironment env,
+        BrevoEmailSender brevo, IEmailCodeStore store)
+    {
+        this.cache = cache; this.config = config; this.log = log; this.env = env; this.brevo = brevo; this.store = store;
+    }
+
+    private static DateTime UtcNow => DateTime.UtcNow;
 
     public async Task SendAccountCodeAsync(Guid userId, string email)
     {
-        var key = Key("account:" + userId, email);
-        CheckResendCooldown(email);
         var code = NewCode();
-        await SendAsync(email, "Your Glam by Mariya Verification Code",
+        await SendWithCooldownAsync("account", email, "Your Glam by Mariya Verification Code",
             $"Your Glam by Mariya verification code is {code}. It expires in 15 minutes. If you did not request this, please ignore this email.");
-        cache.Set(key, new AccountCode(Hash(code), DateTime.UtcNow.AddMinutes(15), 0), TimeSpan.FromMinutes(15));
-        MarkResendCooldown(email);
+        store.Save(Account(userId), email, Hash(code), UtcNow.Add(CodeLifetime), null);
     }
 
     public void ConfirmAccountCode(Guid userId, string email, string code)
     {
-        lock (VerificationGate)
-        {
-            var key = Key("account:" + userId, email);
-            var entry = cache.Get<AccountCode>(key);
-            if (entry == null || entry.Expires <= DateTime.UtcNow || entry.Attempts >= 5)
-                throw new InvalidOperationException("Code expired or attempt limit reached. Request a new code.");
-            if (!CryptographicOperations.FixedTimeEquals(Convert.FromHexString(entry.Hash), Convert.FromHexString(Hash((code ?? "").Trim()))))
-            {
-                cache.Set(key, entry with { Attempts = entry.Attempts + 1 }, entry.Expires);
-                throw new InvalidOperationException("Incorrect code. Check your newest email.");
-            }
-            cache.Remove(key);
-        }
+        var (result, _) = store.Consume(Account(userId), email, Hash((code ?? "").Trim()), MaxAttempts, UtcNow);
+        if (result == EmailCodeCheck.Ok) return;
+        throw new InvalidOperationException(result == EmailCodeCheck.Wrong
+            ? "Incorrect code. Check your newest email."
+            : "Code expired or attempt limit reached. Request a new code.");
     }
 
     private static string NewCode()
@@ -66,32 +77,19 @@ public sealed class EmailVerificationService(
         return Convert.ToHexString(bytes);
     }
 
-    private void CheckResendCooldown(string email)
+    private void StartCooldown(string scope, string email)
     {
-        if (cache.TryGetValue(Key("cooldown", email), out _))
+        if (!store.TryStartCooldown(scope, email, ResendCooldown, UtcNow))
             throw new InvalidOperationException("A code was just sent. Wait a minute before requesting another.");
     }
 
-    private void MarkResendCooldown(string email) => cache.Set(Key("cooldown", email), true, TimeSpan.FromSeconds(60));
-
-    private CodeEntry GetEntry(string email)
+    // The cooldown is claimed before sending (so two clicks cannot send twice) and
+    // released again if the send fails, so a failed send never strands the customer.
+    private async Task SendWithCooldownAsync(string scope, string email, string subject, string body)
     {
-        if (!cache.TryGetValue<CodeEntry>(Key("code", email), out var entry) || entry == null)
-            throw new InvalidOperationException("No active code for this email. Request a new one.");
-        if (entry.ExpiresAt <= DateTime.UtcNow)
-        {
-            cache.Remove(Key("code", email));
-            throw new InvalidOperationException("That code expired. Request a new one.");
-        }
-        return entry;
-    }
-
-    private void CheckAttempts(string email)
-    {
-        var k = Key("attempts", email);
-        var attempts = cache.GetOrCreate(k, e => { e.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(15); return 0; });
-        if (attempts >= 5) throw new InvalidOperationException("Too many wrong codes. Request a new one.");
-        cache.Set(k, attempts + 1, TimeSpan.FromMinutes(15));
+        StartCooldown(scope, email);
+        try { await SendAsync(email, subject, body); }
+        catch { store.ClearCooldown(scope, email); throw; }
     }
 
     public bool CanSendRegistrationCode => !string.IsNullOrWhiteSpace(config["Email:BrevoApiKey"])
@@ -101,36 +99,34 @@ public sealed class EmailVerificationService(
     {
         if (!CanSendRegistrationCode)
             throw new InvalidOperationException("Email verification is not configured in this environment. New customer registration is unavailable; no email was sent.");
-        CheckResendCooldown(email);
+        // Only a hash of the password is kept while the email code is pending.
+        var held = pending.PasswordHash != null ? pending with { Password = "" }
+            : pending with { Password = "", PasswordHash = new PasswordHasher<AppUser>().HashPassword(new AppUser(), pending.Password) };
         var code = NewCode();
-        await SendAsync(email, "Your Glam by Mariya Verification Code",
+        await SendWithCooldownAsync(Registration, email, "Your Glam by Mariya Verification Code",
             $"Your Glam by Mariya verification code is {code}. It expires in 15 minutes. If you did not request this, please ignore this email.");
         // Only create a verifiable pending account after the provider accepted
         // the email. Failed sends are retryable and never strand the user.
-        cache.Set(Key("code", email), new CodeEntry(Hash(code), DateTime.UtcNow.AddMinutes(15)), TimeSpan.FromMinutes(15));
-        cache.Set(Key("pending", email), pending, TimeSpan.FromMinutes(15));
-        cache.Remove(Key("attempts", email));
-        MarkResendCooldown(email);
+        store.Save(Registration, email, Hash(code), UtcNow.Add(CodeLifetime), JsonSerializer.Serialize(held));
     }
 
     public bool HasPendingRegistration(string email) =>
-        cache.TryGetValue(Key("pending", email), out _);
+        store.Peek(Registration, email, UtcNow) != null || cache.TryGetValue(HoldKey(email), out _);
+
+    // Supabase-only path (removed in a later step): holds the profile in process memory.
+    private static string HoldKey(string email) => $"emailcode:pending:{email.Trim().ToLowerInvariant()}";
+    private static readonly object HoldGate = new();
 
     /// <summary>Hold a verified-elsewhere (Supabase) registration profile without a local code.</summary>
     public void HoldRegistration(string email, PendingRegistration pending) =>
-        cache.Set(Key("pending", email), pending, TimeSpan.FromMinutes(30));
+        cache.Set(HoldKey(email), pending, TimeSpan.FromMinutes(30));
 
     public PendingRegistration? TakeRegistration(string email)
     {
-        lock (VerificationGate)
+        lock (HoldGate)
         {
-            var pending = cache.Get<PendingRegistration>(Key("pending", email));
-            if (pending != null)
-            {
-                cache.Remove(Key("pending", email));
-                cache.Remove(Key("code", email));
-                cache.Remove(Key("attempts", email));
-            }
+            var pending = cache.Get<PendingRegistration>(HoldKey(email));
+            if (pending != null) cache.Remove(HoldKey(email));
             return pending;
         }
     }
@@ -139,73 +135,56 @@ public sealed class EmailVerificationService(
     {
         if (!CanSendRegistrationCode)
             throw new InvalidOperationException("Email verification is not configured in this environment. New customer registration is unavailable; no email was sent.");
-        var pending = cache.Get<PendingRegistration>(Key("pending", email))
-            ?? throw new InvalidOperationException("Registration expired. Please register again.");
+        var payload = store.Peek(Registration, email, UtcNow);
+        var pending = string.IsNullOrEmpty(payload) ? null : JsonSerializer.Deserialize<PendingRegistration>(payload);
+        if (pending == null) throw new InvalidOperationException("Registration expired. Please register again.");
         await RequestRegistrationCodeAsync(email, pending);
     }
 
     public PendingRegistration ConfirmRegistrationCode(string email, string code)
     {
-        lock (VerificationGate)
+        var (result, payload) = store.Consume(Registration, email, Hash(code.Trim()), MaxAttempts, UtcNow);
+        return result switch
         {
-            var entry = GetEntry(email);
-            if (cache.Get<int>(Key("attempts", email)) >= 5)
-                throw new InvalidOperationException("Too many wrong codes. Request a new one.");
-            if (!CryptographicOperations.FixedTimeEquals(
-                    Encoding.UTF8.GetBytes(entry.CodeHash), Encoding.UTF8.GetBytes(Hash(code.Trim()))))
-            {
-                CheckAttempts(email);
-                throw new InvalidOperationException("That code is incorrect.");
-            }
-            var pending = cache.Get<PendingRegistration>(Key("pending", email))
-                ?? throw new InvalidOperationException("Registration expired. Please register again.");
-            cache.Remove(Key("code", email));
-            cache.Remove(Key("pending", email));
-            cache.Remove(Key("attempts", email));
-            return pending;
-        }
+            EmailCodeCheck.Ok => (string.IsNullOrEmpty(payload) ? null : JsonSerializer.Deserialize<PendingRegistration>(payload))
+                ?? throw new InvalidOperationException("Registration expired. Please register again."),
+            EmailCodeCheck.Missing => throw new InvalidOperationException("No active code for this email. Request a new one."),
+            EmailCodeCheck.Expired => throw new InvalidOperationException("That code expired. Request a new one."),
+            EmailCodeCheck.Locked => throw new InvalidOperationException("Too many wrong codes. Request a new one."),
+            _ => throw new InvalidOperationException("That code is incorrect.")
+        };
     }
 
     public async Task RequestPasswordResetCodeAsync(string email)
     {
-        CheckResendCooldown(email);
         var code = NewCode();
-        await SendAsync(email, "Your Glam by Mariya Password Reset Code",
+        await SendWithCooldownAsync(Reset, email, "Your Glam by Mariya Password Reset Code",
             $"Your Glam by Mariya password reset code is {code}. It expires in 15 minutes. If you did not request this, please ignore this email.");
-        cache.Set(Key("reset", email), new ResetEntry(Hash(code), DateTime.UtcNow.AddMinutes(15)), TimeSpan.FromMinutes(15));
-        cache.Remove(Key("attempts", email));
-        MarkResendCooldown(email);
+        store.Save(Reset, email, Hash(code), UtcNow.Add(CodeLifetime), null);
     }
 
     public void ConfirmPasswordResetCode(string email, string code)
     {
-        lock (VerificationGate)
+        var (result, _) = store.Consume(Reset, email, Hash(code.Trim()), MaxAttempts, UtcNow);
+        switch (result)
         {
-            if (cache.Get<int>(Key("attempts", email)) >= 5)
-                throw new InvalidOperationException("Too many wrong codes. Request a new one.");
-            if (!cache.TryGetValue<ResetEntry>(Key("reset", email), out var entry) || entry == null)
-                throw new InvalidOperationException("No active reset code. Request a new one.");
-            if (entry.ExpiresAt <= DateTime.UtcNow)
-                throw new InvalidOperationException("That code expired. Request a new one.");
-            if (!CryptographicOperations.FixedTimeEquals(
-                    Encoding.UTF8.GetBytes(entry.CodeHash), Encoding.UTF8.GetBytes(Hash(code.Trim()))))
-            {
-                CheckAttempts(email);
-                throw new InvalidOperationException("That code is incorrect.");
-            }
-            cache.Remove(Key("reset", email));
-            cache.Remove(Key("attempts", email));
-            cache.Set(Key("reset-ok", email), true, TimeSpan.FromMinutes(10));
+            case EmailCodeCheck.Ok:
+                store.Save(ResetVerified, email, "", UtcNow.AddMinutes(10), "");
+                return;
+            case EmailCodeCheck.Missing: throw new InvalidOperationException("No active reset code. Request a new one.");
+            case EmailCodeCheck.Expired: throw new InvalidOperationException("That code expired. Request a new one.");
+            case EmailCodeCheck.Locked: throw new InvalidOperationException("Too many wrong codes. Request a new one.");
+            default: throw new InvalidOperationException("That code is incorrect.");
         }
     }
 
     public void RequireResetVerified(string email)
     {
-        if (!cache.TryGetValue<bool>(Key("reset-ok", email), out var ok) || !ok)
+        if (store.Peek(ResetVerified, email, UtcNow) == null)
             throw new InvalidOperationException("Verify the email code first.");
     }
 
-    public void ClearResetVerified(string email) => cache.Remove(Key("reset-ok", email));
+    public void ClearResetVerified(string email) => store.Remove(ResetVerified, email);
 
     /// <summary>Send a non-code email (administrator invitations).</summary>
     public Task SendEmailAsync(string email, string subject, string body) => SendAsync(email, subject, body);
