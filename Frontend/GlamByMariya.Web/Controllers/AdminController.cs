@@ -10,6 +10,11 @@ namespace GlamByMariya.Web.Controllers;
 public class AdminController(IStudioStore store, BookingService workflow, PaymentQrService paymentQr, CatalogImageService imageService, IInvitationService invites, EmailVerificationService mail) : Controller
 {
     private Guid UserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+    public override void OnActionExecuting(Microsoft.AspNetCore.Mvc.Filters.ActionExecutingContext context)
+    {
+        workflow.ExpireOverduePayments();
+        base.OnActionExecuting(context);
+    }
     private HashSet<Guid> CorrectionBookings(IEnumerable<Booking> bookings, IEnumerable<Payment> payments)
     {
         var corrected = payments.Where(p => p.ReviewStatus == "Correction Requested").Select(p => p.BookingId).ToHashSet();

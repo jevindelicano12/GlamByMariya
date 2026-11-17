@@ -7,6 +7,7 @@
 @if (Model.CompletedAt.HasValue) { <section class="panel stack" role="status"><h2>Appointment completed</h2><p>Your appointment was marked completed by Glam by Mariya. Payment status is recorded separately.</p></section> }
 @if (Model.ApprovedReschedules.LastOrDefault() is { } approved) { var q = approved.Quote; <section class="panel stack"><h2>Rescheduling approved</h2><p>Your rescheduling request has been approved. If your updated appointment has additional charges or payment differences, please coordinate directly with Glam by Mariya for payment or refund arrangements.</p><p>Previous total: ₱@q.CurrentTotal.ToString("N2") · Updated total: ₱@q.ProposedTotal.ToString("N2") · Difference: @((q.ProposedTotal - q.CurrentTotal) >= 0 ? "+" : "−")₱@Math.Abs(q.ProposedTotal - q.CurrentTotal).ToString("N2")</p></section> }
 <partial name="_MixedPeople" model="Model" />
+@if (Model.Status == "Pending Payment" && Model.PaymentDueAt is { } paymentDue) { <div class="notice" role="status">Complete your payment by <strong>@paymentDue.ToString("MMM d, yyyy h:mm tt")</strong>. After that, this time slot is released for other customers.</div> }
 @if (Model.Status == "Pending Payment" && payments.Any(p => p.ReviewStatus == "Correction Requested")) {
     <section class="payment-correction-notice" role="status" aria-label="Payment review status">
         <strong>Payment correction requested</strong>

@@ -127,7 +127,34 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             if (issue != null) throw new InvalidOperationException(issue);
         }
     }
-    public bool HoldsReservation(Booking booking) => booking.Status is "Confirmed" or "Pending Payment";
+    public bool HoldsReservation(Booking booking) =>
+        booking.Status == "Confirmed" || (booking.Status == "Pending Payment" && !PaymentWindow.IsExpired(booking, store.Now));
+    // Demo only: marks overdue unpaid bookings as Expired so screens show it.
+    // Slot release does not depend on this; HoldsReservation already ignores them.
+    // Database mode gets its own scheduled expiry in Phase 2.
+    public int ExpireOverduePayments()
+    {
+        if (store.IsPersistent) return 0;
+        lock (store.Gate)
+        {
+            var now = store.Now; var expired = 0;
+            foreach (var b in bookings.Bookings.Where(b => PaymentWindow.IsExpired(b, now)).ToList())
+            {
+                b.Status = PaymentWindow.ExpiredStatus;
+                b.RequestedStart = null; b.PendingReschedule = null; b.RescheduleOffer = null;
+                b.Note = "The 30-minute payment window ended before payment was confirmed. The time slot was released.";
+                b.History.Add(new(Guid.Empty, "System", "Payment window expired", b.Note, now, b.Status, b.Start, null));
+                Notify(b, "Payment window expired. The time slot was released.", Guid.Empty);
+                expired++;
+            }
+            return expired;
+        }
+    }
+    private void EnsurePaymentWindowOpen(Booking b)
+    {
+        if (PaymentWindow.IsExpired(b, store.Now))
+            throw new InvalidOperationException("The 30-minute payment window for this booking has ended and its time slot was released.");
+    }
     // Demo-only service/preparation windows; routing and travel are not calculated.
     public IReadOnlyList<ScheduleWindow> DemoOpenWindows(DateTime date)
     {
@@ -247,7 +274,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             if ((expectedTotal.HasValue && expectedTotal != quote.FinalTotal) || (expectedMinimum.HasValue && expectedMinimum != quote.RequiredDownPayment)) throw new InvalidOperationException("The booking price or minimum payment changed. Please review the updated quote before submitting.");
             CheckSlot(start, quote.DurationMinutes);
             var user = store.Users.First(x => x.Id == userId);
-            var b = new Booking { CustomerId = userId, CustomerName = user.Name, Service = new(service.Id, service.Name, service.Price, service.Minutes), AddOns = selected.GroupBy(x => x.Id).Select(g => new PriceSnapshot(g.Key, g.First().Name, g.First().Price, g.First().Minutes, g.Count())).ToList(), Start = start, BufferMinutesSnapshot = store.Settings.BufferMinutes, Address = address.Trim(), Area = area, TravelFee = 0, EarlyFeeSnapshot = quote.EarlyFee, LateFeeSnapshot = quote.LateFee, TransportationPolicyAcknowledgedAt = store.Now, People = people, Package = package, AppliedPricePerPerson = quote.AppliedPricePerPerson, GroupPrice = quote.GroupPrice, GroupMinimumPeople = quote.GroupMinimumPeople, DownPaymentPercentSnapshot = store.Settings.DownPaymentPercent, RequiredDownPaymentSnapshot = quote.RequiredDownPayment };
+            var b = new Booking { CustomerId = userId, CustomerName = user.Name, Service = new(service.Id, service.Name, service.Price, service.Minutes), AddOns = selected.GroupBy(x => x.Id).Select(g => new PriceSnapshot(g.Key, g.First().Name, g.First().Price, g.First().Minutes, g.Count())).ToList(), Start = start, BufferMinutesSnapshot = store.Settings.BufferMinutes, Address = address.Trim(), Area = area, TravelFee = 0, EarlyFeeSnapshot = quote.EarlyFee, LateFeeSnapshot = quote.LateFee, TransportationPolicyAcknowledgedAt = store.Now, People = people, Package = package, AppliedPricePerPerson = quote.AppliedPricePerPerson, GroupPrice = quote.GroupPrice, GroupMinimumPeople = quote.GroupMinimumPeople, DownPaymentPercentSnapshot = store.Settings.DownPaymentPercent, RequiredDownPaymentSnapshot = quote.RequiredDownPayment, PaymentDueAt = PaymentWindow.DueAt(store.Now) };
             if (Money.Round(deposit) != deposit || deposit < quote.RequiredDownPayment || deposit > quote.FinalTotal) throw new InvalidOperationException($"Choose an amount from ₱{quote.RequiredDownPayment:N2} to ₱{quote.FinalTotal:N2}, with at most two decimal places.");
             if (method == "Cash") throw new InvalidOperationException("Use GCash, Maya or Bank Transfer for your down payment.");
             CheckReference(method, reference);
@@ -364,6 +391,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
                         return;
                     }
                     if (b.Status != "Pending Payment") throw new InvalidOperationException("Only pending down payments can be verified.");
+                    EnsurePaymentWindowOpen(b);
                     var deposit = payments.Payments.SingleOrDefault(p => p.BookingId == b.Id) ?? throw new InvalidOperationException("No down payment was submitted.");
                     if (deposit.Amount < b.RequiredDownPayment || deposit.Amount > b.Total || Money.Round(deposit.Amount) != deposit.Amount) throw new InvalidOperationException("The submitted payment must be between the required minimum and the booking total.");
                     CheckReference(deposit.Method, deposit.Reference, deposit.Id);
@@ -377,6 +405,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
                 case "approve":
                     if (b.Status == "Confirmed" && Paid(b) >= b.RequiredDownPayment) return;
                     if (b.Status != "Pending Payment" || Paid(b) < b.RequiredDownPayment || Paid(b) > b.Total) throw new InvalidOperationException("Verify at least the required down payment before confirming this booking.");
+                    EnsurePaymentWindowOpen(b);
                     if (!store.Settings.ServiceAreas.Split(',').Any(x => x.Trim().Equals(b.Area, StringComparison.OrdinalIgnoreCase))) throw new InvalidOperationException("This address is no longer within the configured service areas. Reject or update coverage before approval.");
                     CheckSlot(b.Start, (int)(b.End - b.Start).TotalMinutes, b.Id);
                     b.Status = "Confirmed";
@@ -494,7 +523,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
                 Start = start, BufferMinutesSnapshot = store.Settings.BufferMinutes, Address = address.Trim(), Area = area,
                 EarlyFeeSnapshot = quote.EarlyFee, LateFeeSnapshot = quote.LateFee, TransportationPolicyAcknowledgedAt = store.Now,
                 People = quote.People.Count, Package = "group", DownPaymentPercentSnapshot = quote.DownPaymentPercent,
-                RequiredDownPaymentSnapshot = quote.RequiredDownPayment
+                RequiredDownPaymentSnapshot = quote.RequiredDownPayment, PaymentDueAt = PaymentWindow.DueAt(store.Now)
             };
             bookings.Bookings.Add(booking);
             payments.Payments.Add(new() { BookingId = booking.Id, Amount = deposit, Method = method, Reference = reference.Trim(), ProofPath = proof });
@@ -563,6 +592,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
         var p = payments.Payments.First(x => x.BookingId == b.Id);
         if (b.CustomerId != actor || b.Status != "Pending Payment" || p.Verified)
             throw new InvalidOperationException("Only unverified pending deposits can be corrected.");
+        EnsurePaymentWindowOpen(b);
         CheckReference(p.Method, reference, p.Id);
         p.ProofHistory.Add(new(p.Reference, p.ProofPath, p.ProofKey, store.Now));
         p.Revision++;

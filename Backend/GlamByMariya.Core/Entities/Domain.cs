@@ -72,6 +72,8 @@ public class Booking
     public decimal RemainingBalance => Math.Max(0, Total - VerifiedPaid);
     public string PaymentStatus { get; set; } = "Pending Verification";
     public string Status { get; set; } = "Pending Payment";
+    // When an unpaid Pending Payment booking stops holding its slot. Null means no deadline (older records).
+    public DateTime? PaymentDueAt { get; set; }
     public string Note { get; set; } = "";
     public DateTime? RequestedStart { get; set; }
     public Guid? StaffCancelledBy { get; set; }

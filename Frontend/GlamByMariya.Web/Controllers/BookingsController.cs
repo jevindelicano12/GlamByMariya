@@ -10,6 +10,11 @@ namespace GlamByMariya.Web.Controllers;
 public class BookingsController(IStudioStore store, BookingService workflow, IWebHostEnvironment environment, PaymentQrService paymentQr, CatalogImageService imageService, IAppFileStore files) : Controller
 {
     private Guid UserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+    public override void OnActionExecuting(Microsoft.AspNetCore.Mvc.Filters.ActionExecutingContext context)
+    {
+        workflow.ExpireOverduePayments();
+        base.OnActionExecuting(context);
+    }
     [HttpGet, ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
     public IActionResult MixedSelection()
     {

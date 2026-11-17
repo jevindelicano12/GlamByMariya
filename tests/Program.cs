@@ -51,6 +51,36 @@ if (args.Contains("--cancellation-policy-only"))
         "confirmed booking 3 days away cancels with PHP 200 fee and refund of verified paid minus fee");
     Console.WriteLine($"All {checks} cancellation policy checks passed."); return;
 }
+if (args.Contains("--payment-window-only"))
+{
+    var demo = new DemoStore(); var flow = new BookingService(demo, demo, demo, demo, demo);
+    var customerUser = demo.Users.First(u => u.Role == Roles.Customer); var ownerUser = demo.Users.First(u => u.Role == Roles.SuperAdmin);
+    var look = demo.Services.First(); var start = DateTime.Today.AddDays(29).AddHours(8);
+    var quote = flow.Quote(look.Id, [], 1, "auto", start);
+    var booking = flow.Create(customerUser.Id, look.Id, [], start, "24 Synthetic Street", "Quezon City", quote.RequiredDownPayment, "GCash",
+        "WINDOW-REF-1", "synthetic-proof.png", true, 1, "auto", true, quote.FinalTotal, quote.RequiredDownPayment);
+    Check(booking.PaymentDueAt is { } due && Math.Abs((due - demo.Now - PaymentWindow.Length).TotalSeconds) < 5, "new booking gets a payment deadline 30 minutes from now");
+    Check(flow.HoldsReservation(booking), "booking inside its payment window holds the slot");
+    Reject(() => flow.CheckSlot(start, quote.DurationMinutes), "another customer cannot take a slot that is still inside its payment window");
+    Check(flow.ExpireOverduePayments() == 0 && booking.Status == "Pending Payment", "nothing expires before the deadline");
+
+    booking.PaymentDueAt = demo.Now.AddMinutes(-1);
+    Check(PaymentWindow.IsExpired(booking, demo.Now) && !flow.HoldsReservation(booking), "overdue unpaid booking no longer holds its slot");
+    flow.CheckSlot(start, quote.DurationMinutes);
+    Check(true, "slot is free for another customer once the payment window ends");
+    Reject(() => flow.AdminAction(booking, "verify", ownerUser.Id, "", 0, ""), "overdue booking cannot be verified");
+    Reject(() => flow.CorrectProof(booking, customerUser.Id, "WINDOW-REF-2", null), "overdue booking cannot get a payment correction");
+    Check(flow.ExpireOverduePayments() == 1 && booking.Status == PaymentWindow.ExpiredStatus && booking.History.Last().Action == "Payment window expired",
+        "overdue booking is marked Expired with a history entry");
+    Check(flow.ExpireOverduePayments() == 0, "expiry runs only once per booking");
+    Check(!CancellationPolicy.Evaluate(booking.Status, booking.Start, demo.Now).Allowed, "expired booking cannot be cancelled again");
+
+    var legacy = new Booking { Status = "Pending Payment", PaymentDueAt = null, Start = start };
+    Check(!PaymentWindow.IsExpired(legacy, demo.Now.AddDays(1)), "older bookings without a deadline never expire automatically");
+    var confirmedLate = new Booking { Status = "Confirmed", PaymentDueAt = demo.Now.AddHours(-5), Start = start };
+    Check(!PaymentWindow.IsExpired(confirmedLate, demo.Now) && flow.HoldsReservation(confirmedLate), "confirmed bookings are never expired by the payment window");
+    Console.WriteLine($"All {checks} payment window checks passed."); return;
+}
 if (args.Contains("--mixed-read-model-only"))
 {
     var bookingId = Guid.NewGuid(); var ownerId = Guid.NewGuid();
