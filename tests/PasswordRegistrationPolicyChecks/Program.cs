@@ -97,7 +97,7 @@ foreach (var sample in new[]
     using var fixture = new FlowFixture(remote);
     var started = await fixture.Register(sample.Password);
     Check(started is RedirectToActionResult { ActionName: "Verify" }
-        && fixture.Codes.HasPendingRegistration(FlowFixture.RegisterEmail),
+        && fixture.Codes.HasPendingRegistration(FlowFixture.RegisterEmail, fixture.Controller.Request.Cookies[EmailVerificationService.BrowserCookieName]),
         (remote ? "Supabase" : "local") + ": " + sample.Label + " registration enters verification");
     Check(remote
         ? fixture.Http.SignupCalls == 1 && fixture.Http.LastSignupPasswordMatched && fixture.Http.EmailCodeCalls == 0
@@ -563,10 +563,15 @@ sealed class FlowFixture : IDisposable
         Controller.TempData = new TempDataDictionary(context, new MemoryTempDataProvider());
     }
 
-    public Task<IActionResult> Register(string password)
+    public async Task<IActionResult> Register(string password)
     {
         Http.ExpectedPassword = password;
-        return Controller.Register("Test", "Member", RegisterEmail, 25, "Others", "Synthetic address for tests", password, birthday: new DateOnly(2000, 1, 15));
+        var result = await Controller.Register("Test", "Member", RegisterEmail, 25, "Others", "Synthetic address for tests", password, birthday: new DateOnly(2000, 1, 15));
+        // Act like the same browser: send back the registration cookie on later requests.
+        var context = Controller.HttpContext;
+        var issued = System.Text.RegularExpressions.Regex.Match(context.Response.Headers.SetCookie.ToString(), EmailVerificationService.BrowserCookieName + "=([^;]+)");
+        if (issued.Success) context.Request.Headers.Cookie = $"{EmailVerificationService.BrowserCookieName}={issued.Groups[1].Value}";
+        return result;
     }
 
     public Task<IActionResult> Invite(string password)

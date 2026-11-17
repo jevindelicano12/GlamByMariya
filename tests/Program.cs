@@ -108,6 +108,27 @@ if (args.Contains("--email-codes-only"))
     codes.ClearResetVerified(email);
     Reject(() => codes.RequireResetVerified(email), "clearing the reset verification works");
 
+    // Takeover attempt: someone else registers the same email from another browser.
+    var target = "target.customer@example.test";
+    var victimBrowser = EmailVerificationService.NewBrowserToken(); var attackerBrowser = EmailVerificationService.NewBrowserToken();
+    await codes.RequestRegistrationCodeAsync(target, new("Real", "Owner", target, 30, "Others", "24 Synthetic Street", "OwnerPass123!"), victimBrowser);
+    var victimCode = delivery.LastCode!;
+    serviceStore.ClearCooldown("registration", target); // skip the 60-second wait in the test
+    await codes.RequestRegistrationCodeAsync(target, new("Other", "Person", target, 30, "Others", "99 Synthetic Road", "Takeover123!"), attackerBrowser);
+    var attackerCode = delivery.LastCode!;
+    Check(codes.HasPendingRegistration(target, victimBrowser) && codes.HasPendingRegistration(target, attackerBrowser),
+        "each browser keeps its own pending registration; the second one does not replace the first");
+    Reject(() => codes.ConfirmRegistrationCode(target, attackerCode, victimBrowser), "the other browser's code does not complete this browser's registration");
+    Reject(() => codes.ConfirmRegistrationCode(target, victimCode, attackerBrowser), "a code cannot be completed from a different browser");
+    Reject(() => codes.ConfirmRegistrationCode(target, victimCode), "a code cannot be completed without the browser secret");
+    var owner = codes.ConfirmRegistrationCode(target, victimCode, victimBrowser);
+    var hasher = new Microsoft.AspNetCore.Identity.PasswordHasher<AppUser>();
+    Check(owner.FirstName == "Real" && hasher.VerifyHashedPassword(new AppUser(), owner.PasswordHash!, "OwnerPass123!") != Microsoft.AspNetCore.Identity.PasswordVerificationResult.Failed
+        && hasher.VerifyHashedPassword(new AppUser(), owner.PasswordHash!, "Takeover123!") == Microsoft.AspNetCore.Identity.PasswordVerificationResult.Failed,
+        "the owner's browser creates the account with the owner's own details and password");
+    Check(EmailVerificationService.NewBrowserToken() != EmailVerificationService.NewBrowserToken() && EmailVerificationService.NewBrowserToken().Length >= 40,
+        "browser secrets are long and random");
+
     delivery.Fail = true;
     var failing = "failing@example.test";
     Reject(() => codes.RequestPasswordResetCodeAsync(failing).GetAwaiter().GetResult(), "a failed email send is reported");

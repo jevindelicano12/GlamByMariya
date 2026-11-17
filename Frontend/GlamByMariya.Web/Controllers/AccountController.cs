@@ -18,6 +18,19 @@ public class AccountController(
 {
     private const string AdminInvitationUnavailableMessage = "Administrator invitation acceptance is temporarily unavailable. Please contact the business owner for assistance.";
     private bool DurableEnabled => configuration.GetValue("Authentication:DurableSessionEnforcement", false);
+    // Secret that binds a pending email-code registration to the browser that started it.
+    private string? RegistrationBrowserToken => Request.Cookies[EmailVerificationService.BrowserCookieName];
+    private string IssueRegistrationBrowserToken()
+    {
+        var token = RegistrationBrowserToken is { Length: >= 32 } existing ? existing : EmailVerificationService.NewBrowserToken();
+        var development = HttpContext.RequestServices.GetService<IHostEnvironment>()?.IsDevelopment() == true;
+        Response.Cookies.Append(EmailVerificationService.BrowserCookieName, token, new CookieOptions
+        {
+            HttpOnly = true, Secure = Request.IsHttps || !development, SameSite = SameSiteMode.Strict,
+            IsEssential = true, MaxAge = TimeSpan.FromMinutes(30), Path = "/Account"
+        });
+        return token;
+    }
     private PersistentCustomerAuthentication? PersistentCustomerAuth => store.IsPersistent
         ? HttpContext.RequestServices.GetService<PersistentCustomerAuthentication>() : null;
 
@@ -266,7 +279,7 @@ public class AccountController(
 
         // Registration was started but the email code was never verified: no
         // account exists yet, so send them to Verify instead of failing login.
-        if (codes.HasPendingRegistration(email))
+        if (codes.HasPendingRegistration(email, RegistrationBrowserToken))
         {
             TempData["Notice"] = "Check your email for the 6-digit code, then enter it to finish creating your account.";
             return RedirectToAction("Verify", new { email, returnUrl = ViewBag.ReturnUrl });
@@ -423,7 +436,7 @@ public class AccountController(
             return RedirectToAction("Verify", new { email, returnUrl = ViewBag.ReturnUrl });
         }
 
-        try { await codes.RequestRegistrationCodeAsync(email, pending); }
+        try { await codes.RequestRegistrationCodeAsync(email, pending, IssueRegistrationBrowserToken()); }
         catch (InvalidOperationException e) { ViewBag.Error = e.Message; return View("Login"); }
         TempData["Notice"] = "Your verification request was accepted. Check your inbox and spam folder for the code; delivery can take time.";
         return RedirectToAction("Verify", new { email, returnUrl = ViewBag.ReturnUrl });
@@ -504,8 +517,11 @@ public class AccountController(
 
         if (DurableEnabled) return StatusCode(503, "Verification is temporarily unavailable.");
         EmailVerificationService.PendingRegistration reg;
-        try { reg = codes.ConfirmRegistrationCode(email, code); }
+        if (RegistrationBrowserToken is not { Length: > 0 } browserToken)
+        { ViewBag.Error = "Finish verification in the same browser you used to register, or register again."; return View(); }
+        try { reg = codes.ConfirmRegistrationCode(email, code, browserToken); }
         catch (InvalidOperationException e) { ViewBag.Error = e.Message; return View(); }
+        Response.Cookies.Delete(EmailVerificationService.BrowserCookieName, new CookieOptions { Path = "/Account" });
         if (FindLocal(email) != null)
         { ViewBag.Error = "This email is already registered."; return View("Login"); }
         AppUser created;
@@ -535,7 +551,7 @@ public class AccountController(
         try
         {
             if (supabase.IsConfigured) await supabase.ResendSignupAsync(email);
-            else await codes.ResendRegistrationCodeAsync(email);
+            else await codes.ResendRegistrationCodeAsync(email, RegistrationBrowserToken);
             TempData["Notice"] = "Your verification request was accepted. Check your inbox and spam folder for the code; delivery can take time.";
         }
         catch (InvalidOperationException e)

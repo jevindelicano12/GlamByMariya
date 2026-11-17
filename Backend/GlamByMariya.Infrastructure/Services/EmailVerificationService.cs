@@ -29,6 +29,16 @@ public sealed class EmailVerificationService
     private const string ResetVerified = "reset-ok";
     private static string Account(Guid userId) => "account:" + userId.ToString("N");
 
+    // Browser binding: each registering browser gets a random secret (an HttpOnly cookie).
+    // The pending registration is stored under a hash of that secret, so a second
+    // registration for the same email from another browser cannot replace it, and a
+    // code can only be completed in the browser that started that registration.
+    public const string BrowserCookieName = "GlamRegistration";
+    public static string NewBrowserToken() => Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+    private static string RegistrationPurpose(string? browserToken) => string.IsNullOrEmpty(browserToken)
+        ? Registration
+        : Registration + ":" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes("glam-registration:" + browserToken)));
+
     private readonly IMemoryCache cache;
     private readonly IConfiguration config;
     private readonly ILogger<EmailVerificationService> log;
@@ -95,7 +105,7 @@ public sealed class EmailVerificationService
     public bool CanSendRegistrationCode => !string.IsNullOrWhiteSpace(config["Email:BrevoApiKey"])
         || (env?.IsDevelopment() == true && !string.IsNullOrWhiteSpace(config["Email:SmtpHost"]));
 
-    public async Task RequestRegistrationCodeAsync(string email, PendingRegistration pending)
+    public async Task RequestRegistrationCodeAsync(string email, PendingRegistration pending, string? browserToken = null)
     {
         if (!CanSendRegistrationCode)
             throw new InvalidOperationException("Email verification is not configured in this environment. New customer registration is unavailable; no email was sent.");
@@ -107,11 +117,11 @@ public sealed class EmailVerificationService
             $"Your Glam by Mariya verification code is {code}. It expires in 15 minutes. If you did not request this, please ignore this email.");
         // Only create a verifiable pending account after the provider accepted
         // the email. Failed sends are retryable and never strand the user.
-        store.Save(Registration, email, Hash(code), UtcNow.Add(CodeLifetime), JsonSerializer.Serialize(held));
+        store.Save(RegistrationPurpose(browserToken), email, Hash(code), UtcNow.Add(CodeLifetime), JsonSerializer.Serialize(held));
     }
 
-    public bool HasPendingRegistration(string email) =>
-        store.Peek(Registration, email, UtcNow) != null || cache.TryGetValue(HoldKey(email), out _);
+    public bool HasPendingRegistration(string email, string? browserToken = null) =>
+        store.Peek(RegistrationPurpose(browserToken), email, UtcNow) != null || cache.TryGetValue(HoldKey(email), out _);
 
     // Supabase-only path (removed in a later step): holds the profile in process memory.
     private static string HoldKey(string email) => $"emailcode:pending:{email.Trim().ToLowerInvariant()}";
@@ -131,19 +141,19 @@ public sealed class EmailVerificationService
         }
     }
 
-    public async Task ResendRegistrationCodeAsync(string email)
+    public async Task ResendRegistrationCodeAsync(string email, string? browserToken = null)
     {
         if (!CanSendRegistrationCode)
             throw new InvalidOperationException("Email verification is not configured in this environment. New customer registration is unavailable; no email was sent.");
-        var payload = store.Peek(Registration, email, UtcNow);
+        var payload = store.Peek(RegistrationPurpose(browserToken), email, UtcNow);
         var pending = string.IsNullOrEmpty(payload) ? null : JsonSerializer.Deserialize<PendingRegistration>(payload);
         if (pending == null) throw new InvalidOperationException("Registration expired. Please register again.");
-        await RequestRegistrationCodeAsync(email, pending);
+        await RequestRegistrationCodeAsync(email, pending, browserToken);
     }
 
-    public PendingRegistration ConfirmRegistrationCode(string email, string code)
+    public PendingRegistration ConfirmRegistrationCode(string email, string code, string? browserToken = null)
     {
-        var (result, payload) = store.Consume(Registration, email, Hash(code.Trim()), MaxAttempts, UtcNow);
+        var (result, payload) = store.Consume(RegistrationPurpose(browserToken), email, Hash(code.Trim()), MaxAttempts, UtcNow);
         return result switch
         {
             EmailCodeCheck.Ok => (string.IsNullOrEmpty(payload) ? null : JsonSerializer.Deserialize<PendingRegistration>(payload))
