@@ -302,13 +302,13 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
         return RedirectToAction("Details", new { id });
     }
     [HttpPost, ValidateAntiForgeryToken]
-    public IActionResult ConfirmReschedule(Guid id, Guid quoteId, bool agreed)
+    public IActionResult ConfirmReschedule(Guid id, Guid quoteId, bool agreed, DateTime? proposedStart = null, decimal? expectedTotal = null)
     {
         lock (store.Gate)
         {
             var b = store.Bookings.FirstOrDefault(b => b.Id == id && b.CustomerId == UserId);
             if (b == null) return NotFound();
-            try { workflow.ConsentReschedule(b, UserId, quoteId, agreed); TempData["Success"] = "Your request and consent were recorded. The original appointment remains reserved until SuperAdmin approval."; }
+            try { workflow.ConsentReschedule(b, UserId, quoteId, agreed, proposedStart, expectedTotal); TempData["Success"] = "Your request and consent were recorded. The original appointment remains reserved until SuperAdmin approval."; }
             catch (InvalidOperationException e) { TempData["Error"] = e.Message; }
             return RedirectToAction("Details", new { id });
         }

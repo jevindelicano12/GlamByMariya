@@ -322,13 +322,6 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
     {
         b.History.Add(new(actor, store.Users.First(u => u.Id == actor).Name, action, reason, store.Now, b.Status, b.Start, b.RequestedStart));
     }
-    private void CheckMixedReschedule(Booking b, DateTime start)
-    {
-        if (b.MixedPeople.Count == 0) return;
-        var calendar = GetAvailability(start, (int)(b.End - b.Start).TotalMinutes, b.Id);
-        if (start.Ticks % TimeSpan.TicksPerMinute != 0 || !calendar.Days.SelectMany(d => d.Slots).Any(s => s.Start == start.ToString("yyyy-MM-ddTHH:mm") && s.Available))
-            throw new InvalidOperationException("Choose a current available makeup start time within the booking window.");
-    }
     public void Cancel(Booking b, Guid actor, bool confirmed, string? reason = null)
     {
         if (store.IsPersistent && b.MixedPeople.Count > 0) throw new InvalidOperationException("Persistent mixed booking operations are unavailable.");
@@ -535,7 +528,8 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
     }
     private RescheduleQuote ReschedulePrice(Booking b, DateTime start, Guid quoteId)
     {
-        if (store.IsPersistent) throw new InvalidOperationException("This rescheduling policy is unavailable in persistent storage.");
+        // Database mode has no early/late fees, so the quote keeps the same total.
+        if (store.IsPersistent && b.MixedPeople.Count > 0) throw new InvalidOperationException("Persistent mixed booking operations are unavailable.");
         if (b.Status != "Confirmed" || b.Start <= store.Now) throw new InvalidOperationException("Only future confirmed appointments can be rescheduled.");
         var duration = (int)(b.End - b.Start).TotalMinutes;
         var calendar = GetAvailability(start, duration, b.Id);
@@ -552,8 +546,21 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             return b.RescheduleOffer = ReschedulePrice(b, start, Guid.NewGuid());
         }
     }
-    public void ConsentReschedule(Booking b, Guid actor, Guid quoteId, bool agreed)
+    // Database mode cannot keep the in-memory offer between requests, so the review
+    // page posts back the proposed start and total, which are re-checked here.
+    public void ConsentReschedule(Booking b, Guid actor, Guid quoteId, bool agreed, DateTime? proposedStart = null, decimal? expectedTotal = null)
     {
+        if (store is IPersistentStudioStore database)
+        {
+            lock (store.Gate)
+            {
+                if (b.CustomerId != actor || !store.Users.Any(u => u.Id == actor && u.IsActive && u.Role == Roles.Customer)) throw new InvalidOperationException("Only the booking customer may request a reschedule.");
+                if (!agreed || quoteId == Guid.Empty || proposedStart is not { } requested || expectedTotal is not { } seen) throw new InvalidOperationException("Review and agree to the current rescheduling quote.");
+                if (ReschedulePrice(b, requested, quoteId).ProposedTotal != seen) throw new InvalidOperationException("The quote changed. Please review the updated total again.");
+            }
+            database.RequestReschedule(b.Id, actor, proposedStart.Value);
+            return;
+        }
         lock (store.Gate)
         {
             if (b.CustomerId != actor || !store.Users.Any(u => u.Id == actor && u.IsActive && u.Role == Roles.Customer)) throw new InvalidOperationException("Only the booking customer may request a reschedule.");
@@ -563,22 +570,6 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             b.RescheduleConsents.Add(consent); b.PendingReschedule = consent; b.RequestedStart = offer.ProposedStart; b.RescheduleOffer = null;
             RecordDecision(b, actor, "Reschedule requested", $"Customer agreed to ₱{offer.ProposedTotal:N2}; previous total ₱{offer.CurrentTotal:N2}. Original reservation retained.");
             Notify(b, $"Reschedule requested for {offer.ProposedStart:MMM d, yyyy h:mm tt}. Original slot stays reserved until approval.", actor);
-        }
-    }
-    public void Reschedule(Booking b, Guid actor, DateTime start)
-    {
-        if (store.IsPersistent && b.MixedPeople.Count > 0) throw new InvalidOperationException("Persistent mixed booking operations are unavailable.");
-        if (store is IPersistentStudioStore database) { database.RequestReschedule(b.Id, actor, start); return; }
-        lock (store.Gate)
-        {
-            if (b.CustomerId != actor || b.Status != "Confirmed" || b.Start <= store.Now)
-                throw new InvalidOperationException("Only future confirmed appointments can be rescheduled.");
-            if (EarlyFeeAt(start, store.Settings) != b.EarlyFeeSnapshot || LateFeeAt(start, (int)(b.End - b.Start).TotalMinutes, b.Package, store.Settings) != b.LateFeeSnapshot) throw new InvalidOperationException("This reschedule changes a booking fee. Contact the artist; fee-changing reschedules are not supported.");
-            CheckMixedReschedule(b, start);
-            CheckSlot(start, (int)(b.End - b.Start).TotalMinutes, b.Id);
-            b.RequestedStart = start;
-            RecordDecision(b, actor, "Reschedule requested", "Original reservation retained; proposed time is not reserved.");
-            Notify(b, $"Reschedule requested for {start:MMM d, yyyy h:mm tt}. Original slot stays reserved until approval.", actor);
         }
     }
     public void CorrectProof(Booking b, Guid actor, string reference, string? proof, long? expectedPaymentRevision = null, string? expectedPaymentVersion = null)

@@ -138,8 +138,9 @@ public class AdminController(IStudioStore store, BookingService workflow, Paymen
                     return RedirectToAction("Details", new { id });
                 }
                 if ((operation is "cancel" or "complete") && (!User.IsInRole("SuperAdmin") || store.IsPersistent)) return Forbid();
-                if (operation == "reschedule" && (!User.IsInRole("SuperAdmin") || store.IsPersistent)) return Forbid();
-                if (operation == "reschedule" && (rescheduleQuoteId == null || b.PendingReschedule?.Quote.Id != rescheduleQuoteId)) throw new InvalidOperationException("The reschedule request changed. Reload before deciding.");
+                if (operation == "reschedule" && !User.IsInRole("SuperAdmin")) return Forbid();
+                // Demo keeps the consented quote; database mode only knows the requested start, checked below.
+                if (operation == "reschedule" && !store.IsPersistent && (rescheduleQuoteId == null || b.PendingReschedule?.Quote.Id != rescheduleQuoteId)) throw new InvalidOperationException("The reschedule request changed. Reload before deciding.");
                 if (!store.IsPersistent && b.MixedPeople.Count == 0 && operation == "verify")
                 {
                     var payments = store.Payments.Where(p => p.BookingId == b.Id).Take(2).ToArray();
@@ -153,7 +154,7 @@ public class AdminController(IStudioStore store, BookingService workflow, Paymen
                     if (!reviewed) throw new InvalidOperationException("Confirm that you checked the actual transfer and this payment proof before verifying.");
                     if ((payment.ProofPath == null || !System.IO.File.Exists(payment.ProofPath)) && payment.ProofKey == null) throw new InvalidOperationException("The submitted proof is unavailable. Request a replacement before verifying.");
                 }
-                if (b.MixedPeople.Count > 0 && (operation is "reschedule" or "decline") && (!requestedStart.HasValue || b.RequestedStart != requestedStart))
+                if ((b.MixedPeople.Count > 0 || store.IsPersistent) && (operation is "reschedule" or "decline") && (!requestedStart.HasValue || b.RequestedStart != requestedStart))
                     throw new InvalidOperationException("The requested time changed. Reload this booking before deciding.");
                 workflow.AdminAction(b, operation, UserId, reason, amount, reference, confirmed, paymentId, reviewRevision, reviewVersion); TempData["Success"] = operation == "cancel" ? "Appointment cancelled. Payment and refund arrangements require personal review." : operation == "complete" ? "Appointment marked completed. Payment status was not changed." : "Booking updated successfully.";
             }

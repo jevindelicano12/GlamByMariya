@@ -51,6 +51,34 @@ if (args.Contains("--cancellation-policy-only"))
         "confirmed booking 3 days away cancels with PHP 200 fee and refund of verified paid minus fee");
     Console.WriteLine($"All {checks} cancellation policy checks passed."); return;
 }
+if (args.Contains("--persistent-reschedule-only"))
+{
+    var persistent = System.Reflection.DispatchProxy.Create<IPersistentStudioStore, PersistentQuoteProxy>();
+    var proxy = (PersistentQuoteProxy)persistent;
+    proxy.TestServices = store.Services; proxy.TestUsers = store.Users;
+    var flow = new BookingService(persistent, persistent, persistent, persistent, persistent);
+    var current = DateTime.Today.AddDays(3).AddHours(10); var proposed = DateTime.Today.AddDays(4).AddHours(10);
+    var booking = new Booking { CustomerId = customer.Id, Status = "Confirmed", Start = current, Service = new(service.Id, service.Name, service.Price, service.Minutes), BufferMinutesSnapshot = 45, AppliedPricePerPerson = service.Price };
+    proxy.TestBookings.Add(booking);
+    var offer = flow.OfferReschedule(booking, customer.Id, proposed);
+    Check(offer.ProposedStart == proposed && offer.ProposedTotal == booking.Total && offer.EarlyFee == 0 && offer.LateFee == 0,
+        "database-mode reschedule quote keeps the same total (no early/late fees)");
+    Reject(() => flow.ConsentReschedule(booking, customer.Id, offer.Id, false, proposed, offer.ProposedTotal), "consent is required");
+    Reject(() => flow.ConsentReschedule(booking, customer.Id, offer.Id, true, null, offer.ProposedTotal), "the proposed time must be posted back");
+    Reject(() => flow.ConsentReschedule(booking, customer.Id, offer.Id, true, proposed, offer.ProposedTotal + 100), "a total that differs from the review page is rejected");
+    Reject(() => flow.ConsentReschedule(booking, admin.Id, offer.Id, true, proposed, offer.ProposedTotal), "only the booking customer can request");
+    var blocker = new Booking { CustomerId = Guid.NewGuid(), Status = "Confirmed", Start = proposed, Service = booking.Service, BufferMinutesSnapshot = 45 };
+    proxy.TestBookings.Add(blocker);
+    Reject(() => flow.ConsentReschedule(booking, customer.Id, offer.Id, true, proposed, offer.ProposedTotal), "a time taken after the review is rejected");
+    proxy.TestBookings.Remove(blocker);
+    Check(proxy.RescheduleArguments == null, "rejected requests never reach the database");
+    flow.ConsentReschedule(booking, customer.Id, offer.Id, true, proposed, offer.ProposedTotal);
+    Check(proxy.RescheduleArguments is { } sent && (Guid)sent[0]! == booking.Id && (Guid)sent[1]! == customer.Id && (DateTime)sent[2]! == proposed,
+        "a valid request is sent to the database with the booking, customer and new time");
+    var source = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Backend", "GlamByMariya.Infrastructure", "Services", "BookingService.cs"));
+    Check(!source.Contains("public void Reschedule("), "the unused Reschedule method is gone");
+    Console.WriteLine($"All {checks} persistent reschedule checks passed."); return;
+}
 if (args.Contains("--exact-deposit-only"))
 {
     var demo = new DemoStore(); var flow = new BookingService(demo, demo, demo, demo, demo);
@@ -789,7 +817,9 @@ if (args.Contains("--late-fees-only"))
     var lateGroupBooking = flow.Create(user.Id, item.Id, [], groupStart, "Synthetic address", "Quezon City", crossesClose.RequiredDownPayment, "GCash", "LATE-GROUP-SNAPSHOT", null, true, 4, "group", true, crossesClose.FinalTotal, crossesClose.RequiredDownPayment);
     Check(lateGroupBooking.LateFeeSnapshot == 275 && lateGroupBooking.Total == crossesClose.FinalTotal, "duration-based fee is preserved in the booking snapshot");
     flow.AdminAction(lateGroupBooking, "verify", reviewer.Id, "", 0, "");
-    Reject(() => flow.Reschedule(lateGroupBooking, user.Id, day.AddDays(3).AddHours(13)), "rescheduling cannot silently remove a duration-based late fee");
+    var lateGroupOffer = flow.OfferReschedule(lateGroupBooking, user.Id, day.AddDays(3).AddHours(13));
+    Check(lateGroupOffer.LateFee == 0 && lateGroupOffer.ProposedTotal == lateGroupOffer.CurrentTotal - 275 && lateGroupBooking.RequestedStart == null && lateGroupBooking.LateFeeSnapshot == 275,
+        "removing a duration-based late fee is shown in a quote that needs customer consent; nothing changes yet");
     flow.CheckSlot(day.AddHours(20).AddMinutes(45), 60);
     Reject(() => flow.CheckSlot(day.AddHours(21), 60), "buffer may not exceed final closing");
     Reject(() => flow.CheckSlot(day.AddHours(21), 120), "9 PM two-hour service is rejected by 10 PM closing");
@@ -812,7 +842,9 @@ if (args.Contains("--late-fees-only"))
     demo.Settings.LateFee = 500; demo.Settings.LateFeeEnabled = false;
     Check(booking.Total == late.FinalTotal && booking.LateFeeSnapshot == 275, "policy changes preserve booking snapshot");
     flow.AdminAction(booking, "verify", reviewer.Id, "", 0, "");
-    Reject(() => flow.Reschedule(booking, user.Id, day.AddDays(1).AddHours(15)), "reschedule cannot silently remove late fee");
+    var lateOffer = flow.OfferReschedule(booking, user.Id, day.AddDays(1).AddHours(15));
+    Check(lateOffer.LateFee == 0 && lateOffer.ProposedTotal == lateOffer.CurrentTotal - 275 && booking.RequestedStart == null && booking.LateFeeSnapshot == 275,
+        "removing a late fee is shown in a quote that needs customer consent; nothing changes yet");
     Console.WriteLine($"All {checks} late fee checks passed."); return;
 }
 if (args.Contains("--fees-only"))
@@ -836,7 +868,9 @@ if (args.Contains("--fees-only"))
     Check(booking.EarlyFeeSnapshot == 321 && booking.Total == quote.FinalTotal, "booking retains historical fee and total");
     flow.AdminAction(booking, "verify", reviewer.Id, "", 0, "");
     Check(booking.Status == "Confirmed", "existing pending booking can be verified after policy change");
-    Reject(() => flow.Reschedule(booking, user.Id, start.AddDays(1).Date.AddHours(10)), "reschedule cannot silently change fee");
+    var feeOffer = flow.OfferReschedule(booking, user.Id, start.AddDays(1).Date.AddHours(10));
+    Check(feeOffer.ProposedTotal != feeOffer.CurrentTotal && booking.RequestedStart == null,
+        "a fee change from rescheduling is shown in a quote that needs customer consent; nothing changes yet");
     Console.WriteLine($"All {checks} Demo fee checks passed."); return;
 }
 if (args.Contains("--travel-only"))
@@ -1364,6 +1398,7 @@ Console.WriteLine($"All {checks} workflow, availability, payment QR, catalog ima
 public class PersistentQuoteProxy : System.Reflection.DispatchProxy
 {
     public object?[]? Arguments { get; private set; }
+    public object?[]? RescheduleArguments { get; set; }
     public List<AppUser> TestUsers { get; set; } = [];
     public List<Booking> TestBookings { get; set; } = [];
     public List<Payment> TestPayments { get; set; } = [];
@@ -1380,6 +1415,7 @@ public class PersistentQuoteProxy : System.Reflection.DispatchProxy
         if (method?.Name == "get_AddOns") return TestAddOns;
         if (method?.Name == "get_Settings") return TestSettings;
         if (method?.Name == "get_Blocks") return new List<AvailabilityBlock>();
+        if (method?.Name == nameof(IPersistentStudioStore.RequestReschedule)) { RescheduleArguments = args; return null; }
         if (method?.Name == "get_Users") return TestUsers;
         if (method?.Name == "get_Bookings") return TestBookings;
         if (method?.Name == "get_Payments") return TestPayments;
