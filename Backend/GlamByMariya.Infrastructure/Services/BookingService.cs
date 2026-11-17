@@ -306,19 +306,23 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
         if (store is IPersistentStudioStore database) { database.CancelBooking(b.Id, actor, confirmed); return; }
         lock (store.Gate)
         {
-            if (b.CustomerId != actor || !store.Users.Any(u => u.Id == actor && u.IsActive && u.Role == Roles.Customer) || b.Status != "Confirmed" || b.Start <= store.Now || !confirmed)
-                throw new InvalidOperationException("Confirm the cancellation of a future confirmed appointment.");
+            if (b.CustomerId != actor || !store.Users.Any(u => u.Id == actor && u.IsActive && u.Role == Roles.Customer) || !confirmed)
+                throw new InvalidOperationException("Confirm the cancellation of your own appointment.");
+            var decision = CancellationPolicy.Evaluate(b.Status, b.Start, store.Now);
+            if (!decision.Allowed) throw new InvalidOperationException(decision.Reason);
             reason = (reason ?? "").Trim();
             if (reason.Length > 1000 || (b.MixedPeople.Count > 0 && reason.Length == 0)) throw new InvalidOperationException("Provide a cancellation reason, up to 1,000 characters.");
             if (reason.Length == 0) reason = "Customer requested cancellation.";
-            b.CancellationFee = 200;
-            b.RefundDue = Math.Max(0, Paid(b) - 200);
+            b.CancellationFee = decision.Fee;
+            b.RefundDue = CancellationPolicy.RefundDue(decision.Fee, Paid(b));
             b.Status = "Cancelled";
-            b.RequestedStart = null;
+            b.RequestedStart = null; b.PendingReschedule = null; b.RescheduleOffer = null;
             b.Note = reason;
             UpdatePaymentStatus(b);
             RecordDecision(b, actor, "Customer cancellation", reason);
-            Notify(b, $"Cancelled. ₱200 cancellation fee; refund due ₱{b.RefundDue:N2}.", actor);
+            Notify(b, decision.Fee > 0
+                ? $"Cancelled. ₱{decision.Fee:N0} cancellation fee; refund due ₱{b.RefundDue:N2}."
+                : $"Cancelled before payment. No fee; refund due ₱{b.RefundDue:N2}.", actor);
         }
     }
     public void VerifyCancelledReceipt(Booking b, Guid actor, Guid paymentId, int revision, bool reviewed)

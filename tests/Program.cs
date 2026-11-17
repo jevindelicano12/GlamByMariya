@@ -13,6 +13,44 @@ var service = store.Services[0];
 int checks = 0;
 void Check(bool condition, string name) { if (!condition) throw new Exception(name); checks++; Console.WriteLine($"PASS: {name}"); }
 void Reject(Action action, string name) { try { action(); } catch (InvalidOperationException) { Check(true, name); return; } throw new Exception($"Expected rejection: {name}"); }
+if (args.Contains("--cancellation-policy-only"))
+{
+    var now = new DateTime(2026, 11, 18, 12, 0, 0);
+    var free = CancellationPolicy.Evaluate("Pending Payment", now.AddHours(2), now);
+    Check(free.Allowed && free.Fee == 0, "unpaid pending booking cancels free before it starts");
+    var early = CancellationPolicy.Evaluate("Confirmed", now.AddHours(25), now);
+    Check(early.Allowed && early.Fee == 200, "confirmed booking more than 24 hours away cancels with the PHP 200 fee");
+    var boundary = CancellationPolicy.Evaluate("Confirmed", now.AddHours(24), now);
+    Check(boundary.Allowed && boundary.Fee == 200, "exactly 24 hours before is still allowed");
+    var late = CancellationPolicy.Evaluate("Confirmed", now.AddHours(24).AddMinutes(-1), now);
+    Check(!late.Allowed && late.Reason!.Contains("24 hours"), "confirmed booking inside the 24-hour cut-off is blocked");
+    Check(!CancellationPolicy.Evaluate("Pending Payment", now, now).Allowed, "pending booking that already started is blocked");
+    Check(!CancellationPolicy.Evaluate("Confirmed", now.AddMinutes(-5), now).Allowed, "started confirmed booking is blocked");
+    foreach (var closed in new[] { "Cancelled", "Rejected", "Completed", "No-show", "Incomplete" })
+        Check(!CancellationPolicy.Evaluate(closed, now.AddDays(3), now).Allowed, $"{closed} booking cannot be cancelled again");
+    Check(CancellationPolicy.RefundDue(200, 150) == 0 && CancellationPolicy.RefundDue(200, 500) == 300 && CancellationPolicy.RefundDue(0, 0) == 0,
+        "refund is verified paid minus the fee, never negative");
+
+    var demo = new DemoStore(); var flow = new BookingService(demo, demo, demo, demo, demo);
+    var owner = demo.Users.First(u => u.Role == Roles.Customer);
+    var pending = demo.Bookings.Single(); pending.Start = demo.Now.AddHours(3);
+    Check(pending.Status == "Pending Payment" && flow.HoldsReservation(pending), "seed booking starts pending and holds its slot");
+    flow.Cancel(pending, owner.Id, true);
+    Check(pending.Status == "Cancelled" && pending.CancellationFee == 0 && pending.RefundDue == 0 && !flow.HoldsReservation(pending),
+        "customer cancels an unpaid pending booking with no fee and the slot is released");
+
+    var demo2 = new DemoStore(); var flow2 = new BookingService(demo2, demo2, demo2, demo2, demo2);
+    var owner2 = demo2.Users.First(u => u.Role == Roles.Customer);
+    var confirmed = demo2.Bookings.Single(); var deposit = demo2.Payments.Single(p => p.BookingId == confirmed.Id);
+    confirmed.Status = "Confirmed"; deposit.Verified = true; confirmed.Start = demo2.Now.AddHours(10);
+    Reject(() => flow2.Cancel(confirmed, owner2.Id, true), "confirmed booking 10 hours away cannot be cancelled");
+    Check(confirmed.Status == "Confirmed" && flow2.HoldsReservation(confirmed), "blocked cancellation keeps the confirmed reservation");
+    confirmed.Start = demo2.Now.AddDays(3);
+    flow2.Cancel(confirmed, owner2.Id, true);
+    Check(confirmed.Status == "Cancelled" && confirmed.CancellationFee == 200 && confirmed.RefundDue == Math.Max(0, deposit.Amount - 200),
+        "confirmed booking 3 days away cancels with PHP 200 fee and refund of verified paid minus fee");
+    Console.WriteLine($"All {checks} cancellation policy checks passed."); return;
+}
 if (args.Contains("--mixed-read-model-only"))
 {
     var bookingId = Guid.NewGuid(); var ownerId = Guid.NewGuid();

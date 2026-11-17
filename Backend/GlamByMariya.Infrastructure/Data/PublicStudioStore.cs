@@ -591,7 +591,10 @@ public sealed class PublicStudioStore(
     {
         var b = LockBooking(booking);
         if (!confirmed || b.CustomerId != customer) throw new InvalidOperationException("Confirm cancellation of your own appointment.");
-        pdb.Database.ExecuteSqlInterpolated($"UPDATE public.reservations SET status='Cancelled', cancellation_confirmed_at=now(), notes='Customer confirmed cancellation and the PHP 200 deduction.' WHERE app_id={booking}");
+        var decision = CancellationPolicy.Evaluate(b.Status, Local(b.StartsAt), Now);
+        if (!decision.Allowed) throw new InvalidOperationException(decision.Reason);
+        var note = decision.Fee > 0 ? $"Customer confirmed cancellation and the PHP {decision.Fee:N0} deduction." : "Customer cancelled before payment. No fee.";
+        pdb.Database.ExecuteSqlInterpolated($"UPDATE public.reservations SET status='Cancelled', cancellation_confirmed_at=now(), notes={note} WHERE app_id={booking}");
     });
 
     public override void RequestReschedule(Guid booking, Guid customer, DateTime start) => Transaction(customer, () =>
