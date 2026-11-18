@@ -342,6 +342,9 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
     }
     // The legacy makeup schema has no Expired status; only the public schema expires bookings.
     public virtual int ExpireOverduePayments() => 0;
+    public virtual void AttachInvoice(Guid booking,string invoiceId,string checkoutUrl) => throw new InvalidOperationException("Xendit payments need the public schema.");
+    public virtual string XenditPaid(string invoiceId,decimal amount,string eventKey) => throw new InvalidOperationException("Xendit payments need the public schema.");
+    public virtual string XenditExpired(string invoiceId,string eventKey) => throw new InvalidOperationException("Xendit payments need the public schema.");
     public virtual void CancelBooking(Guid booking,Guid customer,bool confirmed) => Transaction(customer,()=>
     {
         var b=LockBooking(booking);

@@ -3,11 +3,12 @@ using System.Text.Json;
 using GlamByMariya.Infrastructure.Data;
 using GlamByMariya.Core.Entities;
 using GlamByMariya.Infrastructure.Services;
+using GlamByMariya.Infrastructure.Integrations;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 namespace GlamByMariya.Web.Controllers;
 [Authorize(Roles = "Customer")]
-public class BookingsController(IStudioStore store, BookingService workflow, IWebHostEnvironment environment, PaymentQrService paymentQr, CatalogImageService imageService, IAppFileStore files) : Controller
+public class BookingsController(IStudioStore store, BookingService workflow, IWebHostEnvironment environment, PaymentQrService paymentQr, CatalogImageService imageService, IAppFileStore files, XenditClient? xendit = null) : Controller
 {
     private Guid UserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
     public override void OnActionExecuting(Microsoft.AspNetCore.Mvc.Filters.ActionExecutingContext context)
@@ -137,7 +138,8 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
     }
     public IActionResult Create(Guid? serviceId)
     {
-        ViewBag.PaymentQr = paymentQr.GetOptions();
+        ViewBag.XenditEnabled = UsesXendit;
+        ViewBag.PaymentQr = UsesXendit ? new List<PaymentQrOption>() : paymentQr.GetOptions();
         ViewBag.CatalogImages = (Func<string, Guid, string?>)((kind, id) => imageService.GetImageUrl(kind, id));
         ViewBag.CatalogPreviewImages = (Func<string, Guid, string?>)((kind, id) => imageService.GetImageUrl(kind, id, "preview"));
         lock (store.Gate)
@@ -158,6 +160,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
         {
             if (!ModelState.IsValid) throw new InvalidOperationException("Check the number of people, date and payment amount.");
             if (!expectedTotal.HasValue || !expectedMinimum.HasValue) throw new InvalidOperationException("Review the current price before submitting.");
+            if (UsesXendit) return await CreateWithXendit(serviceId, addOnIds, start, address, area, deposit, agreed, people, package, travelAcknowledged, expectedTotal, expectedMinimum);
             if (method == "Cash") throw new InvalidOperationException("Deposits must use GCash, Maya or Bank Transfer.");
             if (proof == null || proof.Length == 0) throw new InvalidOperationException("Upload a payment screenshot to submit your booking.");
             path = await SaveProof(proof);
@@ -169,6 +172,34 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
         }
         catch (InvalidOperationException e) { CleanupFailedStaging(path); TempData["Error"] = e.Message; return RedirectToAction("Create", new { serviceId }); }
     }
+    // Database mode with Xendit configured: the down payment is paid on Xendit's checkout.
+    private bool UsesXendit => xendit?.Enabled == true && store is IPersistentStudioStore;
+
+    // Saves the booking as Pending Payment, opens a Xendit invoice for the exact down payment
+    // and sends the customer to it. Only the Xendit webhook confirms the booking. If the invoice
+    // cannot be created, the unpaid booking is cancelled (free) so the slot is released at once.
+    private async Task<IActionResult> CreateWithXendit(Guid serviceId, Guid[] addOnIds, DateTime start, string address, string area, decimal deposit, bool agreed,
+        int people, string package, bool travelAcknowledged, decimal? expectedTotal, decimal? expectedMinimum)
+    {
+        var reference = "XENDIT-" + Guid.NewGuid().ToString("N")[..16].ToUpperInvariant();
+        var booking = workflow.Create(UserId, serviceId, addOnIds, start, address, area, deposit, "Xendit", reference, null, agreed, people, package, travelAcknowledged, expectedTotal, expectedMinimum);
+        var database = (IPersistentStudioStore)store;
+        try
+        {
+            var email = User.FindFirstValue(ClaimTypes.Email) ?? "";
+            var done = Url.Action("Confirmation", "Bookings", new { id = booking.Id }, Request.Scheme)!;
+            var invoice = await xendit!.CreateInvoiceAsync(booking.Reference, booking.RequiredDownPayment, email,
+                $"Glam by Mariya down payment for {booking.Reference} ({booking.ServiceDescription})", done, done);
+            database.AttachInvoice(booking.Id, invoice.Id, invoice.InvoiceUrl);
+            return Redirect(invoice.InvoiceUrl);
+        }
+        catch (Exception e) when (e is InvalidOperationException or HttpRequestException or TaskCanceledException)
+        {
+            try { database.CancelBooking(booking.Id, UserId, true); } catch (InvalidOperationException) { }
+            throw new InvalidOperationException("We could not open the Xendit payment page, so nothing was charged and the time was released. Please try again.");
+        }
+    }
+
     [HttpPost, ValidateAntiForgeryToken, RequestSizeLimit(6_000_000)]
     public async Task<IActionResult> CreateMixed(DateTime mixedStart, string address, string area, decimal deposit, string method, string reference, IFormFile? proof, bool agreed, bool travelAcknowledged, decimal? expectedTotal, decimal? expectedMinimum, string? mixedSelection, Guid submissionId, string? policyVersion, string? travelReminderVersion)
     {

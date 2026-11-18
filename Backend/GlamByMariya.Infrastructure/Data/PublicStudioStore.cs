@@ -370,6 +370,22 @@ public sealed class PublicStudioStore(
     public override int ExpireOverduePayments() =>
         Transaction(null, () => pdb.Database.SqlQueryRaw<int>("SELECT public.mvc_expire_overdue() AS \"Value\"").AsEnumerable().Single());
 
+    public override void AttachInvoice(Guid booking, string invoiceId, string checkoutUrl) => Transaction(null, () =>
+    {
+        var updated = pdb.Database.ExecuteSqlInterpolated($"""
+            UPDATE public.payments SET provider='xendit', provider_invoice_id={invoiceId}, checkout_url={checkoutUrl}, provider_status='PENDING'
+            WHERE purpose='down_payment' AND method='Xendit' AND provider_invoice_id IS NULL
+              AND reservation_id=(SELECT id FROM public.reservations WHERE app_id={booking})
+            """);
+        if (updated != 1) throw new InvalidOperationException("The Xendit invoice could not be linked to this booking.");
+    });
+
+    public override string XenditPaid(string invoiceId, decimal amount, string eventKey) =>
+        Transaction(null, () => pdb.Database.SqlQuery<string>($"SELECT public.mvc_xendit_paid({invoiceId}, {amount}, {eventKey}) AS \"Value\"").AsEnumerable().Single());
+
+    public override string XenditExpired(string invoiceId, string eventKey) =>
+        Transaction(null, () => pdb.Database.SqlQuery<string>($"SELECT public.mvc_xendit_expired({invoiceId}, {eventKey}) AS \"Value\"").AsEnumerable().Single());
+
     public override void CancelBooking(Guid booking, Guid customer, bool confirmed) => Transaction(customer, () =>
     {
         var b = LockBooking(booking);

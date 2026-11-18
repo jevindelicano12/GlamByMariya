@@ -194,6 +194,7 @@ builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<LoginAttemptLimiter>();
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<BrevoEmailSender>();
+builder.Services.AddSingleton<GlamByMariya.Infrastructure.Integrations.XenditClient>();
 // Email codes: PostgreSQL when a database is configured (survives restarts), memory otherwise.
 builder.Services.AddSingleton<IEmailCodeStore>(sp => sp.GetService<NpgsqlDataSource>() is { } emailCodeSource && builder.Configuration["Database:Schema"] == "public"
     ? new PostgresEmailCodeStore(emailCodeSource)

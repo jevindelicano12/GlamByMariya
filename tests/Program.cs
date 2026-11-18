@@ -351,6 +351,43 @@ if (args.Contains("--booking-lookup-only"))
             $"{controllerFile} no longer scans every booking to find one");
     Console.WriteLine($"All {checks} booking lookup checks passed."); return;
 }
+if (args.Contains("--xendit-only"))
+{
+    // Xendit client and webhook without network or database: a fake HTTP handler and a fake store.
+    IConfiguration Settings(string key) => new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> {
+        ["Xendit:SecretKey"] = key, ["Xendit:CallbackToken"] = "callback-token-123" }).Build();
+    var xenditHttp = new CapturingXenditHttp();
+    var client = new XenditClient(xenditHttp, Settings("xnd_development_abc"));
+    var invoice = await client.CreateInvoiceAsync("LM-1234ABCD", 300m, "ana@example.test", "Down payment", "https://site.test/done", "https://site.test/done");
+    var sent = System.Text.Json.JsonDocument.Parse(xenditHttp.LastBody!).RootElement;
+    Check(xenditHttp.LastUri == "https://api.xendit.co/v2/invoices" && xenditHttp.LastAuth == "Basic " + Convert.ToBase64String(System.Text.Encoding.ASCII.GetBytes("xnd_development_abc:")),
+        "the invoice request goes to Xendit with the secret key as basic auth");
+    Check(sent.GetProperty("external_id").GetString() == "LM-1234ABCD" && sent.GetProperty("amount").GetDecimal() == 300m && sent.GetProperty("currency").GetString() == "PHP"
+        && sent.GetProperty("invoice_duration").GetInt32() == 1800, "the invoice is for the booking reference, the exact deposit in PHP, valid 30 minutes");
+    Check(invoice.Id == "inv_fake_1" && invoice.InvoiceUrl == "https://checkout-staging.xendit.co/web/inv_fake_1", "the checkout link comes back from Xendit");
+    Reject(() => new XenditClient(xenditHttp, Settings("xnd_production_abc")).CreateInvoiceAsync("LM-1", 1m, "a@example.test", "d", "https://s.test", "https://s.test").GetAwaiter().GetResult(),
+        "a live Xendit key is refused for the demo");
+    Check(client.CallbackTokenMatches("callback-token-123") && !client.CallbackTokenMatches("wrong") && !client.CallbackTokenMatches(null), "only the configured callback token is accepted");
+
+    var fakeStore = System.Reflection.DispatchProxy.Create<IPersistentStudioStore, XenditStoreProxy>();
+    var calls = (XenditStoreProxy)(object)fakeStore;
+    System.Text.Json.JsonElement Body(string json) => System.Text.Json.JsonDocument.Parse(json).RootElement;
+    var paid = GlamByMariya.Web.Controllers.XenditWebhookController.Apply(fakeStore, Body("""{"id":"inv_9","status":"PAID","paid_amount":300,"currency":"PHP"}"""));
+    Check(paid == (200, "confirmed") && calls.Last == "XenditPaid inv_9 300 inv_9:PAID", "a PAID callback confirms through the database with the paid amount");
+    var expired = GlamByMariya.Web.Controllers.XenditWebhookController.Apply(fakeStore, Body("""{"id":"inv_9","status":"EXPIRED","currency":"PHP"}"""));
+    Check(expired == (200, "noted") && calls.Last == "XenditExpired inv_9 inv_9:EXPIRED", "an EXPIRED callback is passed on");
+    Check(GlamByMariya.Web.Controllers.XenditWebhookController.Apply(fakeStore, Body("""{"id":"inv_9","status":"PAID","paid_amount":300,"currency":"USD"}""")).Status == 400,
+        "a non-PHP callback is refused");
+    Check(GlamByMariya.Web.Controllers.XenditWebhookController.Apply(fakeStore, Body("""{"status":"PAID","paid_amount":300}""")).Status == 400, "a callback without an invoice id is refused");
+
+    var webhook = new GlamByMariya.Web.Controllers.XenditWebhookController(fakeStore, client, Microsoft.Extensions.Logging.Abstractions.NullLogger<GlamByMariya.Web.Controllers.XenditWebhookController>.Instance);
+    var hook = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+    hook.Request.Body = new MemoryStream(System.Text.Encoding.UTF8.GetBytes("""{"id":"inv_9","status":"PAID","paid_amount":300}"""));
+    hook.Request.Headers["x-callback-token"] = "forged";
+    webhook.ControllerContext = new ControllerContext { HttpContext = hook };
+    Check(await webhook.Receive() is UnauthorizedResult && calls.Count == 2, "a webhook with a wrong token is refused before touching the database");
+    Console.WriteLine($"All {checks} Xendit checks passed."); return;
+}
 if (args.Contains("--email-codes-only"))
 {
     // Store rules, checked directly on the memory store (the Postgres store follows the same contract).
@@ -1858,6 +1895,25 @@ public class CountingStore : System.Reflection.DispatchProxy
         calls[method!.Name] = Calls(method.Name) + 1;
         try { return method.Invoke(Target, args); }
         catch (System.Reflection.TargetInvocationException e) when (e.InnerException != null) { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(e.InnerException).Throw(); throw; }
+    }
+}
+public sealed class CapturingXenditHttp : HttpMessageHandler, IHttpClientFactory
+{
+    public string? LastUri, LastAuth, LastBody;
+    public HttpClient CreateClient(string name) => new(this, disposeHandler: false);
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        LastUri = request.RequestUri!.ToString(); LastAuth = request.Headers.Authorization?.ToString(); LastBody = await request.Content!.ReadAsStringAsync(cancellationToken);
+        return new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent("""{"id":"inv_fake_1","invoice_url":"https://checkout-staging.xendit.co/web/inv_fake_1","status":"PENDING"}""") };
+    }
+}
+public class XenditStoreProxy : System.Reflection.DispatchProxy
+{
+    public string Last = ""; public int Count;
+    protected override object? Invoke(System.Reflection.MethodInfo? method, object?[]? args)
+    {
+        Count++; Last = method!.Name + " " + string.Join(" ", args!.Select(a => Convert.ToString(a, System.Globalization.CultureInfo.InvariantCulture)));
+        return method.Name switch { "XenditPaid" => "confirmed", "XenditExpired" => "noted", _ => throw new InvalidOperationException("Unexpected call " + method.Name) };
     }
 }
 public sealed class ManualClock(DateTimeOffset now) : TimeProvider

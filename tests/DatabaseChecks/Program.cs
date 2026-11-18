@@ -114,7 +114,7 @@ if (Run("--schema"))
         "email_code_cooldowns", "makeup_addons", "makeup_artists", "media_assets", "notifications", "payment_adjustments", "payment_methods",
         "payment_revisions", "payments", "refunds", "reschedule_requests", "reservation_addons", "reservation_closures", "reservation_history",
         "reservations", "service_areas", "services", "mvc_blocks", "mvc_booking_addons", "mvc_booking_summary", "mvc_catalog_images",
-        "mvc_closures", "mvc_payments", "mvc_reschedules", "mvc_roles", "mvc_services", "mvc_users"];
+        "mvc_closures", "mvc_payments", "mvc_reschedules", "mvc_roles", "mvc_services", "mvc_users", "payment_webhook_events"];
     var missing = new List<string>();
     foreach (var name in relations)
         if (await Scalar($"SELECT to_regclass('public.{name}')::text") is DBNull) missing.Add(name);
@@ -128,7 +128,7 @@ if (Run("--schema"))
                (SELECT count(*) FROM public.service_areas WHERE is_active)||','||(SELECT count(*) FROM public.payment_methods)||','||
                (SELECT count(*) FROM public.business_settings WHERE id=1)
         """))!;
-    Check(catalog == "3,3,6,4,1", $"seed has the catalog (services,add-ons,areas,methods,settings = {catalog})");
+    Check(catalog == "3,3,6,5,1", $"seed has the catalog (services,add-ons,areas,methods,settings = {catalog})");
     var store = NewStore();
     Check(store.Services.Count(x => x.Active && !x.Archived) == 3 && store.AddOns.Count == 3 && store.Settings.OpenHour == 8 && store.Settings.BufferMinutes == 45,
         "the app reads the catalog and settings through its views");
@@ -295,6 +295,51 @@ if (Run("--app-role"))
     var later = (bool)(await Scalar("SELECT has_function_privilege('anon', 'public.zz_added_later()', 'EXECUTE') OR has_function_privilege('authenticated', 'public.zz_added_later()', 'EXECUTE')"))!;
     Check(!later, "a function added by a later migration is not callable by anon or authenticated");
     Console.WriteLine($"All {checks - before} app role checks passed.");
+}
+
+if (Run("--xendit"))
+{
+    // Xendit deposits, run as the app login: invoice attached, webhook paid/duplicate/late/expired.
+    var before = checks;
+    await ResetPublic();
+    await SqlMigrator.ApplyAsync(source, migrations);
+    PublicStudioStore App() => NewStore(as_: appSource);
+    App().CreateInitialSuperAdmin("Maria", "Santos", "maria@example.test", "OwnerPass123");
+    var hasher = new Microsoft.AspNetCore.Identity.PasswordHasher<GlamByMariya.Core.Entities.AppUser>();
+    var customer = App().AddCustomerWithPasswordHash("Ana", "Cruz", "ana@example.test", hasher.HashPassword(new(), "AnaPass123"), 30, "Female", "24 Synthetic Street, Quezon City");
+    var soft = App().Services.Single(x => x.Name == "Soft Glam");
+    GlamByMariya.Core.Entities.Booking BookXendit(DateTime start, string reference)
+    {
+        var s = App();
+        var quote = GlamByMariya.Core.BusinessRules.BookingPricing.Calculate(soft, [], 1, s.Settings.TravelFee, "auto", s.Settings.DownPaymentPercent);
+        return s.SubmitBooking(customer.Id, soft.Id, [], start, "24 Synthetic Street, Quezon City", "Quezon City", quote.RequiredDownPayment, "Xendit", reference, null,
+            true, true, 1, "auto", quote.FinalTotal, quote.RequiredDownPayment);
+    }
+    async Task<string> Status(Guid booking) => (string)(await Scalar($"SELECT status FROM public.reservations WHERE app_id='{booking}'"))!;
+    var day = DateTime.Today.AddDays(4);
+    var paid = BookXendit(day.AddHours(10), "XENDIT-TEST-1");
+    App().AttachInvoice(paid.Id, "inv_test_1", "https://checkout-staging.xendit.co/web/inv_test_1");
+    var url = (string)(await Scalar($"SELECT checkout_url FROM public.payments WHERE provider_invoice_id='inv_test_1'"))!;
+    Check(await Status(paid.Id) == "Pending Payment" && url.EndsWith("inv_test_1"), "a Xendit booking waits for payment with its invoice attached");
+    var wrong = "";
+    try { App().XenditPaid("inv_test_1", paid.RequiredDownPayment - 1, "inv_test_1:PAID"); } catch (InvalidOperationException e) { wrong = e.Message; }
+    Check(wrong.Contains("does not match") && await Status(paid.Id) == "Pending Payment", "a wrong paid amount does not confirm the booking");
+    Check(App().XenditPaid("inv_test_1", paid.RequiredDownPayment, "inv_test_1:PAID") == "confirmed" && await Status(paid.Id) == "Confirmed",
+        "the paid webhook confirms the booking");
+    Check((string)(await Scalar($"SELECT status||'/'||verification_status FROM public.payments WHERE provider_invoice_id='inv_test_1'"))! == "Paid/Verified",
+        "the deposit is recorded as paid and verified");
+    Check(App().XenditPaid("inv_test_1", paid.RequiredDownPayment, "inv_test_1:PAID") == "duplicate", "the same webhook event twice is ignored");
+    Check(App().XenditPaid("inv_test_1", paid.RequiredDownPayment, "inv_test_1:SETTLED") == "already", "a later SETTLED event changes nothing");
+    var late = BookXendit(day.AddHours(14), "XENDIT-TEST-2");
+    App().AttachInvoice(late.Id, "inv_test_2", "https://checkout-staging.xendit.co/web/inv_test_2");
+    await Exec($"UPDATE public.reservations SET payment_expires_at=now()-interval '1 minute' WHERE app_id='{late.Id}'");
+    Check(App().XenditExpired("inv_test_2", "inv_test_2:EXPIRED") == "noted" && await Status(late.Id) == "Expired", "the expired webhook releases the unpaid booking");
+    Check(App().XenditPaid("inv_test_2", late.RequiredDownPayment, "inv_test_2:PAID") == "late" && await Status(late.Id) == "Expired",
+        "a payment after expiry is recorded for refund and does not confirm");
+    var unknown = "";
+    try { App().XenditPaid("inv_missing", 100, "inv_missing:PAID"); } catch (InvalidOperationException e) { unknown = e.Message; }
+    Check(unknown.Contains("Unknown Xendit invoice"), "an unknown invoice is refused");
+    Console.WriteLine($"All {checks - before} Xendit database checks passed.");
 }
 
 sealed class TestEnv : Microsoft.AspNetCore.Hosting.IWebHostEnvironment

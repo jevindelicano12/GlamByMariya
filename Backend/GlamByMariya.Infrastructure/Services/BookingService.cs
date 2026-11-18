@@ -326,7 +326,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
     }
     public static void ValidatePayment(string method, [NotNull] string? reference)
     {
-        if (!new[] { "GCash", "Maya", "Bank Transfer", "Cash" }.Contains(method) || string.IsNullOrWhiteSpace(reference) || reference.Length > 150) throw new InvalidOperationException("Choose a payment method and provide a valid reference.");
+        if (!new[] { "GCash", "Maya", "Bank Transfer", "Cash", "Xendit" }.Contains(method) || string.IsNullOrWhiteSpace(reference) || reference.Length > 150) throw new InvalidOperationException("Choose a payment method and provide a valid reference.");
     }
     public bool CanManageBooking(Booking b, Guid actor)
     {

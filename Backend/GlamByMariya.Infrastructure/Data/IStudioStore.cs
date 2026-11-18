@@ -42,6 +42,10 @@ public interface IPersistentStudioStore : IStudioStore
     void CancelBooking(Guid booking, Guid customer, bool confirmed);
     // Marks unpaid bookings whose 30-minute window ended as Expired; returns how many.
     int ExpireOverduePayments();
+    // Xendit: link the deposit row to its invoice; apply webhook events (see 0010_xendit.sql).
+    void AttachInvoice(Guid booking, string invoiceId, string checkoutUrl);
+    string XenditPaid(string invoiceId, decimal amount, string eventKey);
+    string XenditExpired(string invoiceId, string eventKey);
     void ManageBooking(Guid booking, string action, Guid admin, string reason, decimal amount, string reference, Guid? paymentId = null, long? reviewRevision = null, string? reviewVersion = null);
     List<Payment> ReviewPayments(Guid booking);
     void RequestReschedule(Guid booking, Guid customer, DateTime start);
