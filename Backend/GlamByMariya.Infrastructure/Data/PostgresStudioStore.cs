@@ -153,7 +153,9 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
         if (artists.Count!=1) throw new InvalidOperationException("Configure Database:ArtistId for the business's active makeup artist (or create one admin first).");
         return artists[0];
     }
-    protected T Transaction<T>(Guid? actor, Func<T> command)
+    // The app registers the context with EnableRetryOnFailure, which only allows a manual
+    // transaction inside the execution strategy: a transient failure retries the whole unit.
+    protected T Transaction<T>(Guid? actor, Func<T> command) => db.Database.CreateExecutionStrategy().Execute(() =>
     {
         using var transaction=db.Database.BeginTransaction(IsolationLevel.ReadCommitted);
         try
@@ -169,7 +171,7 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
             transaction.Rollback();
             throw new InvalidOperationException(Friendly(e),e);
         }
-    }
+    });
     protected void Transaction(Guid? actor, Action command) => Transaction(actor,()=>{ command(); return true; });
     protected virtual string Friendly(PostgresException e) => e.SqlState switch
     {

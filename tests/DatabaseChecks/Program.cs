@@ -56,11 +56,13 @@ async Task<string> Refused(Func<Task> action)
 var tempRoot = Path.GetFullPath(args[2]);
 var http = new Microsoft.AspNetCore.Http.HttpContextAccessor { HttpContext = new Microsoft.AspNetCore.Http.DefaultHttpContext() };
 var env = new TestEnv { ContentRootPath = tempRoot };
+static void AppRetry(Npgsql.EntityFrameworkCore.PostgreSQL.Infrastructure.NpgsqlDbContextOptionsBuilder npgsql) => npgsql.EnableRetryOnFailure(3, TimeSpan.FromSeconds(5), null);
 PublicStudioStore NewStore(Dictionary<string, string?>? settings = null, NpgsqlDataSource? as_ = null)
 {
     var config = new ConfigurationBuilder().AddInMemoryCollection(settings ?? new()).Build();
     var options = new DbContextOptionsBuilder<PublicMakeupDbContext>();
-    options.UseNpgsql(as_ ?? source);
+    // Same retry setting as the app (Program.cs), so transactions are tested the way they run.
+    options.UseNpgsql(as_ ?? source, AppRetry);
     return new PublicStudioStore(new PublicMakeupDbContext(options.Options), http, env, config, new GlamByMariya.Infrastructure.Integrations.LocalAppFileStore(env));
 }
 
@@ -210,7 +212,7 @@ if (Run("--rules"))
     await Exec($"UPDATE public.reservations SET payment_expires_at=now()-interval '1 minute' WHERE app_id='{overdue.Id}'");
     Check(NewStore().ExpireOverduePayments() == 1 && await Status(overdue.Id) == "Expired" && await Status(fresh.Id) == "Pending Payment", "expiry job marks only overdue bookings");
 
-    var invites = new GlamByMariya.Infrastructure.Services.PostgresInvitationService(new PublicMakeupDbContext(new DbContextOptionsBuilder<PublicMakeupDbContext>().UseNpgsql(source).Options), store, TimeProvider.System);
+    var invites = new GlamByMariya.Infrastructure.Services.PostgresInvitationService(new PublicMakeupDbContext(new DbContextOptionsBuilder<PublicMakeupDbContext>().UseNpgsql(source, AppRetry).Options), store, TimeProvider.System);
     Check(invites.InviteWithToken("new.admin@example.test", owner.Id).Invite.Email == "new.admin@example.test", "invitation by the owner is stored");
     Console.WriteLine($"All {checks - before} booking rule checks passed.");
 }
@@ -281,7 +283,7 @@ if (Run("--app-role"))
     Check(App().ExpireOverduePayments() == 0, "the app login can run the expiry function");
     App().CancelBooking(booking.Id, customer.Id, true);
     Check((string)(await Scalar($"SELECT status FROM public.reservations WHERE app_id='{booking.Id}'"))! == "Cancelled", "the app login can cancel a booking");
-    var invites = new GlamByMariya.Infrastructure.Services.PostgresInvitationService(new PublicMakeupDbContext(new DbContextOptionsBuilder<PublicMakeupDbContext>().UseNpgsql(appSource).Options), App(), TimeProvider.System);
+    var invites = new GlamByMariya.Infrastructure.Services.PostgresInvitationService(new PublicMakeupDbContext(new DbContextOptionsBuilder<PublicMakeupDbContext>().UseNpgsql(appSource, AppRetry).Options), App(), TimeProvider.System);
     var inviteError = "";
     try { invites.InviteWithToken("new.admin@example.test", owner.Id); } catch (Exception e) { inviteError = e.GetBaseException().Message; }
     Check(inviteError == "", "the app login can store an admin invitation" + (inviteError == "" ? "" : ": " + inviteError));

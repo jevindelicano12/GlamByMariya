@@ -137,11 +137,12 @@ public sealed class PostgresInvitationService(
     {
         var now = clock.GetUtcNow().UtcDateTime;
         var invite = Build(email, invitedBy, now, out var token);
-        using var tx = pdb.Database.BeginTransaction();
-        pdb.Database.ExecuteSqlInterpolated($"SELECT set_config('makeup.actor_id',{invitedBy.ToString()},true)");
-        pdb.Database.ExecuteSqlInterpolated(
-            $"INSERT INTO public.admin_invitations(id,email,token_hash,invited_by,expires_at) VALUES({invite.Id},{invite.Email},{invite.TokenHash},{invite.InvitedBy},{invite.ExpiresAt})");
-        tx.Commit();
+        InTransaction(() =>
+        {
+            pdb.Database.ExecuteSqlInterpolated($"SELECT set_config('makeup.actor_id',{invitedBy.ToString()},true)");
+            pdb.Database.ExecuteSqlInterpolated(
+                $"INSERT INTO public.admin_invitations(id,email,token_hash,invited_by,expires_at) VALUES({invite.Id},{invite.Email},{invite.TokenHash},{invite.InvitedBy},{invite.ExpiresAt})");
+        });
         invite.CreatedAt = now;
         return (invite, token);
     }
@@ -156,26 +157,37 @@ public sealed class PostgresInvitationService(
         var now = clock.GetUtcNow().UtcDateTime;
         var rows = Query().ToList();
         var invite = Consume(rows.Select(r => r.ToModel()), email, token, now);
-        using var tx = pdb.Database.BeginTransaction();
-        pdb.Database.ExecuteSqlInterpolated($"SELECT set_config('makeup.actor_id',{invite.InvitedBy.ToString()},true)");
-        if (pdb.Database.ExecuteSqlInterpolated(
-            $"UPDATE public.admin_invitations SET accepted_at={now} WHERE id={invite.Id} AND accepted_at IS NULL") == 0)
-            throw new InvalidOperationException("This invitation is invalid or was already used.");
-        tx.Commit();
+        InTransaction(() =>
+        {
+            pdb.Database.ExecuteSqlInterpolated($"SELECT set_config('makeup.actor_id',{invite.InvitedBy.ToString()},true)");
+            if (pdb.Database.ExecuteSqlInterpolated(
+                $"UPDATE public.admin_invitations SET accepted_at={now} WHERE id={invite.Id} AND accepted_at IS NULL") == 0)
+                throw new InvalidOperationException("This invitation is invalid or was already used.");
+        });
         invite.AcceptedAt = now;
         return invite;
     }
 
     public override void Revoke(Guid id, Guid actor)
     {
-        using var tx = pdb.Database.BeginTransaction();
-        pdb.Database.ExecuteSqlInterpolated($"SELECT set_config('makeup.actor_id',{actor.ToString()},true)");
-        var row = Query().FirstOrDefault(r => r.Id == id)
-            ?? throw new InvalidOperationException("Invitation not found.");
-        if (row.AcceptedAt != null) throw new InvalidOperationException("This invitation was already used.");
-        pdb.Database.ExecuteSqlInterpolated($"DELETE FROM public.admin_invitations WHERE id={id}");
-        tx.Commit();
+        InTransaction(() =>
+        {
+            pdb.Database.ExecuteSqlInterpolated($"SELECT set_config('makeup.actor_id',{actor.ToString()},true)");
+            var row = Query().FirstOrDefault(r => r.Id == id)
+                ?? throw new InvalidOperationException("Invitation not found.");
+            if (row.AcceptedAt != null) throw new InvalidOperationException("This invitation was already used.");
+            pdb.Database.ExecuteSqlInterpolated($"DELETE FROM public.admin_invitations WHERE id={id}");
+        });
     }
+
+    // The app's context retries transient failures, which requires manual transactions to
+    // run inside its execution strategy.
+    private void InTransaction(Action work) => pdb.Database.CreateExecutionStrategy().Execute(() =>
+    {
+        using var tx = pdb.Database.BeginTransaction();
+        work();
+        tx.Commit();
+    });
 }
 
 public sealed class InvitationRow
