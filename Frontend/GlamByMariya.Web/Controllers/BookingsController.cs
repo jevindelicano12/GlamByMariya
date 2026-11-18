@@ -120,7 +120,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
     private (int Duration, Guid? Exclude)? AvailabilitySelection(Guid serviceId, Guid[] addOnIds, Guid? bookingId, int people, string package)
     {
         if (!bookingId.HasValue) return (workflow.SelectedDuration(serviceId, addOnIds, people, package), null);
-        var b = store.Bookings.FirstOrDefault(b => b.Id == bookingId && b.CustomerId == UserId && b.Status == "Confirmed" && b.Start > store.Now);
+        var b = store.FindBooking(bookingId.Value) is { } upcoming && upcoming.CustomerId == UserId && upcoming.Status == "Confirmed" && upcoming.Start > store.Now ? upcoming : null;
         return b == null ? null : ((int)(b.End - b.Start).TotalMinutes, b.Id);
     }
     public IActionResult Index()
@@ -213,7 +213,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
     {
         lock (store.Gate)
         {
-            var b = store.Bookings.FirstOrDefault(b => b.Id == id && b.CustomerId == UserId);
+            var b = store.FindBooking(id) is { } owned && owned.CustomerId == UserId ? owned : null;
             if (b == null) return NotFound();
             if (store.IsPersistent && b.MixedPeople.Count > 0) return NotFound();
             ViewBag.Paid = workflow.Paid(b);
@@ -226,7 +226,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
     {
         lock (store.Gate)
         {
-            var b = store.Bookings.FirstOrDefault(b => b.Id == id && b.CustomerId == UserId);
+            var b = store.FindBooking(id) is { } owned && owned.CustomerId == UserId ? owned : null;
             if (b == null) return NotFound();
             if (store.IsPersistent && b.MixedPeople.Count > 0) return NotFound();
             ViewBag.Paid = workflow.Paid(b);
@@ -239,7 +239,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
     {
         lock (store.Gate)
         {
-            var b = store.Bookings.FirstOrDefault(b => b.Id == id && b.CustomerId == UserId);
+            var b = store.FindBooking(id) is { } owned && owned.CustomerId == UserId ? owned : null;
             if (b == null) return NotFound();
             try
             {
@@ -255,7 +255,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
     {
         lock (store.Gate)
         {
-            var b = store.Bookings.FirstOrDefault(b => b.Id == id && b.CustomerId == UserId);
+            var b = store.FindBooking(id) is { } owned && owned.CustomerId == UserId ? owned : null;
             if (b == null) return NotFound();
             try
             {
@@ -283,7 +283,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
             path = await SaveProof(proof);
             lock (store.Gate)
             {
-                var b = store.Bookings.FirstOrDefault(b => b.Id == id && b.CustomerId == UserId);
+                var b = store.FindBooking(id) is { } owned && owned.CustomerId == UserId ? owned : null;
                 if (b == null) { if (path != null) System.IO.File.Delete(path); return NotFound(); }
                 if (!store.IsPersistent && b.Status == "Pending Payment")
                 {
@@ -306,7 +306,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
     {
         lock (store.Gate)
         {
-            var b = store.Bookings.FirstOrDefault(b => b.Id == id && b.CustomerId == UserId);
+            var b = store.FindBooking(id) is { } owned && owned.CustomerId == UserId ? owned : null;
             if (b == null) return NotFound();
             try { workflow.ConsentReschedule(b, UserId, quoteId, agreed, proposedStart, expectedTotal); TempData["Success"] = "Your request and consent were recorded. The original appointment remains reserved until SuperAdmin approval."; }
             catch (InvalidOperationException e) { TempData["Error"] = e.Message; }
@@ -320,7 +320,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
         {
             var payment = store.Payments.FirstOrDefault(x => x.Id == id);
             if (payment == null) return NotFound();
-            var booking = store.Bookings.FirstOrDefault(x => x.Id == payment.BookingId && x.CustomerId == UserId);
+            var booking = store.FindBooking(payment.BookingId) is { } paid && paid.CustomerId == UserId ? paid : null;
             if (booking == null) return NotFound();
             if (store.IsPersistent && booking.MixedPeople.Count > 0) return NotFound();
             var asset = payment.ProofKey != null && store is IPersistentStudioStore persistent

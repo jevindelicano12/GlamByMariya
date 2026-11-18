@@ -121,6 +121,7 @@ public class DemoStore : IStudioStore
     }
     public void RemoveBlock(Guid id, Guid actor) => Blocks.RemoveAll(x => x.Id == id);
     public void RecordAudit(Guid actor, string message) => AuditLogs.Add(new(actor, message, Now));
+    public Booking? FindBooking(Guid id) => Bookings.FirstOrDefault(b => b.Id == id);
     public void SetAdminActive(Guid admin, bool active, Guid actor)
     {
         lock (Gate)

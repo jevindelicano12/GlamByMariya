@@ -117,7 +117,7 @@ public class AdminController(IStudioStore store, BookingService workflow, Paymen
     {
         lock (store.Gate)
         {
-            var b = store.Bookings.FirstOrDefault(x => x.Id == id); if (b == null) return NotFound();
+            var b = store.FindBooking(id); if (b == null) return NotFound();
             if (!workflow.CanManageBooking(b, UserId)) return Forbid();
             if (store.IsPersistent && b.MixedPeople.Count > 0) return NotFound();
             ViewBag.Paid = workflow.Paid(b); ViewBag.Payments = store is IPersistentStudioStore persistent ? persistent.ReviewPayments(id) : store.Payments.Where(p => p.BookingId == id).ToList(); return View(b);
@@ -128,7 +128,7 @@ public class AdminController(IStudioStore store, BookingService workflow, Paymen
     {
         lock (store.Gate)
         {
-            var b = store.Bookings.FirstOrDefault(x => x.Id == id); if (b == null) return NotFound();
+            var b = store.FindBooking(id); if (b == null) return NotFound();
             if (!workflow.CanManageBooking(b, UserId)) return Forbid();
             if (store.IsPersistent && b.MixedPeople.Count > 0) return NotFound();
             try
@@ -182,7 +182,7 @@ public class AdminController(IStudioStore store, BookingService workflow, Paymen
         {
             var p = store.Payments.FirstOrDefault(x => x.Id == id);
             if (p == null) return NotFound();
-            var booking = store.Bookings.FirstOrDefault(b => b.Id == p.BookingId);
+            var booking = store.FindBooking(p.BookingId);
             if (booking == null || (bookingId.HasValue && bookingId != booking.Id)) return NotFound();
             if (!workflow.CanManageBooking(booking, UserId)) return Forbid();
             if (store.IsPersistent && booking.MixedPeople.Count > 0) return NotFound();

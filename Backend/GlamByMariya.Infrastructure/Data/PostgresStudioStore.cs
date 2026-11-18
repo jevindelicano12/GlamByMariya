@@ -46,11 +46,12 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
     private IQueryable<BookingRow> VisibleBookings => CustomerRequest
         ? db.Set<BookingRow>().AsNoTracking().Where(b => b.CustomerId == Actor)
         : db.Set<BookingRow>().AsNoTracking();
-    public List<Booking> Bookings
+    public List<Booking> Bookings => LoadBookings(VisibleBookings.OrderByDescending(x => x.StartsAt));
+    // One row plus its own add-ons and refunds; customers still only see their own bookings.
+    public virtual Booking? FindBooking(Guid id) => LoadBookings(VisibleBookings.Where(b => b.Id == id)).SingleOrDefault();
+    private List<Booking> LoadBookings(IQueryable<BookingRow> query)
     {
-        get
-        {
-            var rows = VisibleBookings.OrderByDescending(x => x.StartsAt).ToList();
+            var rows = query.ToList();
             var ids = rows.Select(x => x.Id).ToArray();
             var extras = db.Set<BookingAddonRow>().AsNoTracking().Where(x => ids.Contains(x.BookingId)).ToList().ToLookup(x => x.BookingId);
             var quantityLines = PreparedPersistentBooking.Enabled ? PreparedPersistentBooking.ReadLines(db, ids, db is PublicMakeupDbContext) : null;
@@ -65,7 +66,6 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
                 Address=b.Address,Area=b.AreaNameSnapshot,TravelFee=b.TravelFeeInformationalSnapshot,TransportationPolicyAcknowledgedAt=b.TransportationPolicyAcknowledgedAt,VerifiedPaid=b.VerifiedPaid,
                 PaymentStatus=b.PaymentStatus,Status=b.Status,Note=b.Note,RequestedStart=b.RequestedStart.HasValue?Local(b.RequestedStart.Value):null,
                 CancellationFee=b.CancellationFee,RefundDue=b.RefundDue,Refunded=b.Refunded,RefundReference=transfers[b.Id].FirstOrDefault()?.TransferReference??"" }).ToList();
-        }
     }
     public List<Payment> Payments
     {

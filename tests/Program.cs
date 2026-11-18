@@ -315,6 +315,40 @@ if (args.Contains("--package-label-only"))
     Check(new Booking { People = 1, Package = "auto" }.BookingType == "Individual", "one person is still an Individual booking");
     Console.WriteLine($"All {checks} package label checks passed."); return;
 }
+if (args.Contains("--booking-lookup-only"))
+{
+    // Step 9c: opening one booking reads that booking, not the whole Bookings list.
+    var demo = new DemoStore(presentationAccounts: true);
+    var counting = System.Reflection.DispatchProxy.Create<IStudioStore, CountingStore>();
+    ((CountingStore)(object)counting).Target = demo;
+    var counter = (CountingStore)(object)counting;
+    var flow = new BookingService(counting, counting, counting, counting, counting);
+    var booking = demo.Bookings.Single();
+    var lookupCustomer = demo.Users.Single(u => u.Role == Roles.Customer);
+    var lookupAdmin = demo.Users.Single(u => u.Role == Roles.Admin);
+    var other = demo.AddUser("Other", "Customer", "other.lookupCustomer@example.test", "OtherPass123", Roles.Customer, 30, "Others", "24 Synthetic Street");
+    T Wire<T>(T controller, AppUser user) where T : Controller
+    {
+        var http = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+        http.User = new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()), new Claim(ClaimTypes.Role, user.Role) }, "Cookies"));
+        controller.ControllerContext = new ControllerContext { HttpContext = http };
+        controller.TempData = new Microsoft.AspNetCore.Mvc.ViewFeatures.TempDataDictionary(http, new NoTempData());
+        return controller;
+    }
+    Check(demo.FindBooking(booking.Id) == booking && demo.FindBooking(Guid.NewGuid()) == null, "FindBooking returns the booking by id, or nothing");
+    counter.Reset();
+    var adminView = Wire(new AdminController(counting, flow, null!, null!, new MemoryInvitationService(TimeProvider.System), null!), lookupAdmin).Details(booking.Id);
+    Check(adminView is ViewResult { Model: Booking shown } && shown.Id == booking.Id && counter.Calls("get_Bookings") == 0, "admin booking details load one booking, not the whole list");
+    counter.Reset();
+    var mine = Wire(new BookingsController(counting, flow, null!, null!, null!, null!), lookupCustomer).Confirmation(booking.Id);
+    Check(mine is ViewResult && counter.Calls("get_Bookings") == 0, "customer booking confirmation loads one booking, not the whole list");
+    var notMine = Wire(new BookingsController(counting, flow, null!, null!, null!, null!), other).Confirmation(booking.Id);
+    Check(notMine is NotFoundResult, "a customer still cannot open another customer's booking");
+    foreach (var controllerFile in new[] { "AdminController.cs", "BookingsController.cs" })
+        Check(!File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "Controllers", controllerFile)).Contains("store.Bookings.FirstOrDefault("),
+            $"{controllerFile} no longer scans every booking to find one");
+    Console.WriteLine($"All {checks} booking lookup checks passed."); return;
+}
 if (args.Contains("--email-codes-only"))
 {
     // Store rules, checked directly on the memory store (the Postgres store follows the same contract).
@@ -1770,6 +1804,7 @@ public class PersistentQuoteProxy : System.Reflection.DispatchProxy
         if (method?.Name == nameof(IPersistentStudioStore.RequestReschedule)) { RescheduleArguments = args; return null; }
         if (method?.Name == "get_Users") return TestUsers;
         if (method?.Name == "get_Bookings") return TestBookings;
+        if (method?.Name == nameof(IStudioStore.FindBooking)) return TestBookings.FirstOrDefault(b => b.Id == (Guid)args![0]!);
         if (method?.Name == "get_Payments") return TestPayments;
         if (method?.Name != nameof(IPersistentStudioStore.SubmitBooking)) throw new InvalidOperationException("Unexpected repository call.");
         Arguments = args;
@@ -1809,6 +1844,19 @@ public sealed class RecordingAuthentication : Microsoft.AspNetCore.Authenticatio
     public Task ForbidAsync(Microsoft.AspNetCore.Http.HttpContext context, string? scheme, Microsoft.AspNetCore.Authentication.AuthenticationProperties? properties) => Task.CompletedTask;
     public Task SignInAsync(Microsoft.AspNetCore.Http.HttpContext context, string? scheme, ClaimsPrincipal principal, Microsoft.AspNetCore.Authentication.AuthenticationProperties? properties) { LastPrincipal = principal; return Task.CompletedTask; }
     public Task SignOutAsync(Microsoft.AspNetCore.Http.HttpContext context, string? scheme, Microsoft.AspNetCore.Authentication.AuthenticationProperties? properties) { SignOutCalls++; return Task.CompletedTask; }
+}
+public class CountingStore : System.Reflection.DispatchProxy
+{
+    public IStudioStore Target { get; set; } = null!;
+    private readonly Dictionary<string, int> calls = new();
+    public int Calls(string name) => calls.GetValueOrDefault(name);
+    public void Reset() => calls.Clear();
+    protected override object? Invoke(System.Reflection.MethodInfo? method, object?[]? args)
+    {
+        calls[method!.Name] = Calls(method.Name) + 1;
+        try { return method.Invoke(Target, args); }
+        catch (System.Reflection.TargetInvocationException e) when (e.InnerException != null) { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(e.InnerException).Throw(); throw; }
+    }
 }
 public sealed class ManualClock(DateTimeOffset now) : TimeProvider
 {

@@ -344,6 +344,7 @@ public class ProofReviewProxy : System.Reflection.DispatchProxy
         "get_IsPersistent" => true,
         "get_Users" => new List<AppUser> { Admin },
         "get_Bookings" => new List<Booking> { Booking },
+        "FindBooking" => (Guid)args![0]! == Booking.Id ? Booking : null,
         "get_Payments" => new List<Payment> { Payment },
         nameof(IPersistentStudioStore.ReviewPayments) => new List<Payment> { Payment },
         nameof(IPersistentStudioStore.ReadAsset) when (string?)args![0] == Payment.ProofKey => (ProofBytes, "image/png"),

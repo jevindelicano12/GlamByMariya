@@ -29,6 +29,9 @@ public interface IStudioStore : IServiceRepository, IAddOnRepository, IBookingRe
     void RecordAudit(Guid actor, string message);
     // SuperAdmin-only Disable/Enable of an Admin account. Never a SuperAdmin or a customer.
     void SetAdminActive(Guid admin, bool active, Guid actor);
+    // One booking by id (customers only see their own in database mode). Use this
+    // instead of scanning Bookings, which loads every reservation in database mode.
+    Booking? FindBooking(Guid id);
 }
 
 public interface IPersistentStudioStore : IStudioStore
