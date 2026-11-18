@@ -262,8 +262,9 @@ if (Run("--app-role"))
     var before = checks;
     await ResetPublic();
     await SqlMigrator.ApplyAsync(source, migrations);
-    var owner = NewStore().CreateInitialSuperAdmin("Maria", "Santos", "maria@example.test", "OwnerPass123"); // setup runs as the owner role
     PublicStudioStore App() => NewStore(as_: appSource);
+    var owner = App().CreateInitialSuperAdmin("Maria", "Santos", "maria@example.test", "OwnerPass123");
+    Check(owner.Role == "SuperAdmin", "the owner setup runs with the app login");
     async Task<string> AsApp(string sql)
     {
         try { await using var c = await appSource.OpenConnectionAsync(); await using var cmd = new NpgsqlCommand(sql, c); await cmd.ExecuteNonQueryAsync(); return ""; }

@@ -197,7 +197,10 @@ public sealed class PublicStudioStore(
                 var restricted = pdb.Database.SqlQueryRaw<bool>("""
                     SELECT (row_security_active('public.admin_users'::regclass)
                         OR row_security_active('public.customers'::regclass)
-                        OR row_security_active('public.account_identities'::regclass)) AS "Value"
+                        OR row_security_active('public.account_identities'::regclass))
+                       -- The app login (member of makeup_backend) sees every row through the
+                       -- unrestricted backend policies, so the counts below are complete.
+                       AND NOT pg_has_role(current_user, 'makeup_backend', 'MEMBER') AS "Value"
                     """).Single();
                 if (restricted) throw new InvalidOperationException("Initial SuperAdmin setup requires unfiltered account visibility.");
                 var existing = pdb.Database.SqlQueryRaw<int>("SELECT count(*)::int AS \"Value\" FROM public.admin_users WHERE role='SuperAdmin'").Single();
