@@ -87,6 +87,22 @@ public class AdminController(IStudioStore store, BookingService workflow, Paymen
         return RedirectToAction(nameof(Users));
     }
 
+    // Replaces the removed admin roster page: the owner disables or enables an Admin.
+    // A disabled Admin is signed out on the next request by the per-request cookie check.
+    [Authorize(Roles = "SuperAdmin")]
+    [HttpPost]
+    public IActionResult SetAdminActive(Guid id, bool active)
+    {
+        try
+        {
+            lock (store.Gate) store.SetAdminActive(id, active, UserId);
+            store.RecordAudit(UserId, active ? "Enabled an administrator account." : "Disabled an administrator account.");
+            TempData["Success"] = active ? "Administrator enabled." : "Administrator disabled. They are signed out on their next click.";
+        }
+        catch (InvalidOperationException e) { TempData["Error"] = e.Message; }
+        return RedirectToAction(nameof(Users));
+    }
+
     public IActionResult Index(string? status)
     {
         lock (store.Gate)

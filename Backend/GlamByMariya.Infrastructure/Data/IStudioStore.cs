@@ -27,6 +27,8 @@ public interface IStudioStore : IServiceRepository, IAddOnRepository, IBookingRe
     void AddBlock(AvailabilityBlock block, Guid actor);
     void RemoveBlock(Guid id, Guid actor);
     void RecordAudit(Guid actor, string message);
+    // SuperAdmin-only Disable/Enable of an Admin account. Never a SuperAdmin or a customer.
+    void SetAdminActive(Guid admin, bool active, Guid actor);
 }
 
 public interface IPersistentStudioStore : IStudioStore

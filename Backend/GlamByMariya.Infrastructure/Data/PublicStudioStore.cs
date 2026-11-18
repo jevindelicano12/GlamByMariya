@@ -281,6 +281,16 @@ public sealed class PublicStudioStore(
     public override void RecordAudit(Guid actor, string message) => Transaction(actor, () =>
         pdb.Database.ExecuteSqlInterpolated($"INSERT INTO public.audit_logs(actor_id, entity_type, event) VALUES({actor}, 'application', {message})"));
 
+    public override void SetAdminActive(Guid admin, bool active, Guid actor) => Transaction(actor, () =>
+    {
+        if (pdb.Database.SqlQuery<int>($"SELECT count(*)::int AS \"Value\" FROM public.admin_users WHERE app_id={actor} AND role='SuperAdmin' AND is_active").Single() == 0)
+            throw new InvalidOperationException("Only the Super Admin can disable or enable administrators.");
+        // Role 'Admin' only: a SuperAdmin (the owner) can never be disabled here. The new
+        // security stamp marks the change; the cookie check ends sessions via is_active.
+        if (pdb.Database.ExecuteSqlInterpolated($"UPDATE public.admin_users SET is_active={active}, security_stamp=gen_random_uuid() WHERE app_id={admin} AND role='Admin'") == 0)
+            throw new InvalidOperationException("Only Admin accounts can be disabled or enabled.");
+    });
+
     public override void ResetPassword(string email, string newPassword)
     {
         var passwordError = PasswordPolicy.ValidateNewPassword(newPassword);

@@ -224,8 +224,26 @@ if (args.Contains("--accounts-only"))
     Check(demo.Users.Count(u => u.Email == "invited.admin@example.test") == 1 && reuse is ViewResult, "a used invitation link cannot create a second account");
     var badToken = await Account().AcceptInvite("other.admin@example.test", "WRONG", "Other", "Admin", 30, "Female", "24 Synthetic Street, Quezon City", "AdminPass123");
     Check(badToken is ViewResult && demo.Users.All(u => u.Email != "other.admin@example.test"), "a wrong invitation token creates no account");
+
+    // Disable / Enable: SuperAdmin only, Admin targets only, takes effect on the next request.
+    var adminSession = auth.LastPrincipal!;
+    var setActive = typeof(AdminController).GetMethod(nameof(AdminController.SetAdminActive))!;
+    Check(setActive.GetCustomAttributes(typeof(Microsoft.AspNetCore.Authorization.AuthorizeAttribute), true).Cast<Microsoft.AspNetCore.Authorization.AuthorizeAttribute>().Any(a => a.Roles == Roles.SuperAdmin)
+        && setActive.GetCustomAttributes(typeof(HttpPostAttribute), true).Any(), "Disable/Enable is a POST action limited to SuperAdmin");
+    Check(SessionValid(adminSession), "the admin session is valid before disabling");
+    Admin(owner).SetAdminActive(invited!.Id, false);
+    Check(!invited.IsActive && !SessionValid(adminSession), "a disabled admin is signed out on the next request");
+    Check(await Account().Login("invited.admin@example.test", "AdminPass123") is ViewResult, "a disabled admin cannot sign in");
+    Admin(owner).SetAdminActive(invited.Id, true);
+    Check(invited.IsActive && await Account().Login("invited.admin@example.test", "AdminPass123") is RedirectResult, "an enabled admin can sign in again");
+    var accountCustomer = demo.Users.First(u => u.Role == Roles.Customer);
+    Reject(() => demo.SetAdminActive(owner.Id, false, owner.Id), "the owner cannot disable a SuperAdmin (including themself)");
+    Reject(() => demo.SetAdminActive(accountCustomer.Id, false, owner.Id), "Disable/Enable does not apply to customers");
+    Reject(() => demo.SetAdminActive(owner.Id, false, invited.Id), "an Admin cannot disable anyone");
+    Admin(owner).SetAdminActive(accountCustomer.Id, false);
+    Check(accountCustomer.IsActive, "a refused Disable changes nothing");
     var usersView = File.ReadAllText(Path.Combine(root, "Frontend", "GlamByMariya.Web", "Views", "Admin", "Users.cshtml"));
-    Check(!usersView.Contains("Invitation acceptance is currently unavailable"), "the Users page no longer says invitations are closed");
+    Check(usersView.Contains("asp-action=\"SetAdminActive\"") && !usersView.Contains("Invitation acceptance is currently unavailable"), "the Users page has the Disable/Enable button and no longer says invites are closed");
     Console.WriteLine($"All {checks} account checks passed."); return;
 }
 if (args.Contains("--email-codes-only"))

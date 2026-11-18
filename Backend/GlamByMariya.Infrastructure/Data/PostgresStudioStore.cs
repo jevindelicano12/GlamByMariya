@@ -283,6 +283,10 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
     public virtual void RecordAudit(Guid actor,string message) => Transaction(actor,()=>
         db.Database.ExecuteSqlInterpolated($"INSERT INTO makeup.audit_logs(actor_id,entity_type,event) VALUES({actor},'application',{message})"));
 
+    // The legacy makeup schema has no SuperAdmin, so nobody there may disable admins.
+    public virtual void SetAdminActive(Guid admin,bool active,Guid actor) =>
+        throw new InvalidOperationException("Admin Disable/Enable needs the public schema, where the SuperAdmin lives.");
+
     public virtual void ResetPassword(string email, string newPassword)
     {
         var passwordError = PasswordPolicy.ValidateNewPassword(newPassword);

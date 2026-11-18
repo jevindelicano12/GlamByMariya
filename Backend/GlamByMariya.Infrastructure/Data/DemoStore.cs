@@ -128,4 +128,15 @@ public class DemoStore : IStudioStore
     }
     public void RemoveBlock(Guid id, Guid actor) => Blocks.RemoveAll(x => x.Id == id);
     public void RecordAudit(Guid actor, string message) => AuditLogs.Add(new(actor, message, Now));
+    public void SetAdminActive(Guid admin, bool active, Guid actor)
+    {
+        lock (Gate)
+        {
+            if (!Users.Any(u => u.Id == actor && u.IsActive && u.Role == Roles.SuperAdmin))
+                throw new InvalidOperationException("Only the Super Admin can disable or enable administrators.");
+            var target = Users.SingleOrDefault(u => u.Id == admin && u.Role == Roles.Admin)
+                ?? throw new InvalidOperationException("Only Admin accounts can be disabled or enabled.");
+            target.IsActive = active;
+        }
+    }
 }

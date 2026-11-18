@@ -21,6 +21,11 @@
     <div><div class="eyebrow">ROSTER</div><h2>Administrators</h2><p>Only this screen can invite administrators. Admin accounts cannot change Super Admin privileges.</p></div>
     @foreach (var admin in (System.Collections.Generic.List<GlamByMariya.Core.Entities.AppUser>)ViewBag.Admins)
     {
-        <div class="detail-row"><span>@admin.Name<small>@admin.Email · @admin.Role · @(admin.IsActive ? "Active" : "Disabled")</small></span></div>
+        <div class="detail-row"><span>@admin.Name<small>@admin.Email · @admin.Role · @(admin.IsActive ? "Active" : "Disabled")</small></span>
+        @if (admin.Role == "Admin")
+        {
+            <form asp-action="SetAdminActive" method="post"><input type="hidden" name="id" value="@admin.Id" /><input type="hidden" name="active" value="@(admin.IsActive ? "false" : "true")" /><button class="text-button" type="submit">@(admin.IsActive ? "Disable" : "Enable")</button></form>
+        }
+        </div>
     }
 </section>
