@@ -29,6 +29,9 @@ done
 sleep 2
 docker exec "$name" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1 || { echo "PostgreSQL did not start" >&2; exit 2; }
 
+# Same built-in roles as a Supabase project, so migrations can revoke from them.
+docker exec "$name" psql -q -U postgres -c "CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN; CREATE ROLE service_role NOLOGIN BYPASSRLS;" >/dev/null || exit 2
+
 temp_arg="$temp"
 if command -v cygpath >/dev/null 2>&1; then temp_arg=$(cygpath -w "$temp"); fi
 dotnet run --project "$project" -- "$port" "$marker" "$temp_arg" "$@"

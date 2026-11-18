@@ -2,6 +2,8 @@
 // postgres:17 container on 127.0.0.1 with a random marker:
 //   tools/test-db.sh tests/DatabaseChecks [--migrator] [--schema] [--access]
 using Npgsql;
+using Microsoft.Extensions.Configuration;
+using Microsoft.EntityFrameworkCore;
 
 if (args.Length < 3 || !int.TryParse(args[0], out var port) || port is < 1024 or > 65535 ||
     !Guid.TryParseExact(args[1], "N", out var marker) || marker == Guid.Empty)
@@ -47,6 +49,17 @@ async Task<string> Refused(Func<Task> action)
     return "";
 }
 
+var tempRoot = Path.GetFullPath(args[2]);
+var http = new Microsoft.AspNetCore.Http.HttpContextAccessor { HttpContext = new Microsoft.AspNetCore.Http.DefaultHttpContext() };
+var env = new TestEnv { ContentRootPath = tempRoot };
+PublicStudioStore NewStore(Dictionary<string, string?>? settings = null)
+{
+    var config = new ConfigurationBuilder().AddInMemoryCollection(settings ?? new()).Build();
+    var options = new DbContextOptionsBuilder<PublicMakeupDbContext>();
+    options.UseNpgsql(source);
+    return new PublicStudioStore(new PublicMakeupDbContext(options.Options), http, env, config, new GlamByMariya.Infrastructure.Integrations.LocalAppFileStore(env));
+}
+
 if (Run("--migrator"))
 {
     var temp = Path.Combine(Path.GetTempPath(), "glam-migrator-" + Guid.NewGuid().ToString("N"));
@@ -83,4 +96,47 @@ if (Run("--migrator"))
     }
     finally { Directory.Delete(temp, true); }
     Console.WriteLine($"All {checks} migrator checks passed.");
+}
+
+if (Run("--schema"))
+{
+    var before = checks;
+    await ResetPublic();
+    await SqlMigrator.ApplyAsync(source, migrations);
+    // Every relation and function the app reads in database mode (mixed bookings and
+    // website content excluded: they stay switched off there).
+    string[] relations = ["account_identities", "account_preferences", "admin_invitations", "admin_users", "artist_availability", "audit_logs",
+        "blocked_slots", "business_settings", "catalog_categories", "catalog_images", "customers", "data_protection_keys", "email_codes",
+        "email_code_cooldowns", "makeup_addons", "makeup_artists", "media_assets", "notifications", "payment_adjustments", "payment_methods",
+        "payment_revisions", "payments", "refunds", "reschedule_requests", "reservation_addons", "reservation_closures", "reservation_history",
+        "reservations", "service_areas", "services", "mvc_blocks", "mvc_booking_addons", "mvc_booking_summary", "mvc_catalog_images",
+        "mvc_closures", "mvc_payments", "mvc_reschedules", "mvc_roles", "mvc_services", "mvc_users"];
+    var missing = new List<string>();
+    foreach (var name in relations)
+        if (await Scalar($"SELECT to_regclass('public.{name}')::text") is DBNull) missing.Add(name);
+    foreach (var name in new[] { "mvc_assert_role", "mvc_check_slot" })
+        if ((long)(await Scalar($"SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='{name}'"))! == 0) missing.Add(name + "()");
+    Check(missing.Count == 0, "every object the app reads exists" + (missing.Count > 0 ? ": missing " + string.Join(", ", missing) : ""));
+    var people = (long)(await Scalar("SELECT (SELECT count(*) FROM public.customers)+(SELECT count(*) FROM public.admin_users)+(SELECT count(*) FROM public.makeup_artists)+(SELECT count(*) FROM public.reservations)"))!;
+    Check(people == 0, "seed has no people and no bookings");
+    var catalog = (string)(await Scalar("""
+        SELECT (SELECT count(*) FROM public.services WHERE is_active AND NOT is_archived)||','||(SELECT count(*) FROM public.makeup_addons)||','||
+               (SELECT count(*) FROM public.service_areas WHERE is_active)||','||(SELECT count(*) FROM public.payment_methods)||','||
+               (SELECT count(*) FROM public.business_settings WHERE id=1)
+        """))!;
+    Check(catalog == "3,3,6,4,1", $"seed has the catalog (services,add-ons,areas,methods,settings = {catalog})");
+    var store = NewStore();
+    Check(store.Services.Count(x => x.Active && !x.Archived) == 3 && store.AddOns.Count == 3 && store.Settings.OpenHour == 8 && store.Settings.BufferMinutes == 45,
+        "the app reads the catalog and settings through its views");
+    Console.WriteLine($"All {checks - before} schema checks passed.");
+}
+
+sealed class TestEnv : Microsoft.AspNetCore.Hosting.IWebHostEnvironment
+{
+    public string ApplicationName { get; set; } = "DatabaseChecks";
+    public string EnvironmentName { get; set; } = "Development";
+    public string ContentRootPath { get; set; } = "";
+    public Microsoft.Extensions.FileProviders.IFileProvider ContentRootFileProvider { get; set; } = new Microsoft.Extensions.FileProviders.NullFileProvider();
+    public string WebRootPath { get; set; } = "";
+    public Microsoft.Extensions.FileProviders.IFileProvider WebRootFileProvider { get; set; } = new Microsoft.Extensions.FileProviders.NullFileProvider();
 }
