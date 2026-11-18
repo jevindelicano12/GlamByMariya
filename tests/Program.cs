@@ -298,6 +298,23 @@ if (args.Contains("--catalog-settings-only"))
     Check(demo.Settings.OpenHour == 12 && closed.TempData["Error"] == null, "cancelled bookings do not block an hours change");
     Console.WriteLine($"All {checks} catalog and settings checks passed."); return;
 }
+if (args.Contains("--package-label-only"))
+{
+    // Step 9a: the "Package" label only when the group rate was actually applied.
+    var soft = new CatalogItem { Name = "Soft Glam", Price = 600, GroupPrice = 525, GroupMinimumPeople = 4, Minutes = 60 };
+    Booking FromQuote(int people)
+    {
+        var q = BookingPricing.Calculate(soft, [], people, 0, "group");
+        return new Booking { Service = new(soft.Id, soft.Name, soft.Price, soft.Minutes), People = people, Package = "group",
+            GroupPrice = q.GroupPrice, GroupMinimumPeople = q.GroupMinimumPeople, AppliedPricePerPerson = q.AppliedPricePerPerson };
+    }
+    var small = FromQuote(2);
+    Check(small.AppliedPricePerPerson == 600 && small.BookingType == "Group booking (regular rate)", "2 people below the group minimum show the regular-rate label");
+    var atMinimum = FromQuote(4);
+    Check(atMinimum.AppliedPricePerPerson == 525 && atMinimum.BookingType == "Same-Service Package", "4 people at the group minimum show the package label");
+    Check(new Booking { People = 1, Package = "auto" }.BookingType == "Individual", "one person is still an Individual booking");
+    Console.WriteLine($"All {checks} package label checks passed."); return;
+}
 if (args.Contains("--email-codes-only"))
 {
     // Store rules, checked directly on the memory store (the Postgres store follows the same contract).
