@@ -273,7 +273,9 @@ public class AdminController(IStudioStore store, BookingService workflow, Paymen
             if (item == null) return NotFound();
             if (!Request.Form.ContainsKey("groupPrice")) { groupPrice = item.GroupPrice; groupMinimumPeople = item.GroupMinimumPeople; }
             if (kind == "service" && groupPrice > price) { TempData["Error"] = "The regular price cannot be lower than the existing group price. Update the group rate first."; return RedirectToAction("Catalog"); }
-            item.Name = name.Trim(); item.Description = description ?? ""; item.Price = price; item.Minutes = minutes; item.Active = active; item.Archived = false;
+            // Editing never un-archives: an archived item keeps its booking history and stays
+            // hidden from customers. New items start not archived (the CatalogItem default).
+            item.Name = name.Trim(); item.Description = description ?? ""; item.Price = price; item.Minutes = minutes; item.Active = active && !item.Archived;
             item.VisualWord = (visualWord ?? "").Trim();
             item.GroupPrice = kind == "service" ? groupPrice : null;
             item.GroupMinimumPeople = groupMinimumPeople;

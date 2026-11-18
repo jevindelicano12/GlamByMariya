@@ -251,6 +251,34 @@ if (args.Contains("--accounts-only"))
         Check(!File.ReadAllText(Path.Combine(root, file)).Contains("lumiere.demo"), $"{Path.GetFileName(file)} has no @lumiere.demo account");
     Console.WriteLine($"All {checks} account checks passed."); return;
 }
+if (args.Contains("--catalog-settings-only"))
+{
+    // Step 8: catalog edits and business-hours changes, checked through the real AdminController.
+    var demo = new DemoStore(presentationAccounts: true);
+    var owner = demo.Users.Single(u => u.Role == Roles.SuperAdmin);
+    AdminController Admin(Dictionary<string, Microsoft.Extensions.Primitives.StringValues>? form = null)
+    {
+        var http = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+        http.User = new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim(ClaimTypes.NameIdentifier, owner.Id.ToString()), new Claim(ClaimTypes.Role, owner.Role) }, "Cookies"));
+        http.Request.Form = new Microsoft.AspNetCore.Http.FormCollection(form ?? new());
+        var controller = new AdminController(demo, new BookingService(demo, demo, demo, demo, demo), null!, null!, new MemoryInvitationService(TimeProvider.System), null!)
+        { ControllerContext = new ControllerContext { HttpContext = http } };
+        controller.TempData = new Microsoft.AspNetCore.Mvc.ViewFeatures.TempDataDictionary(http, new NoTempData());
+        return controller;
+    }
+
+    // 8a: editing an archived item keeps it archived.
+    var archived = demo.Services[1];
+    archived.Active = false; archived.Archived = true;
+    await Admin().SaveCatalog(archived.Id, "service", "Glamour Makeup (old)", "Updated note", archived.Price, archived.Minutes, false);
+    Check(archived.Name == "Glamour Makeup (old)" && archived.Archived && !archived.Active, "editing an archived item saves the change and keeps it archived");
+    await Admin().SaveCatalog(archived.Id, "service", "Glamour Makeup (old)", "Updated note", archived.Price, archived.Minutes, true);
+    Check(archived.Archived && demo.Services.Where(x => x.Active && !x.Archived).All(x => x.Id != archived.Id), "an archived item stays hidden from customers even if Active is ticked");
+    await Admin().SaveCatalog(null, "addon", "Brow shaping", "Neat brows", 150, 10, true);
+    var created = demo.AddOns.Single(x => x.Name == "Brow shaping");
+    Check(created.Active && !created.Archived, "a new item starts active and not archived");
+    Console.WriteLine($"All {checks} catalog and settings checks passed."); return;
+}
 if (args.Contains("--email-codes-only"))
 {
     // Store rules, checked directly on the memory store (the Postgres store follows the same contract).
