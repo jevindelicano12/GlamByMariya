@@ -45,14 +45,10 @@ public static class DatabaseSetup
         if(command=="--database-migrate")
         {
             if (pdb == null) throw new InvalidOperationException("--database-migrate targets the public schema only. Set Database:Schema=public.");
-            var before = await PublicCounts(pdb);
-            await pdb.Database.MigrateAsync();
-            var after = await PublicCounts(pdb);
-            foreach (var table in new[] { "customers","admin_users","makeup_artists","services","reservations","payments","blocked_slots","artist_availability","reservation_history" })
-                if (before.GetValueOrDefault(table) != after.GetValueOrDefault(table))
-                    throw new InvalidOperationException($"Row-count mismatch on {table}: {before.GetValueOrDefault(table)} before, {after.GetValueOrDefault(table)} after. Migration rolled back by EF; restore from backup before retrying.");
-            Console.WriteLine("Public EF Core migration applied with all legacy row counts preserved.");
-            Console.WriteLine(string.Join(", ", after.OrderBy(kv=>kv.Key).Select(kv=>$"{kv.Key}={kv.Value}")));
+            // Ordered SQL files in database/migrations (copied next to the app), one transaction each.
+            var directory = Path.Combine(AppContext.BaseDirectory, "database", "migrations");
+            var applied = await SqlMigrator.ApplyAsync(scope.ServiceProvider.GetRequiredService<Npgsql.NpgsqlDataSource>(), directory);
+            Console.WriteLine(applied.Count == 0 ? "Database is up to date." : "Applied: " + string.Join(", ", applied));
             return;
         }
         if(command=="--database-reset-password")

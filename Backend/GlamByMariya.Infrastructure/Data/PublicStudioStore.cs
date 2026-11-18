@@ -203,6 +203,10 @@ public sealed class PublicStudioStore(
                 var existing = pdb.Database.SqlQueryRaw<int>("SELECT count(*)::int AS \"Value\" FROM public.admin_users WHERE role='SuperAdmin'").Single();
                 if (existing > 0) throw new InvalidOperationException("A SuperAdmin already exists. Initial setup is permanently disabled.");
                 if (FindUser(email) != null) throw new InvalidOperationException("That email already exists. No account was overwritten or reactivated.");
+                // The owner is the business's only makeup artist: create that artist row in the same transaction.
+                if (pdb.Database.SqlQueryRaw<int>("SELECT count(*)::int AS \"Value\" FROM public.makeup_artists WHERE is_active").Single() > 0)
+                    throw new InvalidOperationException("An active makeup artist already exists. Initial setup is permanently disabled.");
+                pdb.Database.ExecuteSqlInterpolated($"INSERT INTO public.makeup_artists(full_name, is_active) VALUES({user.Name}, true)");
             }
             pdb.Database.ExecuteSqlInterpolated($"INSERT INTO public.admin_users(app_id, username, email, first_name, last_name, age_at_registration, gender, address, password_hash, role, is_active) VALUES({user.Id}, {user.Email}, {user.Email}, {user.FirstName}, {user.LastName}, {age}, {gender}, {user.Address}, {user.PasswordHash}, {role}, true)");
         });

@@ -157,6 +157,8 @@ if (args.Contains("--accounts-only"))
     var setupSource = File.ReadAllText(Path.Combine(root, "Backend", "GlamByMariya.Infrastructure", "Data", "DatabaseSetup.cs"));
     Check(!setupSource.Contains("Provider-backed SuperAdmin setup is unavailable") && !setupSource.Contains("not ready for provider-backed deployment"),
         "owner setup works with Supabase Storage settings present (local login only, no auth-provider block)");
+    Check(setupSource.Contains("SqlMigrator.ApplyAsync") && !setupSource.Contains("MigrateAsync") && !Directory.Exists(Path.Combine(root, "Backend", "GlamByMariya.Infrastructure", "Migrations", "Public")),
+        "migrate command uses the SQL migrator, not EF");
 
     // Invitations: the link's own token picks the invitation, never an older expired one.
     var clock = new ManualClock(new DateTimeOffset(2026, 11, 19, 8, 0, 0, TimeSpan.Zero));

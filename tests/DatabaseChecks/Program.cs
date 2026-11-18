@@ -136,7 +136,6 @@ if (Run("--rules"))
     var before = checks;
     await ResetPublic();
     await SqlMigrator.ApplyAsync(source, migrations);
-    await Exec("INSERT INTO public.makeup_artists(full_name, is_active) VALUES('Owner Artist', true)");
     var store = NewStore();
     var owner = store.CreateInitialSuperAdmin("Store", "Owner", "owner@example.test", "OwnerPass123");
     var hasher = new Microsoft.AspNetCore.Identity.PasswordHasher<GlamByMariya.Core.Entities.AppUser>();
@@ -210,6 +209,47 @@ if (Run("--rules"))
     var invites = new GlamByMariya.Infrastructure.Services.PostgresInvitationService(new PublicMakeupDbContext(new DbContextOptionsBuilder<PublicMakeupDbContext>().UseNpgsql(source).Options), store, TimeProvider.System);
     Check(invites.InviteWithToken("new.admin@example.test", owner.Id).Invite.Email == "new.admin@example.test", "invitation by the owner is stored");
     Console.WriteLine($"All {checks - before} booking rule checks passed.");
+}
+
+if (Run("--owner"))
+{
+    var before = checks;
+    await ResetPublic();
+    await SqlMigrator.ApplyAsync(source, migrations);
+    var store = NewStore();
+    store.CreateInitialSuperAdmin("Maria", "Santos", "maria@example.test", "OwnerPass123");
+    var artists = (string)(await Scalar("SELECT count(*)||':'||coalesce(string_agg(full_name, ','),'') FROM public.makeup_artists WHERE is_active"))!;
+    Check(artists == "1:Maria Santos", $"owner setup creates the one artist with the owner's name ({artists})");
+    var calendarStore = NewStore();
+    var calendar = new GlamByMariya.Infrastructure.Services.BookingService(calendarStore, calendarStore, calendarStore, calendarStore, calendarStore).GetAvailability(DateTime.Today.AddMonths(1), 60);
+    Check(calendar.Days.Any(d => d.Status == "available"), "booking calendar works without Database:ArtistId");
+    var again = "";
+    try { NewStore().CreateInitialSuperAdmin("Other", "Owner", "other.owner@example.test", "OwnerPass123"); } catch (InvalidOperationException e) { again = e.Message; }
+    var after = (long)(await Scalar("SELECT count(*) FROM public.makeup_artists"))!;
+    Check(again != "" && after == 1, "second owner setup is refused and adds no artist");
+    Console.WriteLine($"All {checks - before} owner checks passed.");
+}
+
+if (Run("--access"))
+{
+    var before = checks;
+    await ResetPublic();
+    await SqlMigrator.ApplyAsync(source, migrations);
+    var open = (await Scalar("""
+        SELECT string_agg(c.relname, ', ') FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+        WHERE n.nspname='public' AND c.relkind IN ('r','v','m','p')
+          AND (has_table_privilege('anon', c.oid, 'SELECT,INSERT,UPDATE,DELETE') OR has_table_privilege('authenticated', c.oid, 'SELECT,INSERT,UPDATE,DELETE'))
+        """)) as string ?? "";
+    Check(open == "", "anon and authenticated cannot read or write any public table" + (open == "" ? "" : ": " + open));
+    var functions = (await Scalar("""
+        SELECT string_agg(p.proname, ', ') FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+        WHERE n.nspname='public' AND (has_function_privilege('anon', p.oid, 'EXECUTE') OR has_function_privilege('authenticated', p.oid, 'EXECUTE'))
+        """)) as string ?? "";
+    Check(functions == "", "anon and authenticated cannot run public functions" + (functions == "" ? "" : ": " + functions));
+    var recorded = (long)(await Scalar("SELECT count(*) FROM public.schema_migrations"))!;
+    var cron = (long)(await Scalar("SELECT count(*) FROM pg_extension WHERE extname='pg_cron'"))!;
+    Check(recorded == Directory.GetFiles(migrations, "*.sql").Length && cron == 0, "all migrations apply without pg_cron (local) and are recorded");
+    Console.WriteLine($"All {checks - before} access checks passed.");
 }
 
 sealed class TestEnv : Microsoft.AspNetCore.Hosting.IWebHostEnvironment
