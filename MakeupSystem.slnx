@@ -12,6 +12,7 @@
     <Project Path="tests/B2AvatarCheck/B2AvatarCheck.csproj" />
     <Project Path="tests/ConnectionChecks/ConnectionChecks.csproj" />
     <Project Path="tests/CspPolicyChecks/CspPolicyChecks.csproj" />
+    <Project Path="tests/DatabaseChecks/DatabaseChecks.csproj" />
     <Project Path="tests/DbArtistFix/DbArtistFix.csproj" />
     <Project Path="tests/DbBackup/DbBackup.csproj" />
     <Project Path="tests/DbEmailFix/DbEmailFix.csproj" />
