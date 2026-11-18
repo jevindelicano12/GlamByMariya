@@ -28,9 +28,6 @@ public class AdminController(IStudioStore store, BookingService workflow, Paymen
     [Authorize(Roles = "SuperAdmin")]
     public IActionResult Users()
     {
-        if (store is PublicStudioStore &&
-            HttpContext.RequestServices.GetRequiredService<IConfiguration>().GetValue("Authentication:DurableSessionEnforcement", false))
-            return RedirectToAction(nameof(ManageAccounts));
         lock (store.Gate)
         {
             ViewBag.Admins = store.Users.Where(u => u.Role is "Admin" or "SuperAdmin").OrderBy(u => u.Role).ThenBy(u => u.Email).ToList();
@@ -194,67 +191,6 @@ public class AdminController(IStudioStore store, BookingService workflow, Paymen
             Response.Headers["Content-Disposition"] = "inline";
             return PhysicalFile(p.ProofPath, p.ProofPath.EndsWith(".png") ? "image/png" : "image/jpeg");
         }
-    }
-
-    [HttpGet, Authorize(Roles = "SuperAdmin"), ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
-    public async Task<IActionResult> AdminRoster()
-    {
-        if (!HttpContext.RequestServices.GetRequiredService<IConfiguration>().GetValue("Authentication:DurableSessionEnforcement", false) ||
-            store is not PublicStudioStore) return NotFound();
-        try
-        {
-            var service = HttpContext.RequestServices.GetService<AdminRosterService>();
-            var roster = service == null ? null : await service.ReadAsync(User, HttpContext.RequestAborted);
-            return roster == null ? StatusCode(503, "Account roster is unavailable.") : Ok(roster);
-        }
-        catch (Exception) { return StatusCode(503, "Account roster is unavailable."); }
-    }
-
-    [HttpGet, Authorize(Roles = "SuperAdmin"), ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
-    public async Task<IActionResult> ManageAccounts()
-    {
-        if (!HttpContext.RequestServices.GetRequiredService<IConfiguration>().GetValue("Authentication:DurableSessionEnforcement", false) ||
-            store is not PublicStudioStore) return NotFound();
-        try
-        {
-            var service = HttpContext.RequestServices.GetService<AdminRosterService>();
-            var roster = service == null ? null : await service.ReadAsync(User, HttpContext.RequestAborted);
-            return roster == null ? StatusCode(503, "Account roster is unavailable. Refresh later before taking further action.")
-                : View(roster);
-        }
-        catch (Exception) { return StatusCode(503, "Account roster is unavailable. Refresh later before taking further action."); }
-    }
-
-    [HttpPost, Authorize(Roles = "SuperAdmin"), ValidateAntiForgeryToken]
-    public async Task<IActionResult> DisableAdminFromRoster(Guid id, long expectedGeneration)
-    {
-        var result = await DisableAdmin(id, expectedGeneration);
-        if (result is NoContentResult)
-            TempData["Success"] = "The disable request completed. Review the current status below.";
-        else if (result is ObjectResult { StatusCode: 409 or 503 })
-            TempData["Error"] = "The change could not be confirmed. Review the refreshed status before taking further action.";
-        else return result;
-        return RedirectToAction(nameof(ManageAccounts));
-    }
-
-    [HttpPost, Authorize(Roles = "SuperAdmin"), ValidateAntiForgeryToken]
-    public async Task<IActionResult> DisableAdmin(Guid id, long expectedGeneration)
-    {
-        // This candidate is unreachable in normal startup and never falls back to Demo.
-        if (!HttpContext.RequestServices.GetRequiredService<IConfiguration>().GetValue("Authentication:DurableSessionEnforcement", false) ||
-            store is not PublicStudioStore)
-            return NotFound();
-        if (!ModelState.IsValid || id == Guid.Empty || expectedGeneration <= 0) return BadRequest();
-        try
-        {
-            var service = HttpContext.RequestServices.GetService<AccountAuthorizationTransactionService>();
-            if (service == null) return StatusCode(503, "Account management is unavailable.");
-            if (await service.ChangeAsync(User, id, expectedGeneration, AccountAuthorizationAction.Disable, ct: HttpContext.RequestAborted))
-                return NoContent();
-        }
-        catch (Exception) { }
-        // A failed commit acknowledgement can mean the change committed: do not claim rollback.
-        return StatusCode(409, "The change could not be confirmed. Refresh account status before taking further action.");
     }
 
     [Authorize(Roles = "SuperAdmin")]

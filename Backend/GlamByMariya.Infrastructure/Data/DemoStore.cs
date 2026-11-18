@@ -7,11 +7,9 @@ namespace GlamByMariya.Infrastructure.Data;
 
 // Singleton demo implementation. All writes and consistent reads use Gate.
 // Replace these repository implementations with EF Core when persistence is required.
-public class DemoStore : IStudioStore, IAdminProvisioningStore, IVerifiedProviderCustomerStore
+public class DemoStore : IStudioStore
 {
     private readonly DemoCatalogSnapshot? catalogSnapshot;
-    private readonly Dictionary<Guid, AdminProvisioningSnapshot> adminProvisioning = [];
-    private readonly Dictionary<Guid, (Guid AccountId, string Email)> providerCustomers = [];
     public bool IsPersistent => false;
     public DateTime Now => DateTime.Now;
     public object Gate { get; } = new();
@@ -97,89 +95,6 @@ public class DemoStore : IStudioStore, IAdminProvisioningStore, IVerifiedProvide
         if (role is not ("Admin" or "SuperAdmin")) throw new InvalidOperationException("Invalid elevated role.");
         if (Users.Any(x => x.Email.Equals(email.Trim(), StringComparison.OrdinalIgnoreCase))) throw new InvalidOperationException("This email is already registered.");
         return AddUser(firstName, lastName, email, password, role, age, gender, address);
-    }
-    public AppUser? FindVerifiedCustomer(Guid subject, string email)
-    {
-        lock (Gate)
-        {
-            if (subject == Guid.Empty || string.IsNullOrWhiteSpace(email) || !providerCustomers.TryGetValue(subject, out var binding) ||
-                !string.Equals(binding.Email, email.Trim(), StringComparison.OrdinalIgnoreCase)) return null;
-            var matches = Users.Where(u => u.Email.Equals(binding.Email, StringComparison.OrdinalIgnoreCase)).Take(2).ToList();
-            return matches.Count == 1 && matches[0].Id == binding.AccountId && matches[0].IsActive && matches[0].Role == Roles.Customer ? matches[0] : null;
-        }
-    }
-    public AppUser CreateVerifiedCustomer(Guid subject, EmailVerificationService.PendingRegistration pending)
-    {
-        lock (Gate)
-        {
-            if (subject == Guid.Empty || pending.ProviderSubject != subject || string.IsNullOrWhiteSpace(pending.Email) ||
-                providerCustomers.ContainsKey(subject) || Users.Any(u => u.Email.Equals(pending.Email.Trim(), StringComparison.OrdinalIgnoreCase)))
-                throw new InvalidOperationException("The account identity could not be verified. Contact support.");
-            var user = AddUser(pending.FirstName, pending.LastName, pending.Email.Trim(), pending.Password, Roles.Customer, pending.Age, pending.Gender, pending.Address);
-            user.Suffix = pending.Suffix; user.Birthday = pending.Birthday;
-            providerCustomers.Add(subject, (user.Id, user.Email));
-            return user;
-        }
-    }
-    public virtual AppUser CreatePendingInvitedAdmin(string firstName, string lastName, string email,
-        string password, int age, string gender, string address, Guid invitationId)
-    {
-        if (invitationId == Guid.Empty) throw new InvalidOperationException("The invitation is invalid.");
-        var error = RegistrationRules.Validate(firstName, lastName, email, age, gender, address, password);
-        if (error != null) throw new InvalidOperationException(error);
-        lock (Gate)
-        {
-            var user = CreateElevatedUser(firstName, lastName, email, password, "Admin", age, gender, address);
-            user.IsActive = false;
-            adminProvisioning.Add(user.Id, new(user.Id, invitationId, AdminProvisioningState.Pending, null));
-            return user;
-        }
-    }
-    public virtual void MarkAdminProvisioningOutcome(Guid accountId, AdminProvisioningState outcome)
-    {
-        if (outcome is not (AdminProvisioningState.NotAttempted or AdminProvisioningState.Rejected or AdminProvisioningState.Unknown))
-            throw new InvalidOperationException("Invalid Admin provisioning outcome.");
-        lock (Gate)
-        {
-            var current = GetAdminProvisioning(accountId) ?? throw new InvalidOperationException("Pending Admin provisioning was not found.");
-            if (current.State != AdminProvisioningState.Pending) throw new InvalidOperationException("Admin provisioning is no longer pending.");
-            adminProvisioning[accountId] = current with { State = outcome };
-        }
-    }
-    public virtual void ConfirmAdminProvisioning(Guid accountId, Guid invitationId, string email, SupabaseProvisioningResult provisioningResult)
-    {
-        if (accountId == Guid.Empty || invitationId == Guid.Empty || string.IsNullOrWhiteSpace(email)
-            || provisioningResult is null || !provisioningResult.IsConfirmed
-            || provisioningResult.ProviderUserId is not { } supabaseUserId || supabaseUserId == Guid.Empty)
-            throw new InvalidOperationException("A confirmed Supabase identity is required.");
-        var normalizedEmail = email.Trim();
-        lock (Gate)
-        {
-            var current = GetAdminProvisioning(accountId) ?? throw new InvalidOperationException("Pending Admin provisioning was not found.");
-            var user = Users.SingleOrDefault(x => x.Id == accountId);
-            if (current.AccountId != accountId || current.InvitationId != invitationId || user == null
-                || user.Role != "Admin" || !string.Equals(user.Email.Trim(), normalizedEmail, StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException("The pending Admin identity could not be confirmed.");
-            if (adminProvisioning.Values.Any(x => x.AccountId != accountId && x.InvitationId == invitationId))
-                throw new InvalidOperationException("This invitation is already correlated to another local account.");
-            if (adminProvisioning.Values.Any(x => x.AccountId != accountId && x.SupabaseUserId == supabaseUserId))
-                throw new InvalidOperationException("This Supabase identity is already linked to another account.");
-
-            if (current.State == AdminProvisioningState.Confirmed)
-            {
-                if (current.SupabaseUserId == supabaseUserId && user.IsActive) return;
-                throw new InvalidOperationException("The confirmed Admin identity does not match this request.");
-            }
-            if (current.State != AdminProvisioningState.Pending || current.SupabaseUserId != null || user.IsActive)
-                throw new InvalidOperationException("The pending Admin identity could not be confirmed.");
-
-            adminProvisioning[accountId] = current with { State = AdminProvisioningState.Confirmed, SupabaseUserId = supabaseUserId };
-            user.IsActive = true;
-        }
-    }
-    public virtual AdminProvisioningSnapshot? GetAdminProvisioning(Guid accountId)
-    {
-        lock (Gate) return adminProvisioning.GetValueOrDefault(accountId);
     }
     public void SaveCatalog(string kind, CatalogItem item, Guid actor)
     {

@@ -3,6 +3,8 @@ using GlamByMariya.Core.Entities;
 using GlamByMariya.Infrastructure.Services;
 using Microsoft.Extensions.Configuration;
 using Npgsql;
+using System.Security.Claims;
+using Microsoft.AspNetCore.Mvc;
 
 var store = new DemoStore();
 var workflow = new BookingService(store, store, store, store, store);
@@ -50,6 +52,95 @@ if (args.Contains("--cancellation-policy-only"))
     Check(confirmed.Status == "Cancelled" && confirmed.CancellationFee == 200 && confirmed.RefundDue == Math.Max(0, deposit.Amount - 200),
         "confirmed booking 3 days away cancels with PHP 200 fee and refund of verified paid minus fee");
     Console.WriteLine($"All {checks} cancellation policy checks passed."); return;
+}
+if (args.Contains("--local-auth-only"))
+{
+    // Real AccountController, Demo store, memory email codes and a fake Brevo delivery: no external auth provider.
+    var demo = new DemoStore();
+    var cache = new Microsoft.Extensions.Caching.Memory.MemoryCache(new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions());
+    var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Email:BrevoApiKey"] = "synthetic-key", ["Email:From"] = "sender@example.test" }).Build();
+    var delivery = new CapturingBrevoDelivery();
+    var brevo = new BrevoEmailSender(delivery, config, Microsoft.Extensions.Logging.Abstractions.NullLogger<BrevoEmailSender>.Instance);
+    var codes = new EmailVerificationService(cache, config, Microsoft.Extensions.Logging.Abstractions.NullLogger<EmailVerificationService>.Instance, new SyntheticWebEnv(), brevo, new MemoryEmailCodeStore(cache));
+    var accountSettings = new AccountSettingsService(demo, Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions.BuildServiceProvider(new Microsoft.Extensions.DependencyInjection.ServiceCollection()), cache);
+    var auth = new RecordingAuthentication();
+    var limiter = new LoginAttemptLimiter();
+    (AccountController Controller, Microsoft.AspNetCore.Http.DefaultHttpContext Http) Account(ClaimsPrincipal? user = null, string? cookie = null)
+    {
+        var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+        Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton<Microsoft.AspNetCore.Authentication.IAuthenticationService>(services, auth);
+        var http = new Microsoft.AspNetCore.Http.DefaultHttpContext { RequestServices = Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions.BuildServiceProvider(services) };
+        if (user != null) http.User = user;
+        if (cookie != null) http.Request.Headers.Cookie = cookie;
+        var controller = new AccountController(demo, codes, accountSettings, null!, new MemoryInvitationService(TimeProvider.System), limiter)
+        { ControllerContext = new ControllerContext { HttpContext = http } };
+        controller.TempData = new Microsoft.AspNetCore.Mvc.ViewFeatures.TempDataDictionary(http, new NoTempData());
+        controller.Url = new Microsoft.AspNetCore.Mvc.Routing.UrlHelper(new ActionContext(http, new Microsoft.AspNetCore.Routing.RouteData(), new Microsoft.AspNetCore.Mvc.Abstractions.ActionDescriptor()));
+        return (controller, http);
+    }
+    string? Error(IActionResult result) => result is ViewResult view ? view.ViewData["Error"] as string : null;
+    // Runs the app's real per-request cookie check against a signed-in principal.
+    bool SessionStillValid(IStudioStore sessionStore, ClaimsPrincipal principal)
+    {
+        var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+        Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton(services, sessionStore);
+        var http = new Microsoft.AspNetCore.Http.DefaultHttpContext { RequestServices = Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions.BuildServiceProvider(services) };
+        var scheme = new Microsoft.AspNetCore.Authentication.AuthenticationScheme("Cookies", null, typeof(Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationHandler));
+        var context = new Microsoft.AspNetCore.Authentication.Cookies.CookieValidatePrincipalContext(http, scheme, new Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationOptions(),
+            new Microsoft.AspNetCore.Authentication.AuthenticationTicket(principal, "Cookies"));
+        GlamByMariya.Web.Security.StudioCookieAuthentication.ValidatePrincipalAsync(context).GetAwaiter().GetResult();
+        return context.Principal != null;
+    }
+
+    // Registration with email OTP, completed in the same browser.
+    var email = "local.customer@example.test";
+    var (register, registerHttp) = Account();
+    var started = await register.Register("Local", "Customer", email, 0, "Female", "24 Synthetic Street, Quezon City", "FirstPass123", birthday: new DateOnly(1995, 5, 5));
+    var issued = System.Text.RegularExpressions.Regex.Match(registerHttp.Response.Headers.SetCookie.ToString(), EmailVerificationService.BrowserCookieName + "=([^;]+)");
+    Check(started is RedirectToActionResult { ActionName: "Verify" } && issued.Success && delivery.LastCode != null, "registration sends an email code and sets the browser cookie");
+    Check(demo.Users.All(u => u.Email != email), "no account exists before the email code is confirmed");
+    var browser = $"{EmailVerificationService.BrowserCookieName}={issued.Groups[1].Value}";
+    Check(Error(await Account().Controller.Verify(email, delivery.LastCode!, null)) is { } otherBrowser && otherBrowser.Contains("same browser"), "the code cannot be confirmed from a different browser");
+    var verified = await Account(cookie: browser).Controller.Verify(email, delivery.LastCode!, null);
+    var localCustomer = demo.Users.SingleOrDefault(u => u.Email == email);
+    Check(verified is RedirectResult { Url: "/Bookings" } && localCustomer is { Role: Roles.Customer, IsActive: true } && auth.LastPrincipal?.FindFirstValue(ClaimTypes.Email) == email,
+        "the same browser confirms the code, creates the customer and signs in");
+
+    // Login.
+    Check(Error(await Account().Controller.Login(email, "WrongPass123")) == "Email or password is incorrect.", "a wrong password is rejected");
+    Check(await Account().Controller.Login(email, "FirstPass123") is RedirectResult { Url: "/Bookings" }, "the right password signs in");
+    var session = auth.LastPrincipal!;
+
+    // Change password ends older sessions.
+    Check(Error(await Account().Controller.Login(email, "FirstPass123")) == null, "login works before the password change");
+    var (change, _) = Account(session);
+    await change.ChangePassword("NotMyPass123", "SecondPass456", "SecondPass456");
+    Check(Error(await Account().Controller.Login(email, "SecondPass456")) != null, "a wrong current password does not change the password");
+    var signOuts = auth.SignOutCalls;
+    Check(await Account(session).Controller.ChangePassword("FirstPass123", "SecondPass456", "SecondPass456") is RedirectToActionResult { ActionName: "Login" } && auth.SignOutCalls == signOuts + 1,
+        "the right current password changes the password and signs out");
+    Check(Error(await Account().Controller.Login(email, "FirstPass123")) != null && await Account().Controller.Login(email, "SecondPass456") is RedirectResult,
+        "only the new password works afterwards");
+    Check(!SessionStillValid(demo, session), "the session from before the password change is no longer accepted");
+    Check(SessionStillValid(demo, auth.LastPrincipal!), "the new session is accepted");
+
+    // Disabling an account ends its sessions and blocks login.
+    var current = auth.LastPrincipal!;
+    localCustomer!.IsActive = false;
+    Check(!SessionStillValid(demo, current) && Error(await Account().Controller.Login(email, "SecondPass456")) != null, "a disabled account is signed out and cannot log in");
+    localCustomer.IsActive = true;
+
+    // Forgot / reset password with the email code.
+    Check(await Account().Controller.ForgotPassword(email) is RedirectToActionResult { ActionName: "ResetPassword" } && delivery.LastCode != null, "forgot password emails a reset code");
+    var resetCode = delivery.LastCode!;
+    Check(Error(Account().Controller.ResetPassword(email, resetCode == "000000" ? "111111" : "000000", "ThirdPass789", "ThirdPass789")) == "That code is incorrect.", "a wrong reset code is rejected");
+    Check(Error(Account().Controller.ResetPassword(email, resetCode, "SecondPass456", "SecondPass456"))?.Contains("different password") == true, "reset cannot reuse the current password");
+
+    cache.Remove($"emailcode-cooldown:reset:{email}"); // skip the 60-second resend wait in the test
+    await Account().Controller.ForgotPassword(email);
+    Check(Account().Controller.ResetPassword(email, delivery.LastCode!, "ThirdPass789", "ThirdPass789") is RedirectToActionResult { ActionName: "Login" }, "a new reset code sets a new password");
+    Check(await Account().Controller.Login(email, "ThirdPass789") is RedirectResult && Error(await Account().Controller.Login(email, "SecondPass456")) != null, "only the reset password works");
+    Console.WriteLine($"All {checks} local authentication checks passed."); return;
 }
 if (args.Contains("--email-codes-only"))
 {
@@ -1533,4 +1624,19 @@ public sealed class SyntheticWebEnv : Microsoft.AspNetCore.Hosting.IWebHostEnvir
     public Microsoft.Extensions.FileProviders.IFileProvider ContentRootFileProvider { get; set; } = new Microsoft.Extensions.FileProviders.NullFileProvider();
     public string ContentRootPath { get; set; } = Path.GetTempPath();
     public string EnvironmentName { get; set; } = "Production";
+}
+public sealed class RecordingAuthentication : Microsoft.AspNetCore.Authentication.IAuthenticationService
+{
+    public ClaimsPrincipal? LastPrincipal { get; private set; }
+    public int SignOutCalls { get; private set; }
+    public Task<Microsoft.AspNetCore.Authentication.AuthenticateResult> AuthenticateAsync(Microsoft.AspNetCore.Http.HttpContext context, string? scheme) => Task.FromResult(Microsoft.AspNetCore.Authentication.AuthenticateResult.NoResult());
+    public Task ChallengeAsync(Microsoft.AspNetCore.Http.HttpContext context, string? scheme, Microsoft.AspNetCore.Authentication.AuthenticationProperties? properties) => Task.CompletedTask;
+    public Task ForbidAsync(Microsoft.AspNetCore.Http.HttpContext context, string? scheme, Microsoft.AspNetCore.Authentication.AuthenticationProperties? properties) => Task.CompletedTask;
+    public Task SignInAsync(Microsoft.AspNetCore.Http.HttpContext context, string? scheme, ClaimsPrincipal principal, Microsoft.AspNetCore.Authentication.AuthenticationProperties? properties) { LastPrincipal = principal; return Task.CompletedTask; }
+    public Task SignOutAsync(Microsoft.AspNetCore.Http.HttpContext context, string? scheme, Microsoft.AspNetCore.Authentication.AuthenticationProperties? properties) { SignOutCalls++; return Task.CompletedTask; }
+}
+public sealed class NoTempData : Microsoft.AspNetCore.Mvc.ViewFeatures.ITempDataProvider
+{
+    public IDictionary<string, object> LoadTempData(Microsoft.AspNetCore.Http.HttpContext context) => new Dictionary<string, object>();
+    public void SaveTempData(Microsoft.AspNetCore.Http.HttpContext context, IDictionary<string, object> values) { }
 }

@@ -6,14 +6,8 @@ internal static class V2DeploymentConfiguration
     {
         var profile = configuration["Deployment:Profile"];
         if (profile == null) return; // Existing loopback/test hosts keep their own guards.
-        if (CustomerAuthIntegrationProfile.Enabled(configuration))
-        {
-            CustomerAuthIntegrationProfile.Validate(configuration, environment);
-            return;
-        }
         if (profile != "v2-public-only" || !environment.IsProduction() ||
             !configuration.GetValue("PublicSite:InformationOnly", false) ||
-            configuration.GetValue("Authentication:DurableSessionEnforcement", false) ||
             !configuration.GetValue("Email:DeliveryDisabled", false))
             throw new InvalidOperationException("The V2 public deployment requires Production, information-only mode, disabled email and closed authentication gates.");
 

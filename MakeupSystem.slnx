@@ -8,38 +8,20 @@
   </Folder>
   <Folder Name="/Tests/">
     <Project Path="tests/BookingTestPersistenceChecks/BookingTestPersistenceChecks.csproj" />
-    <Project Path="tests/AccountSecuritySnapshotChecks/AccountSecuritySnapshotChecks.csproj" />
-    <Project Path="tests/AccountSessionGuardChecks/AccountSessionGuardChecks.csproj" />
-    <Project Path="tests/AdminInvitationWorkflowChecks/AdminInvitationWorkflowChecks.csproj" />
-    <Project Path="tests/AdminProvisioningPostgresHarnessPreparation/AdminProvisioningPostgresHarnessPreparation.csproj" />
-    <Project Path="tests/AdminProvisioningPostgresRunner/AdminProvisioningPostgresRunner.csproj" />
-    <Project Path="tests/AuthIdentityChecks/AuthIdentityChecks.csproj" />
     <Project Path="tests/AvatarUrlCheck/AvatarUrlCheck.csproj" />
     <Project Path="tests/B2AvatarCheck/B2AvatarCheck.csproj" />
     <Project Path="tests/ConnectionChecks/ConnectionChecks.csproj" />
-    <Project Path="tests/CredentialSyncPreparation/CredentialSyncPreparation.csproj" />
     <Project Path="tests/CspPolicyChecks/CspPolicyChecks.csproj" />
     <Project Path="tests/DbArtistFix/DbArtistFix.csproj" />
     <Project Path="tests/DbBackup/DbBackup.csproj" />
     <Project Path="tests/DbEmailFix/DbEmailFix.csproj" />
     <Project Path="tests/DbReset/DbReset.csproj" />
     <Project Path="tests/DemoCatalogSnapshotChecks/DemoCatalogSnapshotChecks.csproj" />
-    <Project Path="tests/DurableCredentialChecks/DurableCredentialChecks.csproj" />
-    <Project Path="tests/DurableCredentialPostgresChecks/DurableCredentialPostgresChecks.csproj" />
-    <Project Path="tests/DurableMvcPostgresChecks/DurableMvcPostgresChecks.csproj" />
-    <Project Path="tests/DurableSessionAuthorizationChecks/DurableSessionAuthorizationChecks.csproj" />
-    <Project Path="tests/DurableSessionHttpChecks/DurableSessionHttpChecks.csproj" />
     <Project Path="tests/EmailCodeConcurrency/EmailCodeConcurrency.csproj" />
     <Project Path="tests/EmailSenderChecks/EmailSenderChecks.csproj" />
-    <Project Path="tests/IsolatedSupabaseAuthRunner/IsolatedSupabaseAuthRunner.csproj" />
-    <Project Path="tests/PasswordChangePolicyChecks/PasswordChangePolicyChecks.csproj" />
     <Project Path="tests/PasswordPolicyChecks/PasswordPolicyChecks.csproj" />
     <Project Path="tests/PasswordPolicyPreparation/PasswordPolicyPreparation.csproj" />
-    <Project Path="tests/PasswordRegistrationPolicyChecks/PasswordRegistrationPolicyChecks.csproj" />
-    <Project Path="tests/PasswordResetConfirmationChecks/PasswordResetConfirmationChecks.csproj" />
-    <Project Path="tests/PasswordResetMvcChecks/PasswordResetMvcChecks.csproj" />
     <Project Path="tests/Phase3BFixtures/Phase3BFixtures.csproj" />
-    <Project Path="tests/PostgresAccountSecurityReaderChecks/PostgresAccountSecurityReaderChecks.csproj" />
     <Project Path="tests/PostgresChecks/PostgresChecks.csproj" />
     <Project Path="tests/ProofStorageChecks/ProofStorageChecks.csproj" />
     <Project Path="tests/ProxySecurityChecks/ProxySecurityChecks.csproj" />
@@ -51,7 +33,6 @@
     <Project Path="tests/WebsiteContentPostgresChecks/WebsiteContentPostgresChecks.csproj" />
     <Project Path="tests/WebsiteContentRulesChecks/WebsiteContentRulesChecks.csproj" />
     <Project Path="tests/WebsiteImageChecks/WebsiteImageChecks.csproj" />
-    <Project Path="tests/TrustedIdentityPostgresChecks/TrustedIdentityPostgresChecks.csproj" />
     <Project Path="tests/WorkflowChecks.csproj" />
   </Folder>
 </Solution>

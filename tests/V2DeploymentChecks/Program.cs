@@ -112,7 +112,6 @@ using (var process = Process.Start(StartInfo(new() { ["AllowedHosts"] = "127.0.0
 }
 foreach (var (label, config) in new (string, Dictionary<string, string?>)[] {
     ("public mode removed", new() { ["PublicSite__InformationOnly"] = "false" }),
-    ("authentication gate changed", new() { ["Authentication__DurableSessionEnforcement"] = "true" }),
     ("email enabled", new() { ["Email__DeliveryDisabled"] = "false" }),
     ("provider configuration attached", new() { ["Supabase__Url"] = "https://unused.example.invalid" }),
     ("staff provider key attached", new() { ["Supabase__ServiceKey"] = "synthetic-blocked" }),
@@ -129,7 +128,6 @@ foreach (var (label, config) in new (string, Dictionary<string, string?>)[] {
     ("invalid profile", new() { ["Deployment__Profile"] = "unknown" }),
     ("loopback Customer test profile on Render", new() { ["Deployment__Profile"] = "v2-customer-auth-test" }),
     ("normal production missing database", new() { ["Deployment__Profile"] = null, ["PublicSite__InformationOnly"] = "false" }),
-    ("normal production durable auth activation", new() { ["Deployment__Profile"] = null, ["PublicSite__InformationOnly"] = "false", ["Authentication__DurableSessionEnforcement"] = "true" })
 })
 {
     using var process = Process.Start(StartInfo(config, FreePort()))!;

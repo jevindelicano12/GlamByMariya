@@ -6,15 +6,8 @@ using GlamByMariya.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 
-var startupStage = CustomerAuthStartupStage.Configuration;
-try
-{
 var builder = WebApplication.CreateBuilder(args);
 V2DeploymentConfiguration.Validate(builder.Configuration, builder.Environment);
-var customerAuthTest = CustomerAuthIntegrationProfile.Enabled(builder.Configuration);
-if (customerAuthTest && args.Any(x => x.StartsWith("--database-", StringComparison.OrdinalIgnoreCase) ||
-    x.Equals("--storage-migrate", StringComparison.OrdinalIgnoreCase)))
-    throw new InvalidOperationException("Database and storage commands are unavailable in Customer integration.");
 // Render (and similar hosts) assign the port through $PORT. Local runs keep
 // the default unless --urls is passed explicitly.
 if (Environment.GetEnvironmentVariable("PORT") is { } port && int.TryParse(port, out var portNumber))
@@ -45,25 +38,11 @@ builder.Services.AddControllersWithViews(options => options.Filters.Add(new Auto
 // The app sets a stricter DENY baseline in SecurityHeadersMiddleware; suppress
 // the framework copy so browsers never receive two conflicting frame policies.
 builder.Services.AddAntiforgery(options => options.SuppressXFrameOptionsHeader = true);
-startupStage = CustomerAuthStartupStage.AuthenticationRegistration;
-var durableAuthentication = builder.Configuration.GetValue("Authentication:DurableSessionEnforcement", false);
-if (durableAuthentication && !customerAuthTest)
-    throw new InvalidOperationException("Durable authentication cannot be enabled until password, ticket issuance and recovery integration is verified.");
-builder.Services.AddStudioCookieAuthentication(builder.Environment.IsDevelopment(), durableAuthentication);
-if (customerAuthTest)
-{
-    builder.Services.Configure<Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationOptions>(
-        Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationDefaults.AuthenticationScheme, CustomerAuthIntegrationProfile.ConfigureCookie);
-    builder.Services.AddAntiforgery(options => options.HeaderName = "X-CSRF-TOKEN");
-    builder.Logging.AddFilter("System.Net.Http.HttpClient.supabase-auth", LogLevel.None);
-    builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogLevel.None);
-}
+builder.Services.AddStudioCookieAuthentication(builder.Environment.IsDevelopment());
 builder.Services.AddAuthorization();
 builder.Services.AddRateLimiter(RateLimitPolicies.Configure);
 builder.Services.AddHttpContextAccessor();
-builder.Services.AddScoped<TrustedRequestSessionAccessor>();
 var databaseCommand = args.FirstOrDefault(x => x is "--database-init" or "--database-check" or "--database-create-admin" or "--database-create-superadmin" or "--database-inspect" or "--database-profile" or "--database-migrate" or "--database-reset-password" or "--database-smoke" or "--storage-migrate");
-startupStage = CustomerAuthStartupStage.DatabaseConfiguration;
 var provider = builder.Configuration["Database:Provider"] ?? "Auto";
 if (provider is not ("Auto" or "Demo" or "PostgreSql")) throw new InvalidOperationException("Database:Provider must be Auto, Demo or PostgreSql.");
 var connection = provider == "Demo" ? null : DatabaseConfiguration.ConnectionString(builder.Configuration);
@@ -75,7 +54,6 @@ if (connection != null)
     // Explicit singleton data source = exactly one client pool per app process,
     // including the separate Data Protection DbContext. DI disposes it at exit.
     builder.Services.AddSingleton<NpgsqlDataSource>(_ => NpgsqlDataSource.Create(connection));
-    if (schema == "public") builder.Services.AddPersistentCustomerAuthentication();
 }
 if (connection != null && schema == "public" && databaseCommand == null)
 {
@@ -88,13 +66,7 @@ if (connection != null && schema == "public" && databaseCommand == null)
     }
     else
     {
-        startupStage = CustomerAuthStartupStage.CertificateSetup;
-        var certificate = CustomerAuthIntegrationProfile.LoadCertificate(builder.Configuration);
-        startupStage = CustomerAuthStartupStage.DataProtectionRegistration;
-        if (customerAuthTest)
-            CustomerAuthIntegrationProfile.ConfigureKeyRing(builder.Services, builder.Configuration["DataProtection:KeyRingPath"]!,
-                builder.Configuration["Deployment:V2ProjectId"]!, certificate);
-        else
+        var certificate = DataProtectionCertificate.Load(builder.Configuration);
         {
             builder.Services.AddDbContext<DataProtectionKeyContext>((sp, options) =>
                 options.UseNpgsql(sp.GetRequiredService<NpgsqlDataSource>(), npgsql => npgsql.EnableRetryOnFailure(3, TimeSpan.FromSeconds(5), null)));
@@ -105,7 +77,6 @@ if (connection != null && schema == "public" && databaseCommand == null)
         }
     }
 }
-startupStage = CustomerAuthStartupStage.ServiceRegistration;
 if (connection != null)
 {
     if (schema == "public")
@@ -217,9 +188,6 @@ builder.Services.AddScoped<BookingService>();
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<LoginAttemptLimiter>();
 builder.Services.AddHttpClient();
-if (customerAuthTest)
-    builder.Services.AddHttpClient("supabase-auth").ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
-builder.Services.AddScoped<SupabaseAuthService>();
 builder.Services.AddScoped<BrevoEmailSender>();
 // Email codes: PostgreSQL when a database is configured (survives restarts), memory otherwise.
 builder.Services.AddSingleton<IEmailCodeStore>(sp => sp.GetService<NpgsqlDataSource>() is { } emailCodeSource && builder.Configuration["Database:Schema"] == "public"
@@ -256,7 +224,6 @@ else
     builder.Services.AddSingleton(sp => new PaymentQrService(sp.GetRequiredService<IWebHostEnvironment>().ContentRootPath));
     builder.Services.AddSingleton(sp => new CatalogImageService(sp.GetRequiredService<IWebHostEnvironment>().ContentRootPath, demoMedia: sp.GetService<DemoCatalogMedia>()));
 }
-startupStage = CustomerAuthStartupStage.HostBuild;
 var app = builder.Build();
 if (databaseCommand != null)
 {
@@ -275,17 +242,7 @@ if (connection != null)
     {
         using var scope = app.Services.CreateScope();
         var verificationSchema = app.Configuration["Database:Schema"] ?? "makeup";
-        if (customerAuthTest)
-        {
-            startupStage = CustomerAuthStartupStage.RestrictedDatabaseReadiness;
-            if (!await scope.ServiceProvider.GetRequiredService<PersistentCustomerAuthentication>().Ready(CancellationToken.None, throwOnFailure: true))
-                throw new InvalidOperationException("The restricted V2 Customer authentication schema/permissions are not ready.");
-            startupStage = CustomerAuthStartupStage.DataProtectionWarmup;
-            if (!Directory.Exists(app.Configuration["DataProtection:KeyRingPath"]))
-                throw new InvalidOperationException("Create and restrict the external Data Protection key directory before starting the integration host.");
-            _ = app.Services.GetRequiredService<IDataProtectionProvider>().CreateProtector("V2.CustomerAuth.Readiness").Protect("ready");
-        }
-        else if (verificationSchema == "public")
+        if (verificationSchema == "public")
         {
             var pdb = scope.ServiceProvider.GetRequiredService<PublicMakeupDbContext>();
             await using var connectionLease = await DatabaseConnectionLease.OpenAsync(pdb.Database);
@@ -296,7 +253,7 @@ if (connection != null)
         }
         else await DatabaseInspection.VerifyApplicationAsync(scope.ServiceProvider.GetRequiredService<MakeupDbContext>(), app.Configuration);
     }
-    catch (Exception e) when (!customerAuthTest)
+    catch (Exception e)
     {
         Console.Error.WriteLine(DatabaseDiagnostics.Describe(e));
         Environment.ExitCode = 1;
@@ -305,7 +262,6 @@ if (connection != null)
 }
 // Resolve the scheme from explicitly trusted proxies before HSTS or any other
 // scheme-dependent middleware. Keep the trust configuration above unchanged.
-if (customerAuthTest) CustomerAuthIntegrationProfile.UseBoundary(app);
 if (demoGallery)
     app.Use(async (context, next) =>
     {
@@ -315,16 +271,10 @@ if (demoGallery)
         { context.Response.StatusCode = 403; return; }
         await next();
     });
-if (!customerAuthTest) app.UseForwardedHeaders();
+app.UseForwardedHeaders();
 if (!app.Environment.IsDevelopment())
 {
-    if (customerAuthTest)
-        app.UseExceptionHandler(handler => handler.Run(async context =>
-        {
-            context.Response.StatusCode = 503;
-            await context.Response.WriteAsync("The integration request could not be confirmed. Stop and reconcile before retrying.");
-        }));
-    else app.UseExceptionHandler("/Home/Error");
+    app.UseExceptionHandler("/Home/Error");
     app.UseHsts();
 }
 app.UseMiddleware<SecurityHeadersMiddleware>();
@@ -333,23 +283,8 @@ app.UseRouting();
 app.UseMiddleware<DatabaseCapacityMiddleware>();
 app.UseRateLimiter();
 app.UseAuthentication();
-if (customerAuthTest) CustomerAuthIntegrationProfile.UseAuthenticatedPageRedirect(app);
 app.UseAuthorization();
-if (customerAuthTest) CustomerAuthIntegrationProfile.MapSessionProbe(app);
 // Render health check. Anonymous, dependency-free, safe to hit every few seconds.
 app.MapGet("/healthz", () => Results.Ok(new { status = "ok", service = "lumiere-makeup" }));
 app.MapControllerRoute("default", "{controller=Home}/{action=Index}/{id?}");
-startupStage = CustomerAuthStartupStage.HttpsBinding;
-if (customerAuthTest)
-    app.Lifetime.ApplicationStarted.Register(() =>
-    {
-        startupStage = CustomerAuthStartupStage.Running;
-        Console.Error.WriteLine("V2AUTH|stage=Running|category=ready|type=None|cause=None|code=None");
-    });
 app.Run();
-}
-catch (Exception error) when (Environment.GetEnvironmentVariable("Deployment__Profile") == CustomerAuthIntegrationProfile.Name)
-{
-    Console.Error.WriteLine(CustomerAuthStartupDiagnostics.Describe(startupStage, error));
-    Environment.ExitCode = 1;
-}
