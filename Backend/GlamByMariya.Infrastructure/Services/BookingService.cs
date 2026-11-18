@@ -25,7 +25,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             var selected = SelectAddOns(addOnIds, people);
             var earlyFee = !store.IsPersistent && start.HasValue ? EarlyFeeAt(start.Value, store.Settings) : 0;
             var quote = BookingPricing.Calculate(service, selected, people, store.Settings.TravelFee, package, store.Settings.DownPaymentPercent, earlyFee);
-            var lateFee = !store.IsPersistent && start.HasValue ? LateFeeAt(start.Value, quote.DurationMinutes, package, store.Settings) : 0;
+            var lateFee = !store.IsPersistent && start.HasValue ? LateFeeAt(start.Value, quote.DurationMinutes, store.Settings) : 0;
             return lateFee == 0 ? quote : BookingPricing.Calculate(service, selected, people, store.Settings.TravelFee, package, store.Settings.DownPaymentPercent, earlyFee, lateFee);
         }
     }
@@ -56,7 +56,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             var serviceTotal = snapshots.Sum(p => p.Service.Price);
             var addonTotal = snapshots.Sum(p => p.AddOns.Sum(a => a.Price));
             var early = start.HasValue ? EarlyFeeAt(start.Value, store.Settings) : 0;
-            var late = start.HasValue ? LateFeeAt(start.Value, duration, "group", store.Settings) : 0;
+            var late = start.HasValue ? LateFeeAt(start.Value, duration, store.Settings) : 0;
             var total = serviceTotal + addonTotal + early + late;
             return new MixedBookingQuote(snapshots.AsReadOnly(), serviceTotal, addonTotal, 0, early, late, total,
                 Money.Percentage(total, store.Settings.DownPaymentPercent), store.Settings.DownPaymentPercent, duration);
@@ -95,10 +95,12 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
         }
     }
     private static decimal EarlyFeeAt(DateTime start, BusinessSettings settings) => settings.EarlyFeeEnabled && start.TimeOfDay >= TimeSpan.FromHours(settings.EarlyStartHour) && start.TimeOfDay < TimeSpan.FromHours(settings.OpenHour) ? settings.EarlyFee : 0;
-    private static decimal LateFeeAt(DateTime start, int duration, string package, BusinessSettings settings) =>
+    // One rule for every booking type: late when makeup starts at or after the late
+    // boundary, or starts in regular hours but finishes after regular closing.
+    private static decimal LateFeeAt(DateTime start, int duration, BusinessSettings settings) =>
         settings.LateFeeEnabled && settings.LateStartHour.HasValue && start.TimeOfDay >= TimeSpan.FromHours(settings.OpenHour)
         && (start.TimeOfDay >= TimeSpan.FromHours(settings.LateStartHour.Value)
-            || (package == "group" && start.TimeOfDay + TimeSpan.FromMinutes(duration) > TimeSpan.FromHours(settings.CloseHour)))
+            || start.TimeOfDay + TimeSpan.FromMinutes(duration) > TimeSpan.FromHours(settings.CloseHour))
             ? settings.LateFee : 0;
     private List<CatalogItem> SelectAddOns(Guid[] ids, int people)
     {
@@ -548,7 +550,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
         var calendar = GetAvailability(start, duration, b.Id);
         if (start.Ticks % TimeSpan.TicksPerMinute != 0 || !calendar.Days.SelectMany(d => d.Slots).Any(s => s.Start == start.ToString("yyyy-MM-ddTHH:mm") && s.Available)) throw new InvalidOperationException("Choose an available appointment time.");
         CheckSlot(start, duration, b.Id);
-        var early = EarlyFeeAt(start, store.Settings); var late = LateFeeAt(start, duration, b.Package, store.Settings);
+        var early = EarlyFeeAt(start, store.Settings); var late = LateFeeAt(start, duration, store.Settings);
         return new(quoteId, b.Id, b.ApprovedReschedules.Count, b.Start, start, duration, b.BufferMinutesSnapshot ?? store.Settings.BufferMinutes, b.InitialBookingTotal, b.Total, b.InitialBookingTotal - b.EarlyFeeSnapshot - b.LateFeeSnapshot + early + late, early, late);
     }
     public RescheduleQuote OfferReschedule(Booking b, Guid actor, DateTime start)

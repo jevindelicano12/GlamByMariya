@@ -1153,7 +1153,9 @@ if (args.Contains("--late-fees-only"))
     var before = flow.Quote(item.Id, [extra.Id], 1, "auto", day.AddHours(17).AddMinutes(-1));
     var exact = flow.Quote(item.Id, [], 1, "auto", day.AddHours(17));
     var late = flow.Quote(item.Id, [], 1, "auto", day.AddHours(19));
-    Check(normal.LateFee == 0 && before.LateFee == 0 && exact.LateFee == 275, "individual late fee includes the exact configured start boundary");
+    var beforeShort = flow.Quote(item.Id, [], 1, "auto", day.AddHours(17).AddMinutes(-1));
+    Check(normal.LateFee == 0 && beforeShort.LateFee == 0 && exact.LateFee == 275, "individual late fee includes the exact configured start boundary");
+    Check(before.LateFee == 275, "an individual booking that runs past regular closing pays the late fee, the same as a group");
     Check(late.FinalTotal == normal.FinalTotal + 275 && late.RequiredDownPayment == Money.Percentage(late.FinalTotal, demo.Settings.DownPaymentPercent), "late fee charged once in total and down payment");
     var group = flow.Quote(item.Id, [extra.Id, extra.Id], 4, "group", day.AddHours(17));
     Check(group.LateFee == 275 && group.DurationMinutes == item.Minutes * 4 + extra.Minutes * 2, "group duration includes add-on quantities and fee applies once");
