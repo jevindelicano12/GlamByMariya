@@ -6,7 +6,7 @@ using Npgsql;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
 
-var store = new DemoStore();
+var store = new DemoStore(presentationAccounts: true);
 var workflow = new BookingService(store, store, store, store, store);
 var customer = store.Users.First(u => u.Role == "Customer");
 var admin = store.Users.First(u => u.Role == "Admin");
@@ -33,7 +33,7 @@ if (args.Contains("--cancellation-policy-only"))
     Check(CancellationPolicy.RefundDue(200, 150) == 0 && CancellationPolicy.RefundDue(200, 500) == 300 && CancellationPolicy.RefundDue(0, 0) == 0,
         "refund is verified paid minus the fee, never negative");
 
-    var demo = new DemoStore(); var flow = new BookingService(demo, demo, demo, demo, demo);
+    var demo = new DemoStore(presentationAccounts: true); var flow = new BookingService(demo, demo, demo, demo, demo);
     var owner = demo.Users.First(u => u.Role == Roles.Customer);
     var pending = demo.Bookings.Single(); pending.Start = demo.Now.AddHours(3);
     Check(pending.Status == "Pending Payment" && flow.HoldsReservation(pending), "seed booking starts pending and holds its slot");
@@ -41,7 +41,7 @@ if (args.Contains("--cancellation-policy-only"))
     Check(pending.Status == "Cancelled" && pending.CancellationFee == 0 && pending.RefundDue == 0 && !flow.HoldsReservation(pending),
         "customer cancels an unpaid pending booking with no fee and the slot is released");
 
-    var demo2 = new DemoStore(); var flow2 = new BookingService(demo2, demo2, demo2, demo2, demo2);
+    var demo2 = new DemoStore(presentationAccounts: true); var flow2 = new BookingService(demo2, demo2, demo2, demo2, demo2);
     var owner2 = demo2.Users.First(u => u.Role == Roles.Customer);
     var confirmed = demo2.Bookings.Single(); var deposit = demo2.Payments.Single(p => p.BookingId == confirmed.Id);
     confirmed.Status = "Confirmed"; deposit.Verified = true; confirmed.Start = demo2.Now.AddHours(10);
@@ -56,7 +56,7 @@ if (args.Contains("--cancellation-policy-only"))
 if (args.Contains("--local-auth-only"))
 {
     // Real AccountController, Demo store, memory email codes and a fake Brevo delivery: no external auth provider.
-    var demo = new DemoStore();
+    var demo = new DemoStore(presentationAccounts: true);
     var cache = new Microsoft.Extensions.Caching.Memory.MemoryCache(new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions());
     var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Email:BrevoApiKey"] = "synthetic-key", ["Email:From"] = "sender@example.test" }).Build();
     var delivery = new CapturingBrevoDelivery();
@@ -174,7 +174,7 @@ if (args.Contains("--accounts-only"))
     Reject(() => invites.Accept("someone@example.test", "WRONG"), "a wrong invitation token is rejected");
 
     // Real AccountController accepts the invite and creates a local Admin account.
-    var demo = new DemoStore();
+    var demo = new DemoStore(presentationAccounts: true);
     var owner = demo.CreateElevatedUser("Store", "Owner", "store.owner@example.test", "OwnerPass123", Roles.SuperAdmin, 35, "", "Address on file");
     var cache = new Microsoft.Extensions.Caching.Memory.MemoryCache(new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions());
     var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Email:BrevoApiKey"] = "synthetic-key", ["Email:From"] = "sender@example.test" }).Build();
@@ -244,6 +244,11 @@ if (args.Contains("--accounts-only"))
     Check(accountCustomer.IsActive, "a refused Disable changes nothing");
     var usersView = File.ReadAllText(Path.Combine(root, "Frontend", "GlamByMariya.Web", "Views", "Admin", "Users.cshtml"));
     Check(usersView.Contains("asp-action=\"SetAdminActive\"") && !usersView.Contains("Invitation acceptance is currently unavailable"), "the Users page has the Disable/Enable button and no longer says invites are closed");
+    // No seeded demo accounts: the owner comes from the setup command, admins by invite, customers register.
+    var empty = new DemoStore();
+    Check(empty.Users.Count == 0 && empty.Bookings.Count == 0 && empty.Payments.Count == 0, "a new Demo store starts with no accounts and no sample booking");
+    foreach (var file in new[] { "Backend/GlamByMariya.Infrastructure/Data/DemoStore.cs", "Backend/GlamByMariya.Infrastructure/Integrations/DemoAvatarStore.cs", "Frontend/GlamByMariya.Web/MakeupBookingDatabase.sql" })
+        Check(!File.ReadAllText(Path.Combine(root, file)).Contains("lumiere.demo"), $"{Path.GetFileName(file)} has no @lumiere.demo account");
     Console.WriteLine($"All {checks} account checks passed."); return;
 }
 if (args.Contains("--email-codes-only"))
@@ -289,7 +294,7 @@ if (args.Contains("--email-codes-only"))
     Check(pending.Password == "" && pending.PasswordHash is { } hash &&
         new Microsoft.AspNetCore.Identity.PasswordHasher<AppUser>().VerifyHashedPassword(new AppUser(), hash, "Secret123!") != Microsoft.AspNetCore.Identity.PasswordVerificationResult.Failed,
         "the confirmed registration returns a hash that matches the original password");
-    var demo = new DemoStore();
+    var demo = new DemoStore(presentationAccounts: true);
     var created = demo.AddCustomerWithPasswordHash(pending.FirstName, pending.LastName, pending.Email, pending.PasswordHash!, pending.Age, pending.Gender, pending.Address);
     Check(created.Role == Roles.Customer && created.PasswordHash == pending.PasswordHash, "a customer account is created from the held hash");
     Reject(() => demo.AddCustomerWithPasswordHash(pending.FirstName, pending.LastName, pending.Email, pending.PasswordHash!, pending.Age, pending.Gender, pending.Address), "the same email cannot be registered twice");
@@ -362,7 +367,7 @@ if (args.Contains("--persistent-reschedule-only"))
 }
 if (args.Contains("--exact-deposit-only"))
 {
-    var demo = new DemoStore(); var flow = new BookingService(demo, demo, demo, demo, demo);
+    var demo = new DemoStore(presentationAccounts: true); var flow = new BookingService(demo, demo, demo, demo, demo);
     var customerUser = demo.Users.First(u => u.Role == Roles.Customer); var ownerUser = demo.Users.First(u => u.Role == Roles.SuperAdmin);
     var look = demo.Services.First(); var start = DateTime.Today.AddDays(29).AddHours(8);
     var quote = flow.Quote(look.Id, [], 1, "auto", start);
@@ -390,7 +395,7 @@ if (args.Contains("--exact-deposit-only"))
 }
 if (args.Contains("--payment-window-only"))
 {
-    var demo = new DemoStore(); var flow = new BookingService(demo, demo, demo, demo, demo);
+    var demo = new DemoStore(presentationAccounts: true); var flow = new BookingService(demo, demo, demo, demo, demo);
     var customerUser = demo.Users.First(u => u.Role == Roles.Customer); var ownerUser = demo.Users.First(u => u.Role == Roles.SuperAdmin);
     var look = demo.Services.First(); var start = DateTime.Today.AddDays(29).AddHours(8);
     var quote = flow.Quote(look.Id, [], 1, "auto", start);
@@ -636,7 +641,7 @@ if (args.Contains("--mixed-retry-only"))
 {
     foreach (var scenario in new[] { "service", "schedule", "addons", "quantity", "person order", "address", "method", "reference", "proof", "agreement", "travel consent", "policy", "travel version", "amount", "expected total", "expected minimum" })
     {
-        var demo = new DemoStore(); var flow = new BookingService(demo, demo, demo, demo, demo);
+        var demo = new DemoStore(presentationAccounts: true); var flow = new BookingService(demo, demo, demo, demo, demo);
         var actor = demo.Users.First(x => x.Role == Roles.Customer); var services = demo.Services.Take(2).ToArray(); var addons = demo.AddOns.Take(2).ToArray();
         var start = DateTime.Today.AddDays(27).AddHours(8); var id = Guid.NewGuid();
         var people = new[] { new MixedPersonSelection(services[0].Id, [addons[0].Id, addons[1].Id]), new MixedPersonSelection(services[1].Id, []) };
@@ -673,7 +678,7 @@ if (args.Contains("--mixed-retry-only"))
         Check(retry.Id == initialMixed.Id && demo.Bookings.Count == bookingCount && demo.Payments.Count == retryPaymentCount, $"{scenario}: identical normalized retry survives policy and profile changes");
     }
     {
-        var demo = new DemoStore(); var flow = new BookingService(demo, demo, demo, demo, demo);
+        var demo = new DemoStore(presentationAccounts: true); var flow = new BookingService(demo, demo, demo, demo, demo);
         var actor = demo.Users.First(x => x.Role == Roles.Customer); var item = demo.Services.First();
         var start = DateTime.Today.AddDays(25).AddHours(8); var people = new[] { new MixedPersonSelection(item.Id, []), new MixedPersonSelection(item.Id, []) };
         var quote = flow.QuoteMixed(people, start); var id = Guid.NewGuid();
@@ -691,7 +696,7 @@ if (args.Contains("--mixed-retry-only"))
         Check(demo.Bookings.Count == before + 1 && demo.Payments.Count == paymentBefore + 1 && demo.Payments.Single(x => x.BookingId == initialImage.Id).ProofPath == "staged-a", "image retries preserve initial payment and record counts");
     }
     {
-        var demo = new DemoStore(); var flow = new BookingService(demo, demo, demo, demo, demo);
+        var demo = new DemoStore(presentationAccounts: true); var flow = new BookingService(demo, demo, demo, demo, demo);
         var actor = demo.Users.First(x => x.Role == Roles.Customer); var item = demo.Services.First();
         var start = DateTime.Today.AddDays(24).AddHours(8);
         var selected = new[] { new MixedPersonSelection(item.Id, []), new MixedPersonSelection(item.Id, []) };
@@ -732,7 +737,7 @@ if (args.Contains("--mixed-retry-only"))
 if (args.Contains("--boundary-regression-only"))
 {
     // A fresh in-memory fixture per run; never exercises a database or HTTP authorization.
-    var demo = new DemoStore(); var flow = new BookingService(demo, demo, demo, demo, demo);
+    var demo = new DemoStore(presentationAccounts: true); var flow = new BookingService(demo, demo, demo, demo, demo);
     var boundaryCustomer = demo.Users.First(u => u.Role == Roles.Customer);
     var other = demo.AddUser("Other", "Customer", "other@example.test", "Synthetic123!", Roles.Customer);
     var boundaryAdmin = demo.Users.First(u => u.Role == Roles.Admin);
@@ -814,7 +819,7 @@ if (args.Contains("--boundary-regression-only"))
 }
 if (args.Contains("--staff-cancellation-completion-only"))
 {
-    var demo = new DemoStore(); var flow = new BookingService(demo, demo, demo, demo, demo);
+    var demo = new DemoStore(presentationAccounts: true); var flow = new BookingService(demo, demo, demo, demo, demo);
     var owner = demo.Users.First(u => u.Role == Roles.SuperAdmin); var staff = demo.Users.First(u => u.Role == Roles.Admin); var user = demo.Users.First(u => u.Role == Roles.Customer);
     var initial = demo.Bookings.Single(); var payment = demo.Payments.Single(p => p.BookingId == initial.Id); payment.ProofPath = "synthetic-proof.png";
     var staffPaymentCount = demo.Payments.Count; var reference = payment.Reference;
@@ -858,7 +863,7 @@ if (args.Contains("--staff-cancellation-completion-only"))
     // to be reachable through normal booking verification or persistent SQL.
     foreach (var scenario in new[] { "unpaid", "partial", "full" })
     {
-        var local = new DemoStore(); var testFlow = new BookingService(local, local, local, local, local);
+        var local = new DemoStore(presentationAccounts: true); var testFlow = new BookingService(local, local, local, local, local);
         var client = local.Users.First(u => u.Role == Roles.Customer);
         var testOwner = local.Users.First(u => u.Role == Roles.SuperAdmin);
         var serviceItem = local.Services.First();
@@ -893,7 +898,7 @@ if (args.Contains("--staff-cancellation-completion-only"))
 }
 if (args.Contains("--reschedule-policy-only"))
 {
-    var demo = new DemoStore(); var flow = new BookingService(demo, demo, demo, demo, demo);
+    var demo = new DemoStore(presentationAccounts: true); var flow = new BookingService(demo, demo, demo, demo, demo);
     var user = demo.Users.First(u => u.Role == Roles.Customer); var owner = demo.Users.First(u => u.Role == Roles.SuperAdmin); var staff = demo.Users.First(u => u.Role == Roles.Admin);
     var day = DateTime.Today.AddDays(30); demo.Settings.EarlyFeeEnabled = true; demo.Settings.EarlyStartHour = 5; demo.Settings.EarlyFee = 200;
     var policyService = demo.Services.First(); var initial = flow.Quote(policyService.Id, [], 1, "auto", day.AddHours(8));
@@ -921,7 +926,7 @@ if (args.Contains("--reschedule-policy-only"))
 }
 if (args.Contains("--mixed-admin-only"))
 {
-    var demo = new DemoStore(); var flow = new BookingService(demo, demo, demo, demo, demo);
+    var demo = new DemoStore(presentationAccounts: true); var flow = new BookingService(demo, demo, demo, demo, demo);
     var member = demo.Users.Single(u => u.Role == Roles.Customer); var staff = demo.Users.Single(u => u.Role == Roles.Admin); var owner = demo.Users.Single(u => u.Role == Roles.SuperAdmin);
     var look = demo.Services.First(); MixedPersonSelection[] selection = [new(look.Id, []), new(look.Id, []), new(look.Id, [])];
     var date = DateTime.Today.AddDays(30).AddHours(8);
@@ -986,7 +991,7 @@ if (args.Contains("--mixed-admin-only"))
 }
 if (args.Contains("--mixed-pricing-only"))
 {
-    var mixedStore = new DemoStore(); var mixedFlow = new BookingService(mixedStore, mixedStore, mixedStore, mixedStore, mixedStore);
+    var mixedStore = new DemoStore(presentationAccounts: true); var mixedFlow = new BookingService(mixedStore, mixedStore, mixedStore, mixedStore, mixedStore);
     var softMixed = mixedStore.Services.Single(s => s.Name == "Soft Glam");
     var glamourMixed = mixedStore.Services.Single(s => s.Name == "Glamour Makeup");
     var bridalMixed = mixedStore.Services.Single(s => s.Name == "Bridal Makeup");
@@ -1072,7 +1077,7 @@ if (args.Contains("--mixed-pricing-only"))
 }
 if (args.Contains("--late-fees-only"))
 {
-    var demo = new DemoStore(); var flow = new BookingService(demo, demo, demo, demo, demo);
+    var demo = new DemoStore(presentationAccounts: true); var flow = new BookingService(demo, demo, demo, demo, demo);
     var user = demo.Users.First(u => u.Role == Roles.Customer); var reviewer = demo.Users.First(u => u.Role == Roles.Admin);
     var day = DateTime.Today.AddDays(20); var item = demo.Services[0]; var extra = demo.AddOns[0];
     demo.Settings.BufferMinutes = 15;
@@ -1130,7 +1135,7 @@ if (args.Contains("--late-fees-only"))
 }
 if (args.Contains("--fees-only"))
 {
-    var demo = new DemoStore(); var flow = new BookingService(demo, demo, demo, demo, demo);
+    var demo = new DemoStore(presentationAccounts: true); var flow = new BookingService(demo, demo, demo, demo, demo);
     var user = demo.Users.First(u => u.Role == Roles.Customer); var reviewer = demo.Users.First(u => u.Role == Roles.Admin);
     var start = DateTime.Today.AddDays(20).AddHours(5);
     demo.Settings.EarlyStartHour = 5; demo.Settings.EarlyFee = 321; demo.Settings.EarlyFeeEnabled = true;
@@ -1176,7 +1181,7 @@ if (args.Contains("--travel-only"))
     Check(planning.Review(anchor, stop, next with { LocationReference = "SYNTHETIC:UNKNOWN" }, true, RouteMode.Driving, TimeSpan.Zero).Result.Status == TravelReviewStatus.Unavailable, "unknown route never becomes zero-minute travel");
     Check(planning.Review(anchor, stop, null, false, RouteMode.Driving, TimeSpan.Zero).Result.Status == TravelReviewStatus.InvalidRequest, "unknown next appointment state fails closed");
     Check(estimator.Estimate(new RouteRequest("real address", "SYNTHETIC:A", null, start, RouteMode.Driving, TimeSpan.Zero)).Result.Status == RouteEstimateStatus.InvalidRequest, "fake estimator rejects nonsynthetic locations");
-    var demo = new DemoStore(); var serviceForTravel = new BookingService(demo, demo, demo, demo, demo);
+    var demo = new DemoStore(presentationAccounts: true); var serviceForTravel = new BookingService(demo, demo, demo, demo, demo);
     var serviceItem = demo.Services[0]; var addOn = demo.AddOns[0];
     var travelQuote = serviceForTravel.Quote(serviceItem.Id, [addOn.Id, addOn.Id], 4, "group");
     Check(travelQuote.DurationMinutes == serviceItem.Minutes * 4 + addOn.Minutes * 2, "travel-planning input can use existing quantity-based service duration");
@@ -1185,7 +1190,7 @@ if (args.Contains("--travel-only"))
 }
 if (args.Contains("--reservation-only"))
 {
-    var demo = new DemoStore();
+    var demo = new DemoStore(presentationAccounts: true);
     demo.Settings.BufferMinutes = 15;
     var flow = new BookingService(demo, demo, demo, demo, demo);
     var user = demo.Users.First(u => u.Role == Roles.Customer);
@@ -1243,15 +1248,15 @@ if (args.Contains("--reservation-only"))
 }
 var oldAvatars = new DemoAvatarStore("unused");
 var presentationAvatars = new DemoAvatarStore("unused", true);
-foreach (var (role, oldEmail, newEmail) in new[] { ("Customer", "customer@lumiere.demo", "presentation-customer@example.test"), ("Admin", "admin@lumiere.demo", "presentation-admin@example.test"), ("SuperAdmin", "owner@lumiere.demo", "presentation-owner@example.test") })
+foreach (var (role, oldEmail, newEmail) in new[] { ("Customer", "removed-customer@example.test", "presentation-customer@example.test"), ("Admin", "removed-admin@example.test", "presentation-admin@example.test"), ("SuperAdmin", "removed-owner@example.test", "presentation-owner@example.test") })
 {
     var oldUser = new AppUser { Role = role, Email = oldEmail };
     var newUser = new AppUser { Role = role, Email = newEmail };
-    Check(oldAvatars.Supports(oldUser) && !oldAvatars.Supports(newUser) && presentationAvatars.Supports(newUser) && !presentationAvatars.Supports(oldUser), $"{role} avatar mapping is restricted to the active seeded identity");
+    Check(!oldAvatars.Supports(oldUser) && !oldAvatars.Supports(newUser) && presentationAvatars.Supports(newUser) && !presentationAvatars.Supports(oldUser), $"{role} avatar mapping is restricted to the active seeded identity");
 }
 // Focused Demo-only regression; also runs as part of the full workflow suite.
 {
-    var demo = new DemoStore();
+    var demo = new DemoStore(presentationAccounts: true);
     var bookingService = new BookingService(demo, demo, demo, demo, demo);
     var user = demo.Users.First(u => u.Role == "Customer");
     var look = demo.Services[0];
@@ -1299,7 +1304,7 @@ foreach (var (role, oldEmail, newEmail) in new[] { ("Customer", "customer@lumier
 }
 if (args.Contains("--transportation-only"))
 {
-    var demo = new DemoStore();
+    var demo = new DemoStore(presentationAccounts: true);
     var serviceCheck = new BookingService(demo, demo, demo, demo, demo);
     var person = demo.Users.First(u => u.Role == "Customer");
     var look = demo.Services[0]; var extra = demo.AddOns[0];
@@ -1426,7 +1431,7 @@ workflow.CheckSlot(b.Start, (int)(b.End - b.Start).TotalMinutes);
 Check(true, "Cancelled appointment releases reserved slot");
 Reject(() => workflow.Cancel(b, customer.Id, true), "Repeated cancellation rejected");
 Check(store.Notifications.Any(n => n.UserId == customer.Id) && store.AuditLogs.Any(), "Notifications and audit events created");
-var availabilityStore = new DemoStore();
+var availabilityStore = new DemoStore(presentationAccounts: true);
 availabilityStore.Bookings.Clear();
 availabilityStore.Payments.Clear();
 var availability = new BookingService(availabilityStore, availabilityStore, availabilityStore, availabilityStore, availabilityStore);
@@ -1497,7 +1502,7 @@ Reject(() => BookingPricing.Calculate(sampleService, [], 1, 0, "auto", 101), "10
 Reject(() => BookingPricing.Calculate(sampleService, [], 1, 0, "auto", 40.5m), "Fractional down payment percentage rejected");
 Check(BookingPricing.Calculate(new CatalogItem { Name = "Glamour Makeup", Price = 750, Minutes = 90 }, [], 1, 0, "auto", 40).RequiredDownPayment == 300, "Glamour Makeup â‚±750 at 40% requires â‚±300 down");
 Check(BookingPricing.Calculate(new CatalogItem { Name = "Bridal Makeup", Price = 1500, Minutes = 120 }, [], 1, 0, "auto", 50).RequiredDownPayment == 750, "Bridal Makeup â‚±1,500 at 50% requires â‚±750 down");
-var paymentStore = new DemoStore();
+var paymentStore = new DemoStore(presentationAccounts: true);
 paymentStore.Bookings.Clear(); paymentStore.Payments.Clear(); paymentStore.Settings.TravelFee = 0;
 var paymentWorkflow = new BookingService(paymentStore, paymentStore, paymentStore, paymentStore, paymentStore);
 var pService = paymentStore.Services[0]; pService.Minutes = 30;
@@ -1538,7 +1543,7 @@ Check(groupBooking.RequiredDownPayment == 2625 && groupBooking.DownPaymentPercen
 paymentStore.Settings.DownPaymentPercent = 50;
 Check(paymentWorkflow.Quote(pService.Id, [], 10, "group").RequiredDownPayment == 3500, "Restoring 50% applies to new quotations again");
 // Exercise the configured Demo catalog without inventing or modifying any prices.
-var matrixStore = new DemoStore();
+var matrixStore = new DemoStore(presentationAccounts: true);
 var matrixWorkflow = new BookingService(matrixStore, matrixStore, matrixStore, matrixStore, matrixStore);
 var matrixAddOns = matrixStore.AddOns.Where(x => x.Active && !x.Archived).ToArray();
 foreach (var item in matrixStore.Services.Where(x => x.Active && !x.Archived))
@@ -1683,7 +1688,7 @@ public class PersistentQuoteProxy : System.Reflection.DispatchProxy
     public List<AppUser> TestUsers { get; set; } = [];
     public List<Booking> TestBookings { get; set; } = [];
     public List<Payment> TestPayments { get; set; } = [];
-    public List<CatalogItem> TestServices { get; set; } = new DemoStore().Services;
+    public List<CatalogItem> TestServices { get; set; } = new DemoStore(presentationAccounts: true).Services;
     public List<CatalogItem> TestAddOns { get; set; } = [];
     public BusinessSettings TestSettings { get; set; } = new();
     private readonly object gate = new();

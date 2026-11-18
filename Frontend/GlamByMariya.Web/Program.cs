@@ -101,14 +101,19 @@ else
     if (!builder.Environment.IsDevelopment() || provider != "Demo" || !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("PORT")) ||
         !Uri.TryCreate(builder.Configuration["urls"], UriKind.Absolute, out var demoUrl) || demoUrl.Scheme != "http" || demoUrl.Host != "127.0.0.1" || demoUrl.AbsolutePath != "/" ||
         builder.Configuration.GetSection("Kestrel:Endpoints").GetChildren().Any())
-        throw new InvalidOperationException("Demo accounts require a local Development Demo with an explicit loopback URL.");
-    var passwords = new[] { Environment.GetEnvironmentVariable("GLAM_DEMO_ADMIN_PASSWORD"), Environment.GetEnvironmentVariable("GLAM_DEMO_OWNER_PASSWORD"), Environment.GetEnvironmentVariable("GLAM_DEMO_CUSTOMER_PASSWORD") };
-    foreach (var (password, role) in passwords.Zip(new[] { "Admin", "SuperAdmin", "Customer" }))
+        throw new InvalidOperationException("Demo mode requires a local Development Demo with an explicit loopback URL.");
+    // Demo mode seeds no accounts. Only the opt-in presentation accounts need local passwords.
+    string?[]? passwords = null;
+    if (presentationAccounts)
     {
-        var error = PasswordPolicy.ValidateNewPassword(password);
-        if (error != null) throw new InvalidOperationException($"{role} local password: {error}");
+        passwords = new[] { Environment.GetEnvironmentVariable("GLAM_DEMO_ADMIN_PASSWORD"), Environment.GetEnvironmentVariable("GLAM_DEMO_OWNER_PASSWORD"), Environment.GetEnvironmentVariable("GLAM_DEMO_CUSTOMER_PASSWORD") };
+        foreach (var (password, role) in passwords.Zip(new[] { "Admin", "SuperAdmin", "Customer" }))
+        {
+            var error = PasswordPolicy.ValidateNewPassword(password);
+            if (error != null) throw new InvalidOperationException($"{role} presentation password: {error}");
+        }
+        if (passwords.Distinct(StringComparer.Ordinal).Count() != passwords.Length) throw new InvalidOperationException("Choose a different local password for each account.");
     }
-    if (passwords.Distinct(StringComparer.Ordinal).Count() != passwords.Length) throw new InvalidOperationException("Choose a different local password for each account.");
     if (builder.Configuration.GetValue<bool>("DemoCatalog:Enabled"))
     {
         var catalogRoot = builder.Configuration["DemoCatalog:Root"];
@@ -128,7 +133,7 @@ else
         builder.Services.AddSingleton(_ => new DemoCatalogSnapshot(fullRoot));
         builder.Services.AddSingleton(sp => new DemoCatalogMedia(Path.Combine(fullRoot, "media"), sp.GetRequiredService<DemoStore>()));
     }
-    builder.Services.AddSingleton(sp => new DemoStore(sp.GetService<DemoCatalogSnapshot>(), passwords!, presentationAccounts));
+    builder.Services.AddSingleton(sp => new DemoStore(sp.GetService<DemoCatalogSnapshot>(), passwords as string[], presentationAccounts));
     builder.Services.AddSingleton<IStudioStore>(sp => sp.GetRequiredService<DemoStore>());
 }
 if (connection != null && builder.Configuration.GetValue<bool>("DemoCatalog:Enabled")) throw new InvalidOperationException("Durable Demo catalog cannot be enabled with PostgreSQL.");

@@ -10,7 +10,7 @@ await mkdir(parent, { recursive: true });
 const temp = await mkdtemp(path.join(parent, 'booking-ui-audit-'));
 const binary = process.env.UI_CHECK_BUILD || path.join(project, 'Frontend/GlamByMariya.Web/bin/Release/net10.0');
 const server = spawn('dotnet', [path.join(binary, 'GlamByMariya.Web.dll'), '--urls=http://127.0.0.1:0', `--contentRoot=${temp}`,
-  `--webroot=${path.join(project, 'Frontend/GlamByMariya.Web/wwwroot')}`, '--Database:Provider=Demo', '--DemoAccounts:Presentation=false',
+  `--webroot=${path.join(project, 'Frontend/GlamByMariya.Web/wwwroot')}`, '--Database:Provider=Demo', '--DemoAccounts:Presentation=true',
   '--Authentication:DurableSessionEnforcement=false', '--DemoGallery:Enabled=false', '--DemoCatalog:Enabled=false',
   '--WebsiteContent:DemoTextEditing=false', '--WebsiteContent:DemoPersistentText=false', '--Supabase:Url=', '--Supabase:AnonKey=',
   '--Supabase:ServiceKey=', '--SupabaseStorage:ServiceKey=', '--FileStorage:Provider=Local', '--B2:Bucket=', '--B2:Endpoint=',
@@ -40,7 +40,7 @@ try {
   const shot=async name=>{const image=await send('Page.captureScreenshot',{format:'png'});await writeFile(path.join(temp,name),Buffer.from(image.data,'base64'));};
   const luminance = rgb => { const c=rgb.match(/\d+/g).slice(0,3).map(Number).map(x=>{const v=x/255;return v<=.04045?v/12.92:((v+.055)/1.055)**2.4});return c[0]*.2126+c[1]*.7152+c[2]*.0722; };
   await navigate('/Account/Login');
-  await submit(`document.querySelector('[name=email]').value='customer@lumiere.demo';document.querySelector('[name=password]').value='Customer123!';document.querySelector('#auth-form').requestSubmit()`);
+  await submit(`document.querySelector('[name=email]').value='presentation-customer@example.test';document.querySelector('[name=password]').value='Customer123!';document.querySelector('#auth-form').requestSubmit()`);
   await navigate('/Bookings/Create');
   await evalJs(`document.querySelector('[name=bookingType][value=package]').click();document.querySelector('[name=people]').value='3';document.querySelector('[name=people]').dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('#mixed-mode').click()`);
   assert.equal(await evalJs(`document.querySelectorAll('.mixed-person').length`),3);

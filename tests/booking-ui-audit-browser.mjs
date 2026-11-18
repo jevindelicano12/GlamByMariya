@@ -10,7 +10,7 @@ await mkdir(parent, { recursive: true });
 const temp = await mkdtemp(path.join(parent, 'booking-ui-audit-'));
 const binary = process.env.UI_CHECK_BUILD || path.join(project, 'Frontend/GlamByMariya.Web/bin/Release/net10.0');
 const server = spawn('dotnet', [path.join(binary, 'GlamByMariya.Web.dll'), '--urls=http://127.0.0.1:0', `--contentRoot=${temp}`,
-  `--webroot=${path.join(project, 'Frontend/GlamByMariya.Web/wwwroot')}`, '--Database:Provider=Demo', '--DemoAccounts:Presentation=false',
+  `--webroot=${path.join(project, 'Frontend/GlamByMariya.Web/wwwroot')}`, '--Database:Provider=Demo', '--DemoAccounts:Presentation=true',
   '--Authentication:DurableSessionEnforcement=false', '--DemoGallery:Enabled=false', '--DemoCatalog:Enabled=false',
   '--WebsiteContent:DemoTextEditing=false', '--WebsiteContent:DemoPersistentText=false', '--Supabase:Url=', '--Supabase:AnonKey=',
   '--Supabase:ServiceKey=', '--SupabaseStorage:ServiceKey=', '--FileStorage:Provider=Local', '--B2:Bucket=', '--B2:Endpoint=',
@@ -41,12 +41,12 @@ try {
   const shot=async name=>{const image=await send('Page.captureScreenshot',{format:'png'});await writeFile(path.join(temp,name),Buffer.from(image.data,'base64'));};
   const luminance = rgb => { const c=rgb.match(/\d+/g).slice(0,3).map(Number).map(x=>{const v=x/255;return v<=.04045?v/12.92:((v+.055)/1.055)**2.4});return c[0]*.2126+c[1]*.7152+c[2]*.0722; };
   await navigate('/Account/Login');
-  await submit(`document.querySelector('[name=email]').value='owner@lumiere.demo';document.querySelector('[name=password]').value='Owner123!';document.querySelector('#auth-form').requestSubmit()`);
+  await submit(`document.querySelector('[name=email]').value='presentation-owner@example.test';document.querySelector('[name=password]').value='Owner123!';document.querySelector('#auth-form').requestSubmit()`);
   await navigate('/Admin/Settings');
   const settings = await evalJs(`(async()=>{const token=document.querySelector('input[name=__RequestVerificationToken]').value;const body=new URLSearchParams({__RequestVerificationToken:token,earlyFeeEnabled:'true',earlyStartHour:'5',earlyFee:'123',lateFeeEnabled:'true',lateStartHour:'17',lateEndHour:'23',lateFee:'234'});const r=await fetch('/Admin/FeeSettings',{method:'POST',body});return r.ok})()`);
   assert.equal(settings,true);
   await submit(`document.querySelector('form[action="/Account/Logout"]').requestSubmit()`);
-  await submit(`document.querySelector('[name=email]').value='customer@lumiere.demo';document.querySelector('[name=password]').value='Customer123!';document.querySelector('#auth-form').requestSubmit()`);
+  await submit(`document.querySelector('[name=email]').value='presentation-customer@example.test';document.querySelector('[name=password]').value='Customer123!';document.querySelector('#auth-form').requestSubmit()`);
   await navigate('/Bookings/Create');
   await evalJs(`new Promise((resolve,reject)=>{const f=document.querySelector('#booking-form');if(f.dataset.priceState==='ready')return resolve();const t=setTimeout(()=>reject(Error('Quote timeout')),10000);f.addEventListener('booking-price-updated',()=>{clearTimeout(t);resolve()},{once:true})})`);
   const initial = await evalJs(`(()=>{const f=document.querySelector('#booking-form');return {start:f.elements.start.value,total:f.elements.expectedTotal.value,minimum:f.elements.expectedMinimum.value,legacy:!!f.querySelector('[data-enhanced-legacy]')}})()`);
@@ -74,12 +74,12 @@ try {
   assert.deepEqual(recovery.individual,{total:'750.00',disabled:false});
   console.log('PASS missing Glamour group rate explains valid alternatives; Soft Glam package and Glamour individual recover');
   await submit(`document.querySelector('form[action="/Account/Logout"]').requestSubmit()`);
-  await submit(`document.querySelector('[name=email]').value='owner@lumiere.demo';document.querySelector('[name=password]').value='Owner123!';document.querySelector('#auth-form').requestSubmit()`);
+  await submit(`document.querySelector('[name=email]').value='presentation-owner@example.test';document.querySelector('[name=password]').value='Owner123!';document.querySelector('#auth-form').requestSubmit()`);
   await navigate('/Admin/Catalog');
   const configured=await evalJs(`(async()=>{const form=[...document.querySelectorAll('form[action="/Admin/SaveGroupPricing"]')].find(x=>x.querySelector('[name=id]').value==='${packageError.id}');if(!form)throw Error('Synthetic Glamour pricing form missing');const body=new URLSearchParams(new FormData(form));body.set('groupPrice','700');body.set('groupMinimumPeople','4');const response=await fetch(form.action,{method:'POST',body});return response.ok})()`);
   assert.equal(configured,true);
   await submit(`document.querySelector('form[action="/Account/Logout"]').requestSubmit()`);
-  await submit(`document.querySelector('[name=email]').value='customer@lumiere.demo';document.querySelector('[name=password]').value='Customer123!';document.querySelector('#auth-form').requestSubmit()`);
+  await submit(`document.querySelector('[name=email]').value='presentation-customer@example.test';document.querySelector('[name=password]').value='Customer123!';document.querySelector('#auth-form').requestSubmit()`);
   await navigate('/Bookings/Create');
   const configuredQuote=await evalJs(`(async()=>{const f=document.querySelector('#booking-form'),wait=async()=>{for(let i=0;i<200&&f.dataset.priceState!=='ready';i++)await new Promise(r=>setTimeout(r,50));if(f.dataset.priceState!=='ready')throw Error('Configured quote timeout')};await wait();const g=[...f.querySelectorAll('[name=serviceId]')].find(x=>x.dataset.name==='Glamour Makeup');g.click();f.querySelector('[name=bookingType][value=package]').click();f.elements.people.value='5';f.elements.people.dispatchEvent(new Event('input',{bubbles:true}));const q=[...f.querySelectorAll('.addon-quantity')].find(x=>/hair/i.test(x.dataset.name));q.value='1';q.dispatchEvent(new Event('input',{bubbles:true}));await wait();const params=new URLSearchParams({serviceId:g.value,people:'5',package:'group'});params.append('addOnIds',q.dataset.addonId);const quote=await(await fetch(f.dataset.quoteUrl+'?'+params)).json();f.querySelector('[data-step-next]').click();return {quote,step:f.dataset.currentStep,display:f.elements.expectedTotal.value,addon:f.querySelector('.addon-total').textContent}})()`);
   assert.equal(configuredQuote.quote.appliedPricePerPerson,700);assert.equal(configuredQuote.quote.groupDiscount,250);assert.equal(configuredQuote.quote.extrasTotal,800);assert.equal(configuredQuote.display,'4300.00');assert.equal(configuredQuote.step,'schedule');assert.equal(configuredQuote.addon,'Add-on total: ₱800.00');
@@ -256,7 +256,7 @@ try {
   }
   console.log('PASS booking choices and unsubmitted confirmation dialog fit desktop and mobile');
   await submit(`document.querySelector('form[action="/Account/Logout"]').requestSubmit()`);
-  await submit(`document.querySelector('[name=email]').value='admin@lumiere.demo';document.querySelector('[name=password]').value='Admin123!';document.querySelector('#auth-form').requestSubmit()`);
+  await submit(`document.querySelector('[name=email]').value='presentation-admin@example.test';document.querySelector('[name=password]').value='Admin123!';document.querySelector('#auth-form').requestSubmit()`);
   const ax = await send('Accessibility.getFullAXTree');
   const names = ax.nodes.filter(n=>!n.ignored).map(n=>n.name?.value).filter(Boolean);
   assert.ok(names.some(n=>String(n).startsWith('Appointment LM-')) && names.includes('Reference') && names.includes('Customer') && names.includes('Payment'), 'appointment field labels remain in the accessibility tree');
@@ -284,7 +284,7 @@ try {
   }
   console.log('PASS Admin reservation and payment review fit all nine requested widths');
   await submit(`document.querySelector('form[action="/Account/Logout"]').requestSubmit()`);
-  await submit(`document.querySelector('[name=email]').value='owner@lumiere.demo';document.querySelector('[name=password]').value='Owner123!';document.querySelector('#auth-form').requestSubmit()`);
+  await submit(`document.querySelector('[name=email]').value='presentation-owner@example.test';document.querySelector('[name=password]').value='Owner123!';document.querySelector('#auth-form').requestSubmit()`);
   for(const width of widths) {
     await viewport(width);
     const layout=await evalJs(`({width:innerWidth,scroll:document.documentElement.scrollWidth,menu:!!document.querySelector('.account-menu summary')})`);
@@ -303,7 +303,7 @@ try {
     const layout=await evalJs(`({width:innerWidth,scroll:document.documentElement.scrollWidth,email:!!document.querySelector('[name=email]')})`);
     assert.ok(layout.scroll<=layout.width && layout.email,`login at ${width}`);
   }
-  await submit(`document.querySelector('[name=email]').value='customer@lumiere.demo';document.querySelector('[name=password]').value='Customer123!';document.querySelector('#auth-form').requestSubmit()`);
+  await submit(`document.querySelector('[name=email]').value='presentation-customer@example.test';document.querySelector('[name=password]').value='Customer123!';document.querySelector('#auth-form').requestSubmit()`);
   await navigate('/Account/Settings');
   for(const width of widths) {
     await viewport(width);

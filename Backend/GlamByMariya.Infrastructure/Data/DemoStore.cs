@@ -42,9 +42,6 @@ public class DemoStore : IStudioStore
     public BusinessSettings Settings { get; } = new();
     public DemoStore(DemoCatalogSnapshot? catalogSnapshot = null, string[]? passwords = null, bool presentationAccounts = false)
     {
-        passwords ??= Enumerable.Range(0, 3).Select(_ => Convert.ToHexString(RandomNumberGenerator.GetBytes(32))).ToArray();
-        if (passwords.Length != 3 || passwords.Any(string.IsNullOrWhiteSpace))
-            throw new ArgumentException("Three Demo account passwords are required.", nameof(passwords));
         this.catalogSnapshot = catalogSnapshot;
         if (catalogSnapshot != null)
         {
@@ -52,19 +49,15 @@ public class DemoStore : IStudioStore
             Services.Clear(); Services.AddRange(loaded.Services);
             AddOns.Clear(); AddOns.AddRange(loaded.AddOns);
         }
-        AppUser customer;
-        if (presentationAccounts)
-        {
-            AddUser("Demo", "Admin", "presentation-admin@example.test", passwords[0], "Admin", 35, "Others", "Address on file");
-            AddUser("Demo", "Owner", "presentation-owner@example.test", passwords[1], "SuperAdmin", 35, "Others", "Address on file");
-            customer = AddUser("Demo", "Customer", "presentation-customer@example.test", passwords[2], "Customer", 28, "Others", "24 Sample Street, Demo Barangay");
-        }
-        else
-        {
-            AddUser("Makeup", "Artist", "admin@lumiere.demo", passwords[0], "Admin", 35, "Others", "Address on file");
-            AddUser("Business", "Owner", "owner@lumiere.demo", passwords[1], "SuperAdmin", 35, "Others", "Address on file");
-            customer = AddUser("Alex", "Morgan", "customer@lumiere.demo", passwords[2], "Customer", 28, "Others", "24 Sample Street, Demo Barangay");
-        }
+        // No seeded accounts by default: create them like a real system (owner setup,
+        // admin invite, customer registration). Presentation accounts are opt-in only.
+        if (!presentationAccounts) return;
+        passwords ??= Enumerable.Range(0, 3).Select(_ => Convert.ToHexString(RandomNumberGenerator.GetBytes(32))).ToArray();
+        if (passwords.Length != 3 || passwords.Any(string.IsNullOrWhiteSpace))
+            throw new ArgumentException("Three presentation account passwords are required.", nameof(passwords));
+        AddUser("Demo", "Admin", "presentation-admin@example.test", passwords[0], "Admin", 35, "Others", "Address on file");
+        AddUser("Demo", "Owner", "presentation-owner@example.test", passwords[1], "SuperAdmin", 35, "Others", "Address on file");
+        var customer = AddUser("Demo", "Customer", "presentation-customer@example.test", passwords[2], "Customer", 28, "Others", "24 Sample Street, Demo Barangay");
         var service = Services.FirstOrDefault(x => x.Active && !x.Archived);
         if (service != null)
         {

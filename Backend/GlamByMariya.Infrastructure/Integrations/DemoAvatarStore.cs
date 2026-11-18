@@ -2,16 +2,16 @@ using GlamByMariya.Core.Entities;
 
 namespace GlamByMariya.Infrastructure.Integrations;
 
-// Demo seed identities change GUID on restart. Restrict durable local avatars to
-// the three source-defined synthetic role/email pairs, never arbitrary accounts.
+// Presentation identities change GUID on restart. Restrict durable local avatars to
+// the three source-defined presentation role/email pairs, never arbitrary accounts.
 public sealed class DemoAvatarStore(string root, bool presentationAccounts = false)
 {
     private readonly object gate = new();
     private string? Key(AppUser user) => (presentationAccounts, user.Role, user.Email.ToLowerInvariant()) switch
     {
-        (false, "Customer", "customer@lumiere.demo") or (true, "Customer", "presentation-customer@example.test") => "customer",
-        (false, "Admin", "admin@lumiere.demo") or (true, "Admin", "presentation-admin@example.test") => "admin",
-        (false, "SuperAdmin", "owner@lumiere.demo") or (true, "SuperAdmin", "presentation-owner@example.test") => "owner",
+        (true, "Customer", "presentation-customer@example.test") => "customer",
+        (true, "Admin", "presentation-admin@example.test") => "admin",
+        (true, "SuperAdmin", "presentation-owner@example.test") => "owner",
         _ => null
     };
     public bool Supports(AppUser user) => Key(user) != null;

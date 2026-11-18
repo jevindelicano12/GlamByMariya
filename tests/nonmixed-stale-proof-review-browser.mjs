@@ -12,7 +12,7 @@ const project = path.resolve('.'), bin = process.env.FIXTURE_BUILD || path.join(
 const parent = path.join(process.env.LOCALAPPDATA, 'Temp/opencode'); await mkdir(parent, { recursive: true });
 const root = await mkdtemp(path.join(parent, 'nonmixed-stale-proof-'));
 const server = spawn('dotnet', [path.join(bin, 'GlamByMariya.Web.dll'), '--urls=http://127.0.0.1:0', `--contentRoot=${root}`,
-  `--webroot=${path.join(project, 'Frontend/GlamByMariya.Web/wwwroot')}`, '--Database:Provider=Demo', '--DemoAccounts:Presentation=false',
+  `--webroot=${path.join(project, 'Frontend/GlamByMariya.Web/wwwroot')}`, '--Database:Provider=Demo', '--DemoAccounts:Presentation=true',
   '--Authentication:DurableSessionEnforcement=false', '--DemoGallery:Enabled=false', '--DemoCatalog:Enabled=false', '--DemoAvatar:Enabled=false',
   '--WebsiteContent:DemoTextEditing=false', '--WebsiteContent:DemoPersistentText=false', '--Supabase:Url=', '--Supabase:AnonKey=',
   '--Supabase:ServiceKey=', '--SupabaseStorage:ServiceKey=', '--FileStorage:Provider=Local', '--B2:Bucket=', '--B2:Endpoint=',
@@ -40,9 +40,9 @@ try {
     await Promise.all([page.waitForURL(u => !u.pathname.includes('/Account/Login')), page.locator('#auth-form button.button').click()]);
     return { ctx, page };
   }
-  const customer = await login('customer@lumiere.demo', 'Customer123!');
-  const admin = await login('admin@lumiere.demo', 'Admin123!');
-  const owner = await login('owner@lumiere.demo', 'Owner123!');
+  const customer = await login('presentation-customer@example.test', 'Customer123!');
+  const admin = await login('presentation-admin@example.test', 'Admin123!');
+  const owner = await login('presentation-owner@example.test', 'Owner123!');
   const anonymous = await context();
   check(customer.ctx !== admin.ctx && admin.ctx !== owner.ctx, 'Customer, Admin and SuperAdmin use separate browser contexts');
   async function capture(tag) {

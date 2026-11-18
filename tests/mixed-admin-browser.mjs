@@ -13,7 +13,7 @@ const project = path.resolve('.'), binary = process.env.UI_CHECK_BUILD || path.j
 const parent = path.join(process.env.LOCALAPPDATA, 'Temp/opencode'); await mkdir(parent, { recursive: true });
 const temp = await mkdtemp(path.join(parent, 'phase3b-checks-'));
 const server = spawn('dotnet', [path.join(binary, 'GlamByMariya.Web.dll'), '--urls=http://127.0.0.1:0', `--contentRoot=${temp}`, `--webroot=${path.join(project, 'Frontend/GlamByMariya.Web/wwwroot')}`,
-  '--Database:Provider=Demo', '--DemoAccounts:Presentation=false', '--Authentication:DurableSessionEnforcement=false', '--DemoGallery:Enabled=false', '--DemoCatalog:Enabled=false', '--WebsiteContent:DemoTextEditing=false', '--WebsiteContent:DemoPersistentText=false', '--Supabase:Url=', '--Supabase:AnonKey=', '--Supabase:ServiceKey=', '--SupabaseStorage:ServiceKey=', '--FileStorage:Provider=Local', '--B2:Bucket=', '--B2:Endpoint=', '--B2:KeyId=', '--B2:AppKey=', '--Email:BrevoApiKey=', '--Email:SmtpHost='],
+  '--Database:Provider=Demo', '--DemoAccounts:Presentation=true', '--Authentication:DurableSessionEnforcement=false', '--DemoGallery:Enabled=false', '--DemoCatalog:Enabled=false', '--WebsiteContent:DemoTextEditing=false', '--WebsiteContent:DemoPersistentText=false', '--Supabase:Url=', '--Supabase:AnonKey=', '--Supabase:ServiceKey=', '--SupabaseStorage:ServiceKey=', '--FileStorage:Provider=Local', '--B2:Bucket=', '--B2:Endpoint=', '--B2:KeyId=', '--B2:AppKey=', '--Email:BrevoApiKey=', '--Email:SmtpHost='],
 { env: { ...process.env, PORT: '', ASPNETCORE_ENVIRONMENT: 'Development', DOTNET_ENVIRONMENT: 'Development' }, stdio: ['ignore', 'pipe', 'pipe'] });
 let browser, base, checks = 0;
 const check = (condition, label) => { assert.ok(condition, label); console.log('PASS', ++checks, label); };
@@ -28,9 +28,9 @@ try {
   async function context() { const c = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' }); await c.route('**/*', r => new URL(r.request().url()).origin === base ? r.continue() : r.abort()); return c; }
   async function login(c, email, password) { const p = await c.newPage(); p.on('pageerror', e => errors.push(e.message)); await p.goto(base + '/Account/Login'); await p.fill('[name=email]', email); await p.fill('[name=password]', password); await Promise.all([p.waitForURL(u => !u.pathname.includes('/Account/Login')), p.locator('#auth-form button.button').click()]); return p; }
   const customerContext = await context(), ownerContext = await context(), adminContext = await context(), anon = await context();
-  const customer = await login(customerContext, 'customer@lumiere.demo', 'Customer123!');
-  const owner = await login(ownerContext, 'owner@lumiere.demo', 'Owner123!');
-  const admin = await login(adminContext, 'admin@lumiere.demo', 'Admin123!');
+  const customer = await login(customerContext, 'presentation-customer@example.test', 'Customer123!');
+  const owner = await login(ownerContext, 'presentation-owner@example.test', 'Owner123!');
+  const admin = await login(adminContext, 'presentation-admin@example.test', 'Admin123!');
   async function screenshots(page, label) {
     for (const width of [1440, 768, 390, 320]) {
       await page.setViewportSize({ width, height: 900 }); await page.screenshot({ path: path.join(temp, `${label}-${width}.png`), fullPage: true });

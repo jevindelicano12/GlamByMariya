@@ -13,7 +13,7 @@ const parent = path.join(process.env.LOCALAPPDATA, 'Temp/opencode');
 await mkdir(parent, { recursive: true });
 const root = await mkdtemp(path.join(parent, 'customer-proof-ownership-'));
 const server = spawn('dotnet', [path.join(bin, 'GlamByMariya.Web.dll'), '--urls=http://127.0.0.1:0', `--contentRoot=${root}`,
-  `--webroot=${path.join(project, 'Frontend/GlamByMariya.Web/wwwroot')}`, '--Database:Provider=Demo', '--DemoAccounts:Presentation=false',
+  `--webroot=${path.join(project, 'Frontend/GlamByMariya.Web/wwwroot')}`, '--Database:Provider=Demo', '--DemoAccounts:Presentation=true',
   '--Authentication:DurableSessionEnforcement=false', '--DemoGallery:Enabled=false', '--DemoCatalog:Enabled=false', '--DemoAvatar:Enabled=false',
   '--WebsiteContent:DemoTextEditing=false', '--WebsiteContent:DemoPersistentText=false', '--Supabase:Url=', '--Supabase:AnonKey=',
   '--Supabase:ServiceKey=', '--SupabaseStorage:ServiceKey=', '--FileStorage:Provider=Local', '--B2:Bucket=', '--B2:Endpoint=',
@@ -46,7 +46,7 @@ try {
     await Promise.all([page.waitForURL(u => !u.pathname.includes('/Account/Login')), page.locator('#auth-form button.button').click()]);
     return { ctx, page };
   }
-  const a = await login('customer@lumiere.demo', 'Customer123!');
+  const a = await login('presentation-customer@example.test', 'Customer123!');
   const b = await login('ownership-b@example.test', 'SyntheticCustomerB123!');
   const aCookie = (await a.ctx.cookies()).find(c => c.name === '.AspNetCore.Cookies');
   const bCookie = (await b.ctx.cookies()).find(c => c.name === '.AspNetCore.Cookies');

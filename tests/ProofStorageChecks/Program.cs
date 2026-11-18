@@ -20,7 +20,7 @@ using ImageMagick;
 var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Temp", "opencode", "proof-storage-checks-" + Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(root);
 var env = new TestEnvironment { ContentRootPath = root };
-var store = new DemoStore();
+var store = new DemoStore(presentationAccounts: true);
 var customer = store.Users.Single(x => x.Role == "Customer");
 var other = store.AddUser("Other", "Customer", "other@example.test", "Customer123!", "Customer", 28, "Others", "24 Other Street");
 var admin = store.Users.Single(x => x.Role == "Admin");

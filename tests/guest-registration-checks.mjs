@@ -20,7 +20,7 @@ const env = { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, USERPR
   GLAM_DEMO_CUSTOMER_PASSWORD: customer.password, GLAM_DEMO_ADMIN_PASSWORD: admin.password, GLAM_DEMO_OWNER_PASSWORD: owner.password };
 const app = spawn('dotnet', [path.join(process.env.UI_CHECK_BUILD || path.join(root, 'Frontend/GlamByMariya.Web/bin/Release/net10.0'), 'GlamByMariya.Web.dll'),
   '--urls=http://127.0.0.1:0', `--contentRoot=${content}`, `--webroot=${path.join(root, 'Frontend/GlamByMariya.Web/wwwroot')}`,
-  '--Database:Provider=Demo', '--Supabase:Url=', '--Supabase:AnonKey=', '--SupabaseStorage:ServiceKey=',
+  '--Database:Provider=Demo', '--DemoAccounts:Presentation=true', '--Supabase:Url=', '--Supabase:AnonKey=', '--SupabaseStorage:ServiceKey=',
   '--B2:Bucket=', '--B2:Endpoint=', '--B2:KeyId=', '--B2:AppKey=', '--Email:BrevoApiKey=', '--Email:SmtpHost=' ],
   { cwd: content, env, stdio: ['ignore', 'pipe', 'pipe'] });
 let checks = 0;
@@ -53,7 +53,7 @@ try {
     check(page.status === 200 && !page.body.includes('id="studio-sidebar"') && page.body.includes('class="guest-brand"')
       && page.body.includes('href="/Account/Login"') && page.body.includes('href="/Account/Register"')
       && !page.body.includes('My appointments') && !page.body.includes('Manage administrators')
-      && !page.body.includes('customer@lumiere.demo') && !page.body.includes('admin@lumiere.demo'), `guest ${route} has branded header and no sidebar`);
+      && !page.body.includes('presentation-customer@example.test') && !page.body.includes('presentation-admin@example.test'), `guest ${route} has branded header and no sidebar`);
   }
   const landing = await guest('/');
   check(!/href="\/Bookings(?:\/|\?|")/.test(landing.body) && !/href="\/Admin(?:\/|\?|")/.test(landing.body), 'guest landing does not expose authenticated navigation links');
