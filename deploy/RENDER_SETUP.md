@@ -31,7 +31,18 @@ Secrets go only into your own terminal or the Render dashboard, never into chat 
 Xendit (Test mode) → Settings → Webhooks → **Invoices paid**:
 `https://<your Render hostname>/payments/xendit/webhook`
 
-## 5. Try it
+## 5. Keep the free Render service awake (cron-job.org)
+The free plan sleeps after 15 minutes without traffic, and the next visitor waits about a minute.
+On https://console.cron-job.org → **Create cronjob**:
+- URL: `https://<your Render hostname>/healthz`
+- Schedule: every **10 minutes**
+- Request method GET; turn on failure notifications if you want an email when the site is down.
+
+The ping only checks that the app is running; it does not touch the database. A service kept awake
+all month uses about 744 of the free plan's 750 instance hours, so keep only one free service
+awake this way.
+
+## 6. Try it
 1. Sign in as the owner. Register a customer (the email code comes from Brevo).
 2. Book a service as the customer → you are sent to Xendit's test checkout → pay with a test method.
 3. The booking turns **Confirmed** when the webhook arrives. An unpaid booking expires after 30 minutes.
