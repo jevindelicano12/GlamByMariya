@@ -131,6 +131,87 @@ if (Run("--schema"))
     Console.WriteLine($"All {checks - before} schema checks passed.");
 }
 
+if (Run("--rules"))
+{
+    var before = checks;
+    await ResetPublic();
+    await SqlMigrator.ApplyAsync(source, migrations);
+    await Exec("INSERT INTO public.makeup_artists(full_name, is_active) VALUES('Owner Artist', true)");
+    var store = NewStore();
+    var owner = store.CreateInitialSuperAdmin("Store", "Owner", "owner@example.test", "OwnerPass123");
+    var hasher = new Microsoft.AspNetCore.Identity.PasswordHasher<GlamByMariya.Core.Entities.AppUser>();
+    var ana = store.AddCustomerWithPasswordHash("Ana", "Cruz", "ana@example.test", hasher.HashPassword(new(), "AnaPass123"), 30, "Female", "24 Synthetic Street, Quezon City");
+    var bea = store.AddCustomerWithPasswordHash("Bea", "Reyes", "bea@example.test", hasher.HashPassword(new(), "BeaPass123"), 30, "Female", "25 Synthetic Street, Quezon City");
+    var soft = store.Services.Single(x => x.Name == "Soft Glam");
+    var day = DateTime.Today.AddDays(3);
+    const string overlap = "This slot overlaps a reserved appointment. Please choose another time.";
+    GlamByMariya.Core.Entities.Booking Book(PublicStudioStore s, Guid customer, DateTime start, string reference)
+    {
+        var quote = GlamByMariya.Core.BusinessRules.BookingPricing.Calculate(soft, [], 1, s.Settings.TravelFee, "auto", s.Settings.DownPaymentPercent);
+        return s.SubmitBooking(customer, soft.Id, [], start, "24 Synthetic Street, Quezon City", "Quezon City", quote.RequiredDownPayment, "GCash", reference, null,
+            true, true, 1, "auto", quote.FinalTotal, quote.RequiredDownPayment);
+    }
+    async Task<string> Status(Guid booking) => (string)(await Scalar($"SELECT status FROM public.reservations WHERE app_id='{booking}'"))!;
+    async Task Confirm(Guid booking) => await Exec($"""
+        BEGIN; SELECT set_config('makeup.actor_id','{owner.Id}',true);
+        UPDATE public.payments SET status='Paid', verification_status='Verified', verified_by='{owner.Id}', verified_at=now()
+         WHERE reservation_id=(SELECT id FROM public.reservations WHERE app_id='{booking}');
+        UPDATE public.reservations SET status='Confirmed' WHERE app_id='{booking}'; COMMIT;
+        """);
+    // Test setup only: move a booking in time without the reschedule workflow.
+    async Task MoveStart(Guid booking, string fromNow) => await Exec($"""
+        SET session_replication_role = replica;
+        UPDATE public.reservations SET start_at=now()+interval '{fromNow}', end_at=now()+interval '{fromNow}'+(end_at-start_at),
+          reserved_until=now()+interval '{fromNow}'+(reserved_until-start_at) WHERE app_id='{booking}';
+        SET session_replication_role = origin;
+        """);
+    string Refusal(Action action) { try { action(); } catch (InvalidOperationException e) { return e.Message; } return ""; }
+
+    var first = Book(store, ana.Id, day.AddHours(10), "RULES-001");
+    Check(await Status(first.Id) == "Pending Payment", "a new booking waits for payment");
+    Check(Refusal(() => Book(NewStore(), bea.Id, day.AddHours(10), "RULES-002")) == overlap, "pending payment holds the slot");
+
+    await Exec($"UPDATE public.reservations SET payment_expires_at=now()-interval '1 minute' WHERE app_id='{first.Id}'");
+    var second = Book(NewStore(), bea.Id, day.AddHours(10), "RULES-003");
+    Check(await Status(first.Id) == "Expired" && await Status(second.Id) == "Pending Payment", "an overdue unpaid booking frees its slot at once");
+
+    var racers = new[] { ana.Id, bea.Id };
+    using var barrier = new Barrier(2);
+    var results = await Task.WhenAll(racers.Select((customer, i) => Task.Run(() =>
+    {
+        var s = NewStore(); barrier.SignalAndWait();
+        try { Book(s, customer, day.AddHours(14), $"RACE-00{i}"); return ""; } catch (InvalidOperationException e) { return e.Message; }
+    })));
+    var raced = (long)(await Scalar($"SELECT count(*) FROM public.reservations WHERE start_at=(SELECT start_at FROM public.reservations WHERE reference LIKE 'LM-%' ORDER BY id DESC LIMIT 1)"))!;
+    Check(results.Count(r => r == "") == 1 && results.Count(r => r == overlap) == 1 && raced == 1, "two customers booking at the same moment: one wins");
+
+    NewStore().CancelBooking(second.Id, bea.Id, true);
+    var pendingFee = await Scalar($"SELECT cancellation_fee FROM public.reservation_closures WHERE reservation_id=(SELECT id FROM public.reservations WHERE app_id='{second.Id}')");
+    Check(await Status(second.Id) == "Cancelled" && (pendingFee is DBNull || (decimal)pendingFee == 0), "customer cancels unpaid booking free");
+
+    var early = Book(NewStore(), ana.Id, day.AddHours(8), "RULES-004");
+    await Confirm(early.Id);
+    await MoveStart(early.Id, "24 hours 5 minutes");
+    NewStore().CancelBooking(early.Id, ana.Id, true);
+    var fee = (decimal)(await Scalar($"SELECT cancellation_fee FROM public.reservation_closures WHERE reservation_id=(SELECT id FROM public.reservations WHERE app_id='{early.Id}')"))!;
+    var late = Book(NewStore(), bea.Id, day.AddHours(16), "RULES-005");
+    await Confirm(late.Id);
+    await MoveStart(late.Id, "23 hours 59 minutes");
+    var dbRefused = "";
+    try { await Exec($"UPDATE public.reservations SET status='Cancelled', cancellation_confirmed_at=now() WHERE app_id='{late.Id}'"); }
+    catch (PostgresException e) { dbRefused = e.MessageText; }
+    Check(fee == 200 && dbRefused.Contains("24 hours"), "confirmed booking 24h away cancels with 200, 23h59 is refused");
+
+    var overdue = Book(NewStore(), ana.Id, day.AddDays(1).AddHours(10), "RULES-006");
+    var fresh = Book(NewStore(), bea.Id, day.AddDays(1).AddHours(14), "RULES-007");
+    await Exec($"UPDATE public.reservations SET payment_expires_at=now()-interval '1 minute' WHERE app_id='{overdue.Id}'");
+    Check(NewStore().ExpireOverduePayments() == 1 && await Status(overdue.Id) == "Expired" && await Status(fresh.Id) == "Pending Payment", "expiry job marks only overdue bookings");
+
+    var invites = new GlamByMariya.Infrastructure.Services.PostgresInvitationService(new PublicMakeupDbContext(new DbContextOptionsBuilder<PublicMakeupDbContext>().UseNpgsql(source).Options), store, TimeProvider.System);
+    Check(invites.InviteWithToken("new.admin@example.test", owner.Id).Invite.Email == "new.admin@example.test", "invitation by the owner is stored");
+    Console.WriteLine($"All {checks - before} booking rule checks passed.");
+}
+
 sealed class TestEnv : Microsoft.AspNetCore.Hosting.IWebHostEnvironment
 {
     public string ApplicationName { get; set; } = "DatabaseChecks";

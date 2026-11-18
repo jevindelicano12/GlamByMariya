@@ -40,6 +40,8 @@ public interface IPersistentStudioStore : IStudioStore
         decimal deposit, string method, string reference, string? proof, bool agreed, bool travelAcknowledged, int people, string package,
         decimal? expectedTotal = null, decimal? expectedMinimum = null);
     void CancelBooking(Guid booking, Guid customer, bool confirmed);
+    // Marks unpaid bookings whose 30-minute window ended as Expired; returns how many.
+    int ExpireOverduePayments();
     void ManageBooking(Guid booking, string action, Guid admin, string reason, decimal amount, string reference, Guid? paymentId = null, long? reviewRevision = null, string? reviewVersion = null);
     List<Payment> ReviewPayments(Guid booking);
     void RequestReschedule(Guid booking, Guid customer, DateTime start);

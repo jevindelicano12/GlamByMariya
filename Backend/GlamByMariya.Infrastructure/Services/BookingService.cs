@@ -144,12 +144,12 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             .Where(b => b.Start.TimeOfDay < open || b.End > b.Start.Date + close)
             .OrderBy(b => b.Start).ToList();
     }
-    // Demo only: marks overdue unpaid bookings as Expired so screens show it.
+    // Marks overdue unpaid bookings as Expired so screens show it.
     // Slot release does not depend on this; HoldsReservation already ignores them.
-    // Database mode gets its own scheduled expiry in Phase 2.
+    // Database mode: the database marks them (job every minute, and before each slot check).
     public int ExpireOverduePayments()
     {
-        if (store.IsPersistent) return 0;
+        if (store is IPersistentStudioStore database) return database.ExpireOverduePayments();
         lock (store.Gate)
         {
             var now = store.Now; var expired = 0;

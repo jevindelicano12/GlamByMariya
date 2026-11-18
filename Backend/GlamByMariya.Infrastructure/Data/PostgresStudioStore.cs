@@ -176,7 +176,7 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
         PostgresErrorCodes.UniqueViolation => e.ConstraintName=="ux_users_email" ? "This email is already registered." : "That transaction reference or request already exists. Refresh and check your records before retrying.",
         PostgresErrorCodes.ForeignKeyViolation => "This record is still referenced. Archive it instead of deleting it.",
         PostgresErrorCodes.CheckViolation or PostgresErrorCodes.NotNullViolation => "The submitted data does not meet the booking or payment requirements. Refresh and check all fields.",
-        PostgresErrorCodes.ExclusionViolation => "The appointment overlaps the artist's schedule. Choose another time.",
+        PostgresErrorCodes.ExclusionViolation => "This slot overlaps a reserved appointment. Please choose another time.",
         PostgresErrorCodes.SerializationFailure or PostgresErrorCodes.DeadlockDetected => "Another update was made at the same time. Refresh and retry.",
         PostgresErrorCodes.RaiseException => e.MessageText,
         _ => "The database could not save this change. Please refresh and try again."
@@ -340,6 +340,8 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
         });
         return Bookings.Single(x=>x.Id==id);
     }
+    // The legacy makeup schema has no Expired status; only the public schema expires bookings.
+    public virtual int ExpireOverduePayments() => 0;
     public virtual void CancelBooking(Guid booking,Guid customer,bool confirmed) => Transaction(customer,()=>
     {
         var b=LockBooking(booking);

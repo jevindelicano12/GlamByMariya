@@ -360,6 +360,9 @@ public sealed class PublicStudioStore(
         return created ?? throw new InvalidOperationException("Could not create the booking. Please retry.");
     }
 
+    public override int ExpireOverduePayments() =>
+        Transaction(null, () => pdb.Database.SqlQueryRaw<int>("SELECT public.mvc_expire_overdue() AS \"Value\"").AsEnumerable().Single());
+
     public override void CancelBooking(Guid booking, Guid customer, bool confirmed) => Transaction(customer, () =>
     {
         var b = LockBooking(booking);
