@@ -147,7 +147,7 @@ public sealed class PublicStudioStore(
         return user;
     }
 
-    public override AppUser AddCustomerWithPasswordHash(string firstName, string lastName, string email, string passwordHash, int age, string gender, string address)
+    public override AppUser AddCustomerWithPasswordHash(string firstName, string lastName, string email, string passwordHash, int age, string gender, string address, DateOnly? birthday = null, string? suffix = null)
     {
         if (string.IsNullOrWhiteSpace(passwordHash)) throw new InvalidOperationException("Registration expired. Please register again.");
         var error = RegistrationRules.ValidateProfile(firstName, lastName, email, age, gender, address, enforceLegacyAge: false);
@@ -155,9 +155,12 @@ public sealed class PublicStudioStore(
         var user = new AppUser
         {
             FirstName = firstName.Trim(), LastName = lastName.Trim(), Name = $"{firstName.Trim()} {lastName.Trim()}",
-            Email = email.Trim(), Age = age, Gender = gender, Address = address.Trim(), Role = "Customer", PasswordHash = passwordHash
+            Email = email.Trim(), Age = age, Gender = gender, Address = address.Trim(), Role = "Customer", PasswordHash = passwordHash,
+            Birthday = birthday, Suffix = string.IsNullOrEmpty(suffix) ? null : suffix
         };
-        Transaction(ActorId, () => pdb.Database.ExecuteSqlInterpolated($"INSERT INTO public.customers(app_id, full_name, first_name, last_name, age_at_registration, gender, address, email, password_hash, is_active) VALUES({user.Id}, {user.Name}, {user.FirstName}, {user.LastName}, {age}, {gender}, {user.Address}, {user.Email}, {user.PasswordHash}, true)"));
+        var storedSuffix = user.Suffix ?? "";
+        // Requires customers.birthday and customers.suffix (database/v2/migrations/0006_customer_birthday_suffix.sql).
+        Transaction(ActorId, () => pdb.Database.ExecuteSqlInterpolated($"INSERT INTO public.customers(app_id, full_name, first_name, last_name, age_at_registration, gender, address, email, password_hash, is_active, birthday, suffix) VALUES({user.Id}, {user.Name}, {user.FirstName}, {user.LastName}, {age}, {gender}, {user.Address}, {user.Email}, {user.PasswordHash}, true, {birthday}, {storedSuffix})"));
         return user;
     }
 

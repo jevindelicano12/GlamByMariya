@@ -198,7 +198,7 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
         InsertLegacyUser(user,role,age,gender);
         return user;
     }
-    public virtual AppUser AddCustomerWithPasswordHash(string firstName,string lastName,string email,string passwordHash,int age,string gender,string address)
+    public virtual AppUser AddCustomerWithPasswordHash(string firstName,string lastName,string email,string passwordHash,int age,string gender,string address,DateOnly? birthday=null,string? suffix=null)
     {
         if(string.IsNullOrWhiteSpace(passwordHash)) throw new InvalidOperationException("Registration expired. Please register again.");
         var error=RegistrationRules.ValidateProfile(firstName,lastName,email,age,gender,address,enforceLegacyAge:false);

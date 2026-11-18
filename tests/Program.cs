@@ -105,6 +105,14 @@ if (args.Contains("--local-auth-only"))
     var localCustomer = demo.Users.SingleOrDefault(u => u.Email == email);
     Check(verified is RedirectResult { Url: "/Bookings" } && localCustomer is { Role: Roles.Customer, IsActive: true } && auth.LastPrincipal?.FindFirstValue(ClaimTypes.Email) == email,
         "the same browser confirms the code, creates the customer and signs in");
+    Check(localCustomer!.Birthday == new DateOnly(1995, 5, 5) && localCustomer.Suffix == null && localCustomer.Age >= 30, "the registration birthday is saved and the age is computed from it");
+    var (oldBirthday, _) = Account();
+    Check(Error(await oldBirthday.Register("Very", "Old", "very.old@example.test", 0, "Male", "24 Synthetic Street, Quezon City", "OldPass123", birthday: new DateOnly(1899, 12, 31)))?.Contains("birthday") == true,
+        "a birthday before 1900 is rejected with a clear message");
+    var accountSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "Controllers", "AccountController.cs"));
+    var publicSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Backend", "GlamByMariya.Infrastructure", "Data", "PublicStudioStore.cs"));
+    Check(!accountSource.Contains("registration is temporarily unavailable", StringComparison.OrdinalIgnoreCase), "database mode no longer blocks customer registration");
+    Check(publicSource.Contains("password_hash, is_active, birthday, suffix)") && publicSource.Contains("{birthday}, {storedSuffix})"), "database registration saves the birthday and suffix");
 
     // Login.
     Check(Error(await Account().Controller.Login(email, "WrongPass123")) == "Email or password is incorrect.", "a wrong password is rejected");

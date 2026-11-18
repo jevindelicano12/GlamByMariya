@@ -197,8 +197,7 @@ public class AccountController(
     {
         ViewBag.ReturnUrl = Url.IsLocalUrl(returnUrl) ? returnUrl : null;
         ViewBag.Gender = gender;
-        if (store.IsPersistent) { ViewBag.Error = "Customer registration is temporarily unavailable until secure profile storage is ready."; return View("Login"); }
-        if (!ModelState.IsValid || !birthday.HasValue || birthday.Value > DateOnly.FromDateTime(store.Now))
+        if (!ModelState.IsValid || !birthday.HasValue || birthday.Value > DateOnly.FromDateTime(store.Now) || birthday.Value < new DateOnly(1900, 1, 1))
         { ViewBag.Error = "Enter a valid birthday that is not in the future."; return View("Login"); }
         suffix = (suffix ?? "").Trim();
         if (suffix is not ("" or "Jr." or "Sr." or "II" or "III" or "IV"))
@@ -254,9 +253,8 @@ public class AccountController(
         lock (store.Gate)
         {
             // The held registration carries only a password hash, never the password.
-            try { created = store.AddCustomerWithPasswordHash(reg.FirstName, reg.LastName, reg.Email, reg.PasswordHash ?? "", reg.Age, reg.Gender, reg.Address); }
+            try { created = store.AddCustomerWithPasswordHash(reg.FirstName, reg.LastName, reg.Email, reg.PasswordHash ?? "", reg.Age, reg.Gender, reg.Address, reg.Birthday, reg.Suffix); }
             catch (InvalidOperationException e) { ViewBag.Error = e.Message; return View("Login"); }
-            created.Suffix = reg.Suffix; created.Birthday = reg.Birthday;
         }
         settings.Verify(created);
         await SignIn(created);
