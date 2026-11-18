@@ -16,7 +16,7 @@ async Task Guard(NpgsqlConnection physical)
 {
     // The random marker proves this is the container tools/test-db.sh just started.
     await using var command = new NpgsqlCommand("""
-        SELECT current_database()='postgres' AND current_user='postgres'
+        SELECT current_database()='postgres' AND current_user IN ('postgres','glam_app')
           AND current_setting('glam.docker_test',true)='on'
           AND current_setting('glam.payment_review_marker',true)=@marker
         """, physical);
@@ -25,6 +25,10 @@ async Task Guard(NpgsqlConnection physical)
 }
 builder.UsePhysicalConnectionInitializer(c => Guard(c).GetAwaiter().GetResult(), Guard);
 await using var source = builder.Build();
+// The app's own login (member of makeup_backend, no RLS bypass), as on Supabase.
+var appBuilder = new NpgsqlDataSourceBuilder($"Host=127.0.0.1;Port={port};Username=glam_app;Database=postgres;SSL Mode=Disable;GSS Encryption Mode=Disable;Pooling=false;Timeout=15;Command Timeout=120");
+appBuilder.UsePhysicalConnectionInitializer(c => Guard(c).GetAwaiter().GetResult(), Guard);
+await using var appSource = appBuilder.Build();
 
 var root = Directory.GetCurrentDirectory();
 var migrations = Path.Combine(root, "database", "migrations");
@@ -52,11 +56,11 @@ async Task<string> Refused(Func<Task> action)
 var tempRoot = Path.GetFullPath(args[2]);
 var http = new Microsoft.AspNetCore.Http.HttpContextAccessor { HttpContext = new Microsoft.AspNetCore.Http.DefaultHttpContext() };
 var env = new TestEnv { ContentRootPath = tempRoot };
-PublicStudioStore NewStore(Dictionary<string, string?>? settings = null)
+PublicStudioStore NewStore(Dictionary<string, string?>? settings = null, NpgsqlDataSource? as_ = null)
 {
     var config = new ConfigurationBuilder().AddInMemoryCollection(settings ?? new()).Build();
     var options = new DbContextOptionsBuilder<PublicMakeupDbContext>();
-    options.UseNpgsql(source);
+    options.UseNpgsql(as_ ?? source);
     return new PublicStudioStore(new PublicMakeupDbContext(options.Options), http, env, config, new GlamByMariya.Infrastructure.Integrations.LocalAppFileStore(env));
 }
 
@@ -250,6 +254,46 @@ if (Run("--access"))
     var cron = (long)(await Scalar("SELECT count(*) FROM pg_extension WHERE extname='pg_cron'"))!;
     Check(recorded == Directory.GetFiles(migrations, "*.sql").Length && cron == 0, "all migrations apply without pg_cron (local) and are recorded");
     Console.WriteLine($"All {checks - before} access checks passed.");
+}
+
+if (Run("--app-role"))
+{
+    // Everything the running app does, done as glam_app instead of the superuser.
+    var before = checks;
+    await ResetPublic();
+    await SqlMigrator.ApplyAsync(source, migrations);
+    var owner = NewStore().CreateInitialSuperAdmin("Maria", "Santos", "maria@example.test", "OwnerPass123"); // setup runs as the owner role
+    PublicStudioStore App() => NewStore(as_: appSource);
+    async Task<string> AsApp(string sql)
+    {
+        try { await using var c = await appSource.OpenConnectionAsync(); await using var cmd = new NpgsqlCommand(sql, c); await cmd.ExecuteNonQueryAsync(); return ""; }
+        catch (PostgresException e) { return e.MessageText; }
+    }
+    var hasher = new Microsoft.AspNetCore.Identity.PasswordHasher<GlamByMariya.Core.Entities.AppUser>();
+    var customer = App().AddCustomerWithPasswordHash("Ana", "Cruz", "ana@example.test", hasher.HashPassword(new(), "AnaPass123"), 30, "Female", "24 Synthetic Street, Quezon City");
+    var app = App();
+    var soft = app.Services.Single(x => x.Name == "Soft Glam");
+    var quote = GlamByMariya.Core.BusinessRules.BookingPricing.Calculate(soft, [], 1, app.Settings.TravelFee, "auto", app.Settings.DownPaymentPercent);
+    var booking = app.SubmitBooking(customer.Id, soft.Id, [], DateTime.Today.AddDays(3).AddHours(10), "24 Synthetic Street, Quezon City", "Quezon City",
+        quote.RequiredDownPayment, "GCash", "APP-ROLE-1", null, true, true, 1, "auto", quote.FinalTotal, quote.RequiredDownPayment);
+    Check(App().FindBooking(booking.Id) != null, "the app login can register a customer and book");
+    Check(App().ExpireOverduePayments() == 0, "the app login can run the expiry function");
+    App().CancelBooking(booking.Id, customer.Id, true);
+    Check((string)(await Scalar($"SELECT status FROM public.reservations WHERE app_id='{booking.Id}'"))! == "Cancelled", "the app login can cancel a booking");
+    var invites = new GlamByMariya.Infrastructure.Services.PostgresInvitationService(new PublicMakeupDbContext(new DbContextOptionsBuilder<PublicMakeupDbContext>().UseNpgsql(appSource).Options), App(), TimeProvider.System);
+    var inviteError = "";
+    try { invites.InviteWithToken("new.admin@example.test", owner.Id); } catch (Exception e) { inviteError = e.GetBaseException().Message; }
+    Check(inviteError == "", "the app login can store an admin invitation" + (inviteError == "" ? "" : ": " + inviteError));
+    var prefs = await AsApp($"INSERT INTO public.account_preferences(user_id, verified_email) VALUES('{customer.Id}', 'ana@example.test'); SELECT * FROM public.account_preferences;");
+    Check(prefs == "", "the app login can save account preferences" + (prefs == "" ? "" : ": " + prefs));
+    var keys = await AsApp("INSERT INTO public.data_protection_keys(\"FriendlyName\", \"Xml\") VALUES('key-1', '<key/>'); SELECT * FROM public.data_protection_keys;");
+    Check(keys == "", "the app login can store Data Protection keys" + (keys == "" ? "" : ": " + keys));
+    var codes = await AsApp("SELECT count(*) FROM public.email_codes; SELECT count(*) FROM public.email_code_cooldowns;");
+    Check(codes == "", "the app login can read email codes" + (codes == "" ? "" : ": " + codes));
+    await Exec("CREATE FUNCTION public.zz_added_later() RETURNS int LANGUAGE sql AS 'SELECT 1'");
+    var later = (bool)(await Scalar("SELECT has_function_privilege('anon', 'public.zz_added_later()', 'EXECUTE') OR has_function_privilege('authenticated', 'public.zz_added_later()', 'EXECUTE')"))!;
+    Check(!later, "a function added by a later migration is not callable by anon or authenticated");
+    Console.WriteLine($"All {checks - before} app role checks passed.");
 }
 
 sealed class TestEnv : Microsoft.AspNetCore.Hosting.IWebHostEnvironment
