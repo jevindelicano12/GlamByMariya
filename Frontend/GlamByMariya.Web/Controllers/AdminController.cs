@@ -393,7 +393,7 @@ public class AdminController(IStudioStore store, BookingService workflow, Paymen
         return RedirectToAction("Settings");
     }
     [HttpPost]
-    public IActionResult Settings(int openHour, int closeHour, int bufferMinutes, decimal travelFee, decimal downPaymentPercent, string serviceAreas, string? paymentInstructions)
+    public IActionResult Settings(int openHour, int closeHour, int bufferMinutes, decimal travelFee, decimal downPaymentPercent, string serviceAreas, string? paymentInstructions, bool confirmAffected = false)
     {
         lock (store.Gate)
         {
@@ -402,16 +402,30 @@ public class AdminController(IStudioStore store, BookingService workflow, Paymen
             else if (!Roles.IsSuperAdmin(User) && (openHour != store.Settings.OpenHour || closeHour != store.Settings.CloseHour || bufferMinutes != store.Settings.BufferMinutes)) TempData["Error"] = "Only the SuperAdmin can change service hours or the preparation buffer.";
             else if (!store.IsPersistent && store.Settings.EarlyFeeEnabled && openHour <= store.Settings.EarlyStartHour) TempData["Error"] = "Opening hour must be later than the configured early start.";
             else if (!store.IsPersistent && store.Settings.LateFeeEnabled && (closeHour > store.Settings.LateEndHour || openHour > store.Settings.LateStartHour)) TempData["Error"] = "Regular opening must not be later than the late fee boundary, and regular closing must not be later than final closing.";
+            else if (workflow.BookingsOutsideHours(openHour, closeHour) is { Count: > 0 } outside && !confirmAffected)
+                TempData["Error"] = $"{Upcoming(outside)} {(outside.Count == 1 ? "falls" : "fall")} outside the new hours: {References(outside)}. Nothing was saved. Tick \"Save anyway\" to change the hours; these bookings keep their booked times.";
             else
             {
+                var affected = workflow.BookingsOutsideHours(openHour, closeHour);
                 var s = store.Settings; var oldPercent = s.DownPaymentPercent; s.OpenHour = openHour; s.CloseHour = closeHour; s.BufferMinutes = bufferMinutes; s.TravelFee = travelFee; s.DownPaymentPercent = downPaymentPercent; s.ServiceAreas = serviceAreas; s.PaymentInstructions = paymentInstructions ?? "";
                 var saved = false;
                 try { store.SaveSettings(s, UserId); saved = true; if (store is DemoStore settingsDemo) settingsDemo.RecordAdminActivity(UserId, "Business settings updated", "Settings", Guid.Empty); TempData["Success"] = "Settings saved. Existing appointments and prices are unchanged."; }
                 catch (InvalidOperationException e) { TempData["Error"] = e.Message; }
                 if (saved && oldPercent != downPaymentPercent) store.RecordAudit(UserId, $"Changed down payment policy from {oldPercent:N0}% to {downPaymentPercent:N0}%.");
+                if (saved && affected.Count > 0)
+                {
+                    TempData["Success"] = $"Settings saved. {Upcoming(affected)} {(affected.Count == 1 ? "is" : "are")} outside the new hours ({References(affected)}). They keep their booked times; contact the customers if anything must change.";
+                    store.RecordAudit(UserId, $"Changed service hours with {affected.Count} upcoming booking(s) outside them: {References(affected)}.");
+                }
             }
             return RedirectToAction("Settings");
         }
+    }
+    private static string Upcoming(IReadOnlyCollection<Booking> bookings) => $"{bookings.Count} upcoming {(bookings.Count == 1 ? "booking" : "bookings")}";
+    private static string References(IEnumerable<Booking> bookings)
+    {
+        var list = bookings.Select(b => b.Reference).ToList();
+        return string.Join(", ", list.Take(5)) + (list.Count > 5 ? $" and {list.Count - 5} more" : "");
     }
     [HttpPost, Authorize(Roles = "SuperAdmin")]
     public IActionResult Block(DateTime from, DateTime to, string reason)

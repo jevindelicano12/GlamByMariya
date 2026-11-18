@@ -277,6 +277,25 @@ if (args.Contains("--catalog-settings-only"))
     await Admin().SaveCatalog(null, "addon", "Brow shaping", "Neat brows", 150, 10, true);
     var created = demo.AddOns.Single(x => x.Name == "Brow shaping");
     Check(created.Active && !created.Archived, "a new item starts active and not archived");
+    // 8b: changing hours warns about upcoming bookings that would fall outside them.
+    demo.Settings.EarlyFeeEnabled = false; demo.Settings.LateFeeEnabled = false;
+    var held = demo.Bookings.Single(); // Pending Payment, two days ahead at 10:00, 60 minutes
+    var percent = demo.Settings.DownPaymentPercent; var areas = demo.Settings.ServiceAreas;
+    var refused = Admin();
+    refused.Settings(11, 18, demo.Settings.BufferMinutes, demo.Settings.TravelFee, percent, areas, "");
+    Check(demo.Settings.OpenHour == 8 && (refused.TempData["Error"] as string ?? "").Contains(held.Reference),
+        "new hours that leave an upcoming booking outside are not saved, and the booking is named");
+    var confirmed = Admin();
+    confirmed.Settings(11, 18, demo.Settings.BufferMinutes, demo.Settings.TravelFee, percent, areas, "", confirmAffected: true);
+    Check(demo.Settings.OpenHour == 11 && held.Start.Hour == 10 && (confirmed.TempData["Success"] as string ?? "").Contains("1 upcoming booking"),
+        "with Save anyway the hours change, the booking keeps its time, and the owner is told to contact the customer");
+    var harmless = Admin();
+    harmless.Settings(8, 17, demo.Settings.BufferMinutes, demo.Settings.TravelFee, percent, areas, "");
+    Check(demo.Settings.OpenHour == 8 && demo.Settings.CloseHour == 17 && harmless.TempData["Error"] == null, "hours that affect no booking save straight away");
+    held.Status = "Cancelled";
+    var closed = Admin();
+    closed.Settings(12, 17, demo.Settings.BufferMinutes, demo.Settings.TravelFee, percent, areas, "");
+    Check(demo.Settings.OpenHour == 12 && closed.TempData["Error"] == null, "cancelled bookings do not block an hours change");
     Console.WriteLine($"All {checks} catalog and settings checks passed."); return;
 }
 if (args.Contains("--email-codes-only"))

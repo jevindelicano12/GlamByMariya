@@ -129,6 +129,19 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
     }
     public bool HoldsReservation(Booking booking) =>
         booking.Status == "Confirmed" || (booking.Status == "Pending Payment" && !PaymentWindow.IsExpired(booking, store.Now));
+    // Upcoming bookings that still hold their slot but would start before, or end after,
+    // the bookable day if the regular hours became openHour..closeHour. Early and late
+    // fee windows (Demo only) still extend the day, the same way the slot list does.
+    public List<Booking> BookingsOutsideHours(int openHour, int closeHour)
+    {
+        var settings = store.Settings; var now = store.Now;
+        var open = TimeSpan.FromHours(!store.IsPersistent && settings.EarlyFeeEnabled ? settings.EarlyStartHour : openHour);
+        var close = TimeSpan.FromHours(!store.IsPersistent && settings.LateFeeEnabled ? settings.LateEndHour : closeHour);
+        return bookings.Bookings
+            .Where(b => b.Start > now && HoldsReservation(b))
+            .Where(b => b.Start.TimeOfDay < open || b.End > b.Start.Date + close)
+            .OrderBy(b => b.Start).ToList();
+    }
     // Demo only: marks overdue unpaid bookings as Expired so screens show it.
     // Slot release does not depend on this; HoldsReservation already ignores them.
     // Database mode gets its own scheduled expiry in Phase 2.
