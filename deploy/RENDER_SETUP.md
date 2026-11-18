@@ -5,8 +5,9 @@ Secrets go only into your own terminal or the Render dashboard, never into chat 
 ## 1. Supabase (database) — once
 1. Apply the migrations as the database owner (type the `postgres` password when asked):
    `.\tools\supabase-command.ps1 -Command --database-migrate -Login postgres`
-2. Claude then grants the app login (`glam_v2_backend`) membership of `makeup_backend`,
-   creates the private `app-files` bucket and checks the security advisor.
+2. Grant the app login the backend role (Supabase logins are NOINHERIT, so INHERIT must be explicit):
+   `GRANT makeup_backend TO glam_v2_backend WITH INHERIT TRUE;`
+   Also create the private `app-files` storage bucket. (Both are already done on glam-by-mariya-v2.)
 3. Create the owner account (also the only makeup artist), with the app login's password:
    `.\tools\supabase-command.ps1 -Command --database-create-superadmin -Login glam_v2_backend`
 

@@ -31,8 +31,9 @@ docker exec "$name" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1 || { ech
 
 # Same built-in roles as a Supabase project, so migrations can revoke from them.
 docker exec "$name" psql -q -U postgres -c "CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN; CREATE ROLE service_role NOLOGIN BYPASSRLS;" >/dev/null || exit 2
-# The app's own login, as on the hosted project: not the owner, no superuser, no RLS bypass.
-docker exec "$name" psql -q -U postgres -c "CREATE ROLE makeup_backend NOLOGIN NOBYPASSRLS; CREATE ROLE glam_app LOGIN NOBYPASSRLS IN ROLE makeup_backend;" >/dev/null || exit 2
+# The app's own login, as on the hosted project: not the owner, no superuser, no RLS bypass,
+# NOINHERIT like Supabase logins, so the backend role is granted WITH INHERIT TRUE.
+docker exec "$name" psql -q -U postgres -c "CREATE ROLE makeup_backend NOLOGIN NOBYPASSRLS; CREATE ROLE glam_app LOGIN NOINHERIT NOBYPASSRLS; GRANT makeup_backend TO glam_app WITH INHERIT TRUE;" >/dev/null || exit 2
 
 temp_arg="$temp"
 if command -v cygpath >/dev/null 2>&1; then temp_arg=$(cygpath -w "$temp"); fi
