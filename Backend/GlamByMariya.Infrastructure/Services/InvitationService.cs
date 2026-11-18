@@ -52,13 +52,14 @@ public class InvitationService(TimeProvider clock) : IInvitationService
 
     protected static AdminInvitation Consume(IEnumerable<AdminInvitation> all, string email, string token, DateTime now)
     {
+        // The link's own token picks the invitation. Matching by email alone could pick an
+        // older expired invitation for the same address and wrongly reject a fresh link.
+        var hash = Encoding.UTF8.GetBytes(Hash((token ?? "").Trim()));
         var match = all.FirstOrDefault(i =>
-            i.Email.Equals(email.Trim(), StringComparison.OrdinalIgnoreCase) && i.AcceptedAt == null);
-        if (match == null) throw new InvalidOperationException("This invitation is invalid or was already used.");
+            i.Email.Equals(email.Trim(), StringComparison.OrdinalIgnoreCase) && i.AcceptedAt == null &&
+            CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(i.TokenHash), hash));
+        if (match == null) throw new InvalidOperationException("This invitation link is invalid or was already used.");
         if (match.ExpiresAt <= now) throw new InvalidOperationException("This invitation expired. Ask the Super Admin for a new one.");
-        if (!CryptographicOperations.FixedTimeEquals(
-                Encoding.UTF8.GetBytes(match.TokenHash), Encoding.UTF8.GetBytes(Hash((token ?? "").Trim()))))
-            throw new InvalidOperationException("This invitation link is invalid.");
         return match;
     }
 

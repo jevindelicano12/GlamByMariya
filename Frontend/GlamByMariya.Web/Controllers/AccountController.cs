@@ -17,7 +17,6 @@ namespace GlamByMariya.Web.Controllers;
 public class AccountController(
     IStudioStore store, EmailVerificationService codes, AccountSettingsService settings, AvatarStorageService avatars, IInvitationService invites, LoginAttemptLimiter loginLimiter) : Controller
 {
-    private const string AdminInvitationUnavailableMessage = "Administrator invitation acceptance is temporarily unavailable. Please contact the business owner for assistance.";
     // Secret that binds a pending email-code registration to the browser that started it.
     private string? RegistrationBrowserToken => Request.Cookies[EmailVerificationService.BrowserCookieName];
     private string IssueRegistrationBrowserToken()
@@ -340,25 +339,16 @@ public class AccountController(
         ViewBag.Email = (email ?? "").Trim();
         ViewBag.Token = (token ?? "").Trim();
         ViewBag.Notice = TempData["Notice"];
-        ViewBag.AcceptanceUnavailable = true;
-        ViewBag.Error = AdminInvitationUnavailableMessage;
         return View();
     }
 
     [HttpPost, EnableRateLimiting(RateLimitPolicies.AcceptInvite)]
     public async Task<IActionResult> AcceptInvite(string email, string token, string firstName, string lastName, int age, string? gender, string address, string password)
     {
-        // Still contained until the accounts step reopens it with local accounts only.
-        if (AdminInvitationAcceptanceIsContained())
-        {
-            ViewBag.Email = (email ?? "").Trim();
-            ViewBag.Token = (token ?? "").Trim();
-            ViewBag.AcceptanceUnavailable = true;
-            ViewBag.Error = AdminInvitationUnavailableMessage;
-            return View();
-        }
-
         email = (email ?? "").Trim();
+        // Keep the link's email and token so the form can be corrected and sent again.
+        ViewBag.Email = email;
+        ViewBag.Token = (token ?? "").Trim();
         var error = RegistrationRules.Validate(firstName, lastName, email, age, gender ?? "", address, password);
         if (error != null)
         { ViewBag.Error = error; return View(); }
@@ -377,9 +367,6 @@ public class AccountController(
         await SignIn(user);
         return Redirect("/Admin");
     }
-
-    // Fixed fail-closed safeguard until the accounts step reopens invitations.
-    private static bool AdminInvitationAcceptanceIsContained() => true;
 
     private AppUser? FindLocal(string email)
     {

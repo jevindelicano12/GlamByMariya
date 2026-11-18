@@ -157,6 +157,75 @@ if (args.Contains("--accounts-only"))
     var setupSource = File.ReadAllText(Path.Combine(root, "Backend", "GlamByMariya.Infrastructure", "Data", "DatabaseSetup.cs"));
     Check(!setupSource.Contains("Provider-backed SuperAdmin setup is unavailable") && !setupSource.Contains("not ready for provider-backed deployment"),
         "owner setup works with Supabase Storage settings present (local login only, no auth-provider block)");
+
+    // Invitations: the link's own token picks the invitation, never an older expired one.
+    var clock = new ManualClock(new DateTimeOffset(2026, 11, 19, 8, 0, 0, TimeSpan.Zero));
+    var invites = new MemoryInvitationService(clock);
+    var inviter = Guid.NewGuid();
+    var (_, oldToken) = invites.InviteWithToken("new.admin@example.test", inviter);
+    clock.Now = clock.Now.AddHours(73);
+    var (_, freshToken) = invites.InviteWithToken("new.admin@example.test", inviter);
+    try { invites.Accept("new.admin@example.test", oldToken); throw new Exception("Expected rejection: expired invitation"); }
+    catch (InvalidOperationException e) { Check(e.Message.Contains("expired"), "an expired invitation link says it expired"); }
+    Check(invites.Accept("New.Admin@example.test ", freshToken).AcceptedAt != null, "a new invitation works even when an older expired one exists for the same email");
+    Reject(() => invites.Accept("new.admin@example.test", freshToken), "an invitation link is single use");
+    var (_, otherToken) = invites.InviteWithToken("someone@example.test", inviter);
+    Reject(() => invites.Accept("new.admin@example.test", otherToken), "an invitation token only works for its own email");
+    Reject(() => invites.Accept("someone@example.test", "WRONG"), "a wrong invitation token is rejected");
+
+    // Real AccountController accepts the invite and creates a local Admin account.
+    var demo = new DemoStore();
+    var owner = demo.CreateElevatedUser("Store", "Owner", "store.owner@example.test", "OwnerPass123", Roles.SuperAdmin, 35, "", "Address on file");
+    var cache = new Microsoft.Extensions.Caching.Memory.MemoryCache(new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions());
+    var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Email:BrevoApiKey"] = "synthetic-key", ["Email:From"] = "sender@example.test" }).Build();
+    var brevo = new BrevoEmailSender(new CapturingBrevoDelivery(), config, Microsoft.Extensions.Logging.Abstractions.NullLogger<BrevoEmailSender>.Instance);
+    var codes = new EmailVerificationService(cache, config, Microsoft.Extensions.Logging.Abstractions.NullLogger<EmailVerificationService>.Instance, new SyntheticWebEnv(), brevo, new MemoryEmailCodeStore(cache));
+    var accountSettings = new AccountSettingsService(demo, Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions.BuildServiceProvider(new Microsoft.Extensions.DependencyInjection.ServiceCollection()), cache);
+    var auth = new RecordingAuthentication();
+    var controllerInvites = new MemoryInvitationService(TimeProvider.System);
+    Microsoft.AspNetCore.Http.DefaultHttpContext Http(ClaimsPrincipal? user = null)
+    {
+        var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+        Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton<Microsoft.AspNetCore.Authentication.IAuthenticationService>(services, auth);
+        Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton<IStudioStore>(services, demo);
+        var http = new Microsoft.AspNetCore.Http.DefaultHttpContext { RequestServices = Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions.BuildServiceProvider(services) };
+        if (user != null) http.User = user;
+        return http;
+    }
+    T Wire<T>(T controller, Microsoft.AspNetCore.Http.DefaultHttpContext http) where T : Controller
+    {
+        controller.ControllerContext = new ControllerContext { HttpContext = http };
+        controller.TempData = new Microsoft.AspNetCore.Mvc.ViewFeatures.TempDataDictionary(http, new NoTempData());
+        controller.Url = new Microsoft.AspNetCore.Mvc.Routing.UrlHelper(new ActionContext(http, new Microsoft.AspNetCore.Routing.RouteData(), new Microsoft.AspNetCore.Mvc.Abstractions.ActionDescriptor()));
+        return controller;
+    }
+    AccountController Account() => Wire(new AccountController(demo, codes, accountSettings, null!, controllerInvites, new LoginAttemptLimiter()), Http());
+    ClaimsPrincipal As(AppUser u) => new(new ClaimsIdentity(new[] { new Claim(ClaimTypes.NameIdentifier, u.Id.ToString()), new Claim(ClaimTypes.Email, u.Email),
+        new Claim(ClaimTypes.Role, u.Role), new Claim("account_version", AccountSession.Version(u.PasswordHash)) }, "Cookies"));
+    AdminController Admin(AppUser u) => Wire(new AdminController(demo, null!, null!, null!, controllerInvites, null!), Http(As(u)));
+    bool SessionValid(ClaimsPrincipal principal)
+    {
+        var scheme = new Microsoft.AspNetCore.Authentication.AuthenticationScheme("Cookies", null, typeof(Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationHandler));
+        var context = new Microsoft.AspNetCore.Authentication.Cookies.CookieValidatePrincipalContext(Http(), scheme, new Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationOptions(),
+            new Microsoft.AspNetCore.Authentication.AuthenticationTicket(principal, "Cookies"));
+        GlamByMariya.Web.Security.StudioCookieAuthentication.ValidatePrincipalAsync(context).GetAwaiter().GetResult();
+        return context.Principal != null;
+    }
+
+    var (_, inviteToken) = controllerInvites.InviteWithToken("invited.admin@example.test", owner.Id);
+    var page = Account().AcceptInvite("invited.admin@example.test", inviteToken) as ViewResult;
+    Check(page != null && page.ViewData["AcceptanceUnavailable"] == null && page.ViewData["Error"] == null, "the invitation page shows the setup form");
+    var accepted = await Account().AcceptInvite("invited.admin@example.test", inviteToken, "Invited", "Admin", 30, "Female", "24 Synthetic Street, Quezon City", "AdminPass123");
+    var invited = demo.Users.SingleOrDefault(u => u.Email == "invited.admin@example.test");
+    Check(accepted is RedirectResult { Url: "/Admin" } && invited is { Role: Roles.Admin, IsActive: true } && auth.LastPrincipal?.FindFirstValue(ClaimTypes.Role) == Roles.Admin,
+        "accepting the invitation creates a local Admin account and signs in");
+    Check(await Account().Login("invited.admin@example.test", "AdminPass123") is RedirectResult, "the invited admin signs in with the local password");
+    var reuse = await Account().AcceptInvite("invited.admin@example.test", inviteToken, "Invited", "Admin", 30, "Female", "24 Synthetic Street, Quezon City", "AdminPass123");
+    Check(demo.Users.Count(u => u.Email == "invited.admin@example.test") == 1 && reuse is ViewResult, "a used invitation link cannot create a second account");
+    var badToken = await Account().AcceptInvite("other.admin@example.test", "WRONG", "Other", "Admin", 30, "Female", "24 Synthetic Street, Quezon City", "AdminPass123");
+    Check(badToken is ViewResult && demo.Users.All(u => u.Email != "other.admin@example.test"), "a wrong invitation token creates no account");
+    var usersView = File.ReadAllText(Path.Combine(root, "Frontend", "GlamByMariya.Web", "Views", "Admin", "Users.cshtml"));
+    Check(!usersView.Contains("Invitation acceptance is currently unavailable"), "the Users page no longer says invitations are closed");
     Console.WriteLine($"All {checks} account checks passed."); return;
 }
 if (args.Contains("--email-codes-only"))
@@ -1651,6 +1720,11 @@ public sealed class RecordingAuthentication : Microsoft.AspNetCore.Authenticatio
     public Task ForbidAsync(Microsoft.AspNetCore.Http.HttpContext context, string? scheme, Microsoft.AspNetCore.Authentication.AuthenticationProperties? properties) => Task.CompletedTask;
     public Task SignInAsync(Microsoft.AspNetCore.Http.HttpContext context, string? scheme, ClaimsPrincipal principal, Microsoft.AspNetCore.Authentication.AuthenticationProperties? properties) { LastPrincipal = principal; return Task.CompletedTask; }
     public Task SignOutAsync(Microsoft.AspNetCore.Http.HttpContext context, string? scheme, Microsoft.AspNetCore.Authentication.AuthenticationProperties? properties) { SignOutCalls++; return Task.CompletedTask; }
+}
+public sealed class ManualClock(DateTimeOffset now) : TimeProvider
+{
+    public DateTimeOffset Now { get; set; } = now;
+    public override DateTimeOffset GetUtcNow() => Now;
 }
 public sealed class NoTempData : Microsoft.AspNetCore.Mvc.ViewFeatures.ITempDataProvider
 {
