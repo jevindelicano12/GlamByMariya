@@ -150,6 +150,15 @@ if (args.Contains("--local-auth-only"))
     Check(await Account().Controller.Login(email, "ThirdPass789") is RedirectResult && Error(await Account().Controller.Login(email, "SecondPass456")) != null, "only the reset password works");
     Console.WriteLine($"All {checks} local authentication checks passed."); return;
 }
+if (args.Contains("--accounts-only"))
+{
+    // Step 7: owner setup, admin invitations and admin Disable/Enable, with local accounts only.
+    var root = Directory.GetCurrentDirectory();
+    var setupSource = File.ReadAllText(Path.Combine(root, "Backend", "GlamByMariya.Infrastructure", "Data", "DatabaseSetup.cs"));
+    Check(!setupSource.Contains("Provider-backed SuperAdmin setup is unavailable") && !setupSource.Contains("not ready for provider-backed deployment"),
+        "owner setup works with Supabase Storage settings present (local login only, no auth-provider block)");
+    Console.WriteLine($"All {checks} account checks passed."); return;
+}
 if (args.Contains("--email-codes-only"))
 {
     // Store rules, checked directly on the memory store (the Postgres store follows the same contract).

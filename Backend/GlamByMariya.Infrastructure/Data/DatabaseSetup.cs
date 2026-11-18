@@ -4,13 +4,6 @@ namespace GlamByMariya.Infrastructure.Data;
 
 public static class DatabaseSetup
 {
-    internal static void EnsureLocalSuperAdminBootstrap(IConfiguration config)
-    {
-        if (new[] { "Supabase:Url", "Supabase:AnonKey", "Supabase:ServiceKey" }
-            .Any(key => !string.IsNullOrWhiteSpace(config[key])))
-            throw new InvalidOperationException("Provider-backed SuperAdmin setup is unavailable until verified identity provisioning is integrated.");
-    }
-
     public static async Task ExecuteScriptAsync(MakeupDbContext db,string sql)
     {
         // Execute reviewed DDL verbatim: ExecuteSqlRaw's format processing would
@@ -97,14 +90,13 @@ public static class DatabaseSetup
             var config=app.Configuration;
             if (!string.Equals(config["Bootstrap:AllowSuperAdminSetup"], "true", StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("SuperAdmin setup is disabled. Set Bootstrap__AllowSuperAdminSetup=true temporarily as the system owner, then unset it.");
-            EnsureLocalSuperAdminBootstrap(config);
             var email=config["Bootstrap:OwnerEmail"]??throw new InvalidOperationException("Set Bootstrap__OwnerEmail locally.");
             var password=config["Bootstrap:OwnerPassword"]??throw new InvalidOperationException("Set Bootstrap__OwnerPassword locally; never put it in source or command arguments.");
             var store=scope.ServiceProvider.GetRequiredService<PublicStudioStore>();
             var user=store.CreateInitialSuperAdmin(config["Bootstrap:OwnerFirstName"]??"Business",config["Bootstrap:OwnerLastName"]??"Owner",
                 email,password);
             store.RecordAudit(user.Id,$"Initial SuperAdmin created for {email}.");
-            Console.WriteLine($"Local-password-only SuperAdmin created for {email}. It is not bound to an authentication provider and is not ready for provider-backed deployment. Unset Bootstrap__AllowSuperAdminSetup now.");
+            Console.WriteLine($"Owner (SuperAdmin) created for {email}. Sign in at /Account/Login with this email and password. Now unset Bootstrap__AllowSuperAdminSetup and Bootstrap__OwnerPassword.");
             return;
         }
         if(command=="--database-init")
