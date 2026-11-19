@@ -454,6 +454,26 @@ if (args.Contains("--xendit-only"))
     Check(overview.Contains("Waiting for Xendit checkout") && paymentsPage.Contains("Xendit marks a down payment verified") && reportsPage.Contains("Xendit down payments and cash balances"),
         "the admin overview, payments and reports describe Xendit when it is on");
     Check(new[] { overview, paymentsPage, reportsPage }.All(v => v.Contains("Xendit.Enabled && DataStore.IsPersistent")), "the admin wording follows whether Xendit is on");
+    // Unpaid bookings that ended (expired, cancelled, rejected) are not "awaiting review".
+    Booking Unpaid(string status) => new() { Status = status, PaymentStatus = "Pending Verification" };
+    var unpaidClaim = new Payment { Verified = false };
+    Check(GlamByMariya.Web.ViewModels.AdminPaymentLabels.Booking(Unpaid("Expired"), true) == "Not paid — checkout expired"
+          && GlamByMariya.Web.ViewModels.AdminPaymentLabels.Booking(Unpaid("Cancelled"), true) == "Not paid"
+          && GlamByMariya.Web.ViewModels.AdminPaymentLabels.Booking(Unpaid("Pending Payment"), true) == "Waiting for Xendit payment"
+          && GlamByMariya.Web.ViewModels.AdminPaymentLabels.Booking(new Booking { Status = "Confirmed", PaymentStatus = "Down Payment Verified" }, true) == "Down Payment Verified",
+        "the appointment list shows unpaid expired or cancelled bookings as not paid");
+    Check(GlamByMariya.Web.ViewModels.AdminPaymentLabels.Payment(unpaidClaim, Unpaid("Expired"), true) == "Not paid — checkout expired"
+          && GlamByMariya.Web.ViewModels.AdminPaymentLabels.Payment(unpaidClaim, Unpaid("Pending Payment"), true) == "Waiting for Xendit payment"
+          && GlamByMariya.Web.ViewModels.AdminPaymentLabels.Payment(unpaidClaim, Unpaid("Pending Payment"), false) == "Unverified — awaiting review"
+          && GlamByMariya.Web.ViewModels.AdminPaymentLabels.Payment(new Payment { Verified = true }, Unpaid("Expired"), true) == "Verified",
+        "the payments page shows an expired Xendit checkout as not paid, not awaiting review");
+    var calendarView = AdminView("_AppointmentCalendar.cshtml"); var listView = AdminView("_AppointmentList.cshtml");
+    Check(calendarView.Contains("AdminPaymentLabels.OnCalendar") && listView.Contains("AdminPaymentLabels.Booking") && paymentsPage.Contains("AdminPaymentLabels.Payment"),
+        "the calendar, list and payments pages use these labels");
+    Check(paymentsPage.Contains("p.Method == \"Cash\" ? \"Cash balance\""), "a cash balance recorded at completion is not called a down payment");
+    Check(!GlamByMariya.Web.ViewModels.AdminPaymentLabels.OnCalendar(Unpaid("Expired")) && !GlamByMariya.Web.ViewModels.AdminPaymentLabels.OnCalendar(Unpaid("Rejected"))
+          && GlamByMariya.Web.ViewModels.AdminPaymentLabels.OnCalendar(Unpaid("Pending Payment")) && GlamByMariya.Web.ViewModels.AdminPaymentLabels.OnCalendar(Unpaid("Cancelled")) == false,
+        "expired, rejected and cancelled bookings no longer count as appointments on the calendar");
     Console.WriteLine($"All {checks} Xendit checks passed."); return;
 }
 if (args.Contains("--email-codes-only"))
