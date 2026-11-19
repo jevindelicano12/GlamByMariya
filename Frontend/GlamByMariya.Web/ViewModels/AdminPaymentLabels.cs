@@ -13,6 +13,8 @@ public static class AdminPaymentLabels
     public static string Payment(Payment p, Booking b, bool online) =>
         p.Verified ? "Verified" : Unpaid(b.Status, online) ?? "Unverified — awaiting review";
 
+    public static string PeopleCount(int people) => people == 1 ? "1 person" : $"{people} people";
+
     // Bookings that no longer hold their time are left off the calendar counts.
     public static bool OnCalendar(Booking b) => b.Status is not ("Expired" or "Rejected" or "Cancelled");
 

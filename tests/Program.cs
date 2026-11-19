@@ -341,6 +341,12 @@ if (args.Contains("--package-label-only"))
     var atMinimum = FromQuote(4);
     Check(atMinimum.AppliedPricePerPerson == 525 && atMinimum.BookingType == "Same-Service Package", "4 people at the group minimum show the package label");
     Check(new Booking { People = 1, Package = "auto" }.BookingType == "Individual", "one person is still an Individual booking");
+    Check(GlamByMariya.Web.ViewModels.AdminPaymentLabels.PeopleCount(1) == "1 person" && GlamByMariya.Web.ViewModels.AdminPaymentLabels.PeopleCount(4) == "4 people", "party size reads 1 person / 4 people");
+    var adminViews = Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "Views", "Admin");
+    foreach (var view in new[] { "Payments.cshtml", "_AppointmentCalendar.cshtml", "_AppointmentList.cshtml", "_MixedBookingDetails.cshtml" })
+        Check(!File.ReadAllText(Path.Combine(adminViews, view)).Contains("People people"), $"{view} uses the party size label");
+    var adminDetails = File.ReadAllText(Path.Combine(adminViews, "Details.cshtml"));
+    Check(adminDetails.IndexOf("BOOKING REVIEW") < adminDetails.IndexOf("_BookingPriceDetails"), "admin booking details show the customer and status before the price table");
     Console.WriteLine($"All {checks} package label checks passed."); return;
 }
 if (args.Contains("--booking-lookup-only"))
