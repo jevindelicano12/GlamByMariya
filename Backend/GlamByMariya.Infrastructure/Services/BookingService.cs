@@ -383,7 +383,8 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
     public void AdminAction(Booking b, string action, Guid actor, string reason, decimal amount, string reference, bool confirmed = false, Guid? paymentId = null, long? reviewRevision = null, string? reviewVersion = null)
     {
         if (store.IsPersistent && b.MixedPeople.Count > 0) throw new InvalidOperationException("Persistent mixed booking operations are unavailable.");
-        if (store.IsPersistent && (action is "cancel" or "complete")) throw new InvalidOperationException("Staff cancellation and manual completion are available in the isolated Demo only.");
+        if (store.IsPersistent && action == "cancel" && !confirmed) throw new InvalidOperationException("Confirm the cancellation before continuing.");
+        if (store.IsPersistent && action == "complete" && !confirmed) throw new InvalidOperationException("Confirm that all makeup services are finished and the balance was received before completing this appointment.");
         if (store.IsPersistent && (action is "verify" or "approve" or "proof"))
             throw new InvalidOperationException("Persistent payment review is unavailable until transaction-scoped authorization is verified.");
         if (store is IPersistentStudioStore database) { database.ManageBooking(b.Id, action, actor, reason, amount, reference, paymentId, reviewRevision, reviewVersion); return; }

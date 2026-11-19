@@ -349,6 +349,73 @@ if (Run("--xendit"))
     Console.WriteLine($"All {checks - before} Xendit database checks passed.");
 }
 
+if (Run("--staff-actions"))
+{
+    // The owner (SuperAdmin) cancels or completes appointments in database mode, run as the app login.
+    var before = checks;
+    await ResetPublic();
+    await SqlMigrator.ApplyAsync(source, migrations);
+    PublicStudioStore App() => NewStore(as_: appSource);
+    var owner = App().CreateInitialSuperAdmin("Maria", "Santos", "maria@example.test", "OwnerPass123");
+    var hasher = new Microsoft.AspNetCore.Identity.PasswordHasher<GlamByMariya.Core.Entities.AppUser>();
+    var customer = App().AddCustomerWithPasswordHash("Ana", "Cruz", "ana@example.test", hasher.HashPassword(new(), "AnaPass123"), 30, "Female", "24 Synthetic Street, Quezon City");
+    var soft = App().Services.Single(x => x.Name == "Soft Glam");
+    var n = 0;
+    GlamByMariya.Core.Entities.Booking Confirmed(DateTime start)
+    {
+        var s = App(); n++;
+        var quote = GlamByMariya.Core.BusinessRules.BookingPricing.Calculate(soft, [], 1, s.Settings.TravelFee, "auto", s.Settings.DownPaymentPercent);
+        var b = s.SubmitBooking(customer.Id, soft.Id, [], start, "24 Synthetic Street, Quezon City", "Quezon City", quote.RequiredDownPayment, "Xendit", $"XENDIT-STAFF-{n}", null,
+            true, true, 1, "auto", quote.FinalTotal, quote.RequiredDownPayment);
+        App().AttachInvoice(b.Id, $"inv_staff_{n}", $"https://checkout-staging.xendit.co/web/inv_staff_{n}");
+        App().XenditPaid($"inv_staff_{n}", b.RequiredDownPayment, $"inv_staff_{n}:PAID");
+        return b;
+    }
+    // Moves an appointment in time (tests only): the guard forbids this outside an approved reschedule.
+    async Task Move(Guid booking, string startsIn, string endsIn) => await Exec($"""
+        SET session_replication_role=replica;
+        UPDATE public.reservations SET start_at=now()+interval '{startsIn}', end_at=now()+interval '{endsIn}', reserved_until=now()+interval '{endsIn}' WHERE app_id='{booking}';
+        SET session_replication_role=origin;
+        """);
+    async Task<string> Status(Guid booking) => (string)(await Scalar($"SELECT status FROM public.reservations WHERE app_id='{booking}'"))!;
+    string Error(Action action) { try { action(); return ""; } catch (InvalidOperationException e) { return e.Message; } }
+    var day = DateTime.Today.AddDays(4);
+
+    var soon = Confirmed(day.AddHours(10));
+    await Move(soon.Id, "3 hours", "4 hours");
+    var customerTry = Error(() => App().CancelBooking(soon.Id, customer.Id, true));
+    Check(customerTry != "" && await Status(soon.Id) == "Confirmed", "a customer still cannot cancel within 24 hours");
+    var noReason = Error(() => App().ManageBooking(soon.Id, "cancel", owner.Id, " ", 0, ""));
+    Check(noReason.Contains("reason") && await Status(soon.Id) == "Confirmed", "the owner must give a cancellation reason");
+    var cancelled = Error(() => App().ManageBooking(soon.Id, "cancel", owner.Id, "Artist is sick", 0, ""));
+    Check(cancelled == "" && await Status(soon.Id) == "Cancelled", "the owner can cancel a confirmed appointment within 24 hours" + (cancelled == "" ? "" : ": " + cancelled));
+    var closure = (string)(await Scalar($"SELECT cancellation_fee::int||'/'||verified_paid_snapshot::int FROM public.reservation_closures z JOIN public.reservations r ON r.id=z.reservation_id WHERE r.app_id='{soon.Id}'"))!;
+    Check(closure == $"0/{(int)soon.RequiredDownPayment}", $"a business cancellation has no fee and the whole down payment is due back ({closure})");
+    var shown = App().FindBooking(soon.Id);
+    Check(shown?.StaffCancelledAt != null && shown.StaffCancelledBy == owner.Id && shown.StaffCancellationReason == "Artist is sick" && shown.RefundDue == soon.RequiredDownPayment,
+        "booking details show the business cancellation, its reason and the refund due");
+
+    var forged = Confirmed(day.AddHours(14));
+    var forgedError = "";
+    try { await Exec($"UPDATE public.reservations SET status='Cancelled', cancellation_confirmed_at=now(), staff_cancelled_by='{customer.Id}', staff_cancelled_at=now(), staff_cancellation_reason='x' WHERE app_id='{forged.Id}'"); }
+    catch (PostgresException e) { forgedError = e.MessageText; }
+    Check(forgedError.Contains("SuperAdmin") && await Status(forged.Id) == "Confirmed", "the database refuses a business cancellation not made by the active SuperAdmin");
+
+    var future = Confirmed(day.AddDays(1).AddHours(10));
+    var early = Error(() => App().ManageBooking(future.Id, "complete", owner.Id, "", 0, ""));
+    Check(early != "" && await Status(future.Id) == "Confirmed", "an appointment that has not ended cannot be completed");
+
+    var done = Confirmed(day.AddDays(1).AddHours(14));
+    await Move(done.Id, "-3 hours", "-2 hours");
+    var completed = Error(() => App().ManageBooking(done.Id, "complete", owner.Id, "", 0, ""));
+    Check(completed == "" && await Status(done.Id) == "Completed", "the owner can complete an ended appointment" + (completed == "" ? "" : ": " + completed));
+    var balance = (string)(await Scalar($"SELECT p.method||'/'||p.status||'/'||p.amount::int FROM public.payments p JOIN public.reservations r ON r.id=p.reservation_id WHERE r.app_id='{done.Id}' AND p.purpose='balance'"))!;
+    Check(balance == $"Cash/Paid/{(int)(done.Total - done.RequiredDownPayment)}", $"completing records the remaining balance as received in cash ({balance})");
+    var after = App().FindBooking(done.Id);
+    Check(after?.CompletedAt != null && after.CompletedBy == owner.Id, "booking details show who completed the appointment and when");
+    Console.WriteLine($"All {checks - before} staff action database checks passed.");
+}
+
 sealed class TestEnv : Microsoft.AspNetCore.Hosting.IWebHostEnvironment
 {
     public string ApplicationName { get; set; } = "DatabaseChecks";

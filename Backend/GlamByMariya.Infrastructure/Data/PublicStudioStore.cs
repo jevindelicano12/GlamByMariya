@@ -390,8 +390,26 @@ public sealed class PublicStudioStore(
         var booking = base.FindBooking(id);
         if (booking is { Status: "Pending Payment", PaymentDueAt: null } && PaymentExpiresAt(id) is { } due)
             booking.PaymentDueAt = Local(due);
+        if (booking is { Status: "Cancelled" or "Completed" })
+        {
+            var outcome = pdb.Database.SqlQuery<StaffOutcome>($"""
+                SELECT staff_cancelled_by AS "CancelledBy", staff_cancelled_at AS "CancelledAt", staff_cancellation_reason AS "Reason",
+                       completed_by AS "CompletedBy", completed_at AS "CompletedAt"
+                FROM public.reservations WHERE app_id = {id}
+                """).AsEnumerable().FirstOrDefault();
+            if (outcome != null)
+            {
+                booking.StaffCancelledBy = outcome.CancelledBy;
+                booking.StaffCancelledAt = outcome.CancelledAt is { } c ? Local(c) : null;
+                booking.StaffCancellationReason = outcome.Reason;
+                booking.CompletedBy = outcome.CompletedBy;
+                booking.CompletedAt = outcome.CompletedAt is { } d ? Local(d) : null;
+            }
+        }
         return booking;
     }
+
+    private sealed record StaffOutcome(Guid? CancelledBy, DateTime? CancelledAt, string? Reason, Guid? CompletedBy, DateTime? CompletedAt);
 
     internal DateTime? PaymentExpiresAt(Guid booking) =>
         pdb.Database.SqlQuery<DateTime?>($"""
@@ -479,10 +497,24 @@ public sealed class PublicStudioStore(
                     throw new InvalidOperationException("No reschedule request to review.");
                 if (action == "decline") pdb.Database.ExecuteSqlInterpolated($"UPDATE public.reservations SET notes={reason} WHERE app_id={booking}");
                 break;
+            case "cancel":
+                // Business cancellation: no fee, allowed until the appointment starts. The database
+                // checks the SuperAdmin role and records a closure with the whole verified payment due back.
+                if (b.Status is not ("Pending Payment" or "Confirmed")) throw new InvalidOperationException("Only pending or confirmed appointments can be cancelled by the business.");
+                if (string.IsNullOrWhiteSpace(reason)) throw new InvalidOperationException("Enter a reason for cancelling this appointment.");
+                if (Local(b.StartsAt) <= Now) throw new InvalidOperationException("This appointment has already started and can no longer be cancelled.");
+                var cancelNote = "Glam by Mariya has cancelled this appointment: " + reason.Trim() + ". Mariya will contact you about returning your down payment.";
+                pdb.Database.ExecuteSqlInterpolated($"UPDATE public.reservations SET status='Cancelled', cancellation_confirmed_at=now(), staff_cancelled_by={admin}, staff_cancelled_at=now(), staff_cancellation_reason={reason.Trim()}, notes={cancelNote} WHERE app_id={booking}");
+                break;
             case "complete":
-                // No explicit confirmation or SuperAdmin-only contract exists on
-                // this legacy adapter entry point. Fail closed until implemented.
-                throw new InvalidOperationException("Persistent appointment completion is not available.");
+                // The remaining balance is paid in cash to the artist; record it as received, then complete.
+                if (b.Status != "Confirmed") throw new InvalidOperationException("Only confirmed appointments can be marked completed.");
+                if (Local(b.EndsAt) > Now) throw new InvalidOperationException("Only appointments whose makeup services have ended can be marked completed.");
+                var balance = b.FinalTotal - b.VerifiedPaid;
+                if (balance > 0)
+                    pdb.Database.ExecuteSqlInterpolated($"INSERT INTO public.payments(reservation_id, app_id, app_managed, purpose, amount, method, reference, status, verification_status, verified_by, verified_at, paid_at) VALUES({reservationId}, {Guid.NewGuid()}, true, 'balance', {balance}, 'Cash', {"CASH-" + b.Reference}, 'Paid', 'Verified', {admin}, now(), now())");
+                pdb.Database.ExecuteSqlInterpolated($"UPDATE public.reservations SET status='Completed', completed_by={admin}, completed_at=now(), reviewed_by={admin}, reviewed_at=now(), notes='Your appointment was marked completed by Glam by Mariya. Thank you!' WHERE app_id={booking}");
+                break;
             case "noshow":
             case "incomplete":
                 var outcome = action == "noshow" ? "No-show" : "Incomplete";

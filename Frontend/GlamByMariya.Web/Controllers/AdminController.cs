@@ -150,7 +150,7 @@ public class AdminController(IStudioStore store, BookingService workflow, Paymen
                     TempData["Success"] = "Payment receipt verified. The appointment remains cancelled; refund arrangements are separate.";
                     return RedirectToAction("Details", new { id });
                 }
-                if ((operation is "cancel" or "complete") && (!User.IsInRole("SuperAdmin") || store.IsPersistent)) return Forbid();
+                if ((operation is "cancel" or "complete") && !User.IsInRole("SuperAdmin")) return Forbid();
                 if (operation == "reschedule" && !User.IsInRole("SuperAdmin")) return Forbid();
                 // Demo keeps the consented quote; database mode only knows the requested start, checked below.
                 if (operation == "reschedule" && !store.IsPersistent && (rescheduleQuoteId == null || b.PendingReschedule?.Quote.Id != rescheduleQuoteId)) throw new InvalidOperationException("The reschedule request changed. Reload before deciding.");

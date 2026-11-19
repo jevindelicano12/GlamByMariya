@@ -1094,6 +1094,14 @@ if (args.Contains("--staff-cancellation-completion-only"))
         Check(local.Payments.Count == originalCount, $"{scenario}: duplicate completion creates no finance record");
     }
     Check(demo.AdminActivity().Any(a => a.TargetId == initial.Id && a.Action == "Appointment cancelled by SuperAdmin") && demo.AdminActivity().Any(a => a.TargetId == complete.Id && a.Action == "Appointment completed"), "activity contains cancellation and completion");
+    // Database mode (the live site): the owner sees and may use both actions.
+    var webRoot = Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web");
+    var actionsView = File.ReadAllText(Path.Combine(webRoot, "Views", "Shared", "_StaffBookingActions.cshtml"));
+    var adminSource = File.ReadAllText(Path.Combine(webRoot, "Controllers", "AdminController.cs"));
+    var serviceSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Backend", "GlamByMariya.Infrastructure", "Services", "BookingService.cs"));
+    Check(!actionsView.Contains("!DataStore.IsPersistent && User.IsInRole(\"SuperAdmin\")") && actionsView.Contains("balance in cash"), "the owner sees Cancel and Mark as completed in database mode, with the cash balance");
+    Check(!adminSource.Contains("(operation is \"cancel\" or \"complete\") && (!User.IsInRole(\"SuperAdmin\") || store.IsPersistent)") && !serviceSource.Contains("Staff cancellation and manual completion are available in the isolated Demo only"), "database mode no longer refuses owner cancellation and completion");
+    Check(serviceSource.Contains("store.IsPersistent && action == \"cancel\" && !confirmed") && serviceSource.Contains("store.IsPersistent && action == \"complete\" && !confirmed"), "database mode still requires confirming a cancellation or completion");
     Console.WriteLine($"All {checks} staff cancellation and completion service checks passed."); return;
 }
 if (args.Contains("--reschedule-policy-only"))
