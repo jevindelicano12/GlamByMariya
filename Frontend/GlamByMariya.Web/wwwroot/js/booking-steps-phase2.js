@@ -61,9 +61,9 @@
       ['Add-ons and quantities', value('#summary-addons')], ['Makeup start', (mixed() ? form.elements.mixedStart.value : start.value).replace('T', ' ')],
       ['Service location', `${form.querySelector('[name="address"]:not(:disabled)').value}, ${form.querySelector('[name="area"]:not(:disabled)').value}`],
       ['Estimated makeup duration', value('#summary-duration')], ['Makeup finish', value('#summary-finish')],
-      ['Travel duration', 'Not available'], ['Artist departure', 'Not available'], ['Route feasibility', 'Not checked; requires review'], ['Early booking surcharge', value('#summary-early-fee')], ['Late booking surcharge', value('#summary-late-fee')], ['Booking total', value('#summary-total')],
-      ['Required minimum', value('#summary-down-payment')], ['Selected payment amount', `₱${form.elements.deposit.value}`],
-      ['Balance after claimed payment', value('#summary-balance')], ['Transportation fee', 'Separate; requires review']
+      ['Early booking surcharge', value('#summary-early-fee')], ['Late booking surcharge', value('#summary-late-fee')], ['Booking total', value('#summary-total')],
+      ['Down payment to pay now', `₱${form.elements.deposit.value}`],
+      ['Balance after your appointment', value('#summary-balance')], ['Transportation fee', 'Separate; paid to the artist on arrival']
     ];
     if (mixed()) form.mixedSlot.quote.people.forEach((person, i) => fields.push([`Person ${i + 1}`, `${person.service.name} · ₱${person.service.price.toFixed(2)}; ${person.addOns.map(a => `${a.name} × ${a.quantity} · ₱${(a.price * a.quantity).toFixed(2)}`).join(', ') || 'No add-ons'}; ${person.durationMinutes} min`]));
     for (const [label, text] of fields) { const dt = document.createElement('dt'); const dd = document.createElement('dd'); dt.textContent = label; dd.textContent = text; summary.append(dt, dd); }

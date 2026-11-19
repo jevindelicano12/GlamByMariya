@@ -113,7 +113,9 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
                 var selection = AvailabilitySelection(serviceId, addOnIds, bookingId, people, package);
                 if (selection == null) return NotFound(new { error = "This appointment cannot be rescheduled." });
                 workflow.CheckSlot(date, selection.Value.Duration, selection.Value.Exclude);
-                 return Json(new { available = true, message = "Available for request at this moment; service and preparation time only. Travel is not estimated. Confirmation requires payment review and approval." });
+                 return Json(new { available = true, message = UsesXendit
+                     ? "This time is available. It covers makeup and preparation; travel time is not included. Your booking is confirmed once the down payment goes through."
+                     : "Available for request at this moment; service and preparation time only. Travel is not estimated. Confirmation requires payment review and approval." });
             }
             catch (InvalidOperationException e) { return Json(new { available = false, message = e.Message }); }
         }

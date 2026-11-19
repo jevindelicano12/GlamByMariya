@@ -58,9 +58,9 @@
       ['Add-ons and quantities', value('#summary-addons')], ['Makeup start', start.value.replace('T', ' ')],
       ['Service location', `${form.elements.address.value}, ${form.elements.area.value}`],
       ['Estimated makeup duration', value('#summary-duration')], ['Makeup finish', value('#summary-finish')],
-      ['Travel duration', 'Not available'], ['Artist departure', 'Not available'], ['Route feasibility', 'Not checked; requires review'], ['Early booking surcharge', value('#summary-early-fee')], ['Late booking surcharge', value('#summary-late-fee')], ['Booking total', value('#summary-total')],
-      ['Required minimum', value('#summary-down-payment')], ['Selected payment amount', `₱${form.elements.deposit.value}`],
-      ['Balance after claimed payment', value('#summary-balance')], ['Transportation fee', 'Separate; requires review']
+      ['Early booking surcharge', value('#summary-early-fee')], ['Late booking surcharge', value('#summary-late-fee')], ['Booking total', value('#summary-total')],
+      ['Down payment to pay now', `₱${form.elements.deposit.value}`],
+      ['Balance after your appointment', value('#summary-balance')], ['Transportation fee', 'Separate; paid to the artist on arrival']
     ];
     for (const [label, text] of fields) { const dt = document.createElement('dt'); const dd = document.createElement('dd'); dt.textContent = label; dd.textContent = text; summary.append(dt, dd); }
     confirmationAck.checked = false; confirmationButton.disabled = true;

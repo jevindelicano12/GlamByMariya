@@ -437,6 +437,18 @@ if (args.Contains("--xendit-only"))
     var detailsView = View("Bookings", "Details.cshtml");
     Check(detailsView.Contains("ViewBag.CheckoutUrl is string payUrl") && detailsView.Contains("ViewBag.PaidOnXendit != true"),
         "booking details offer the Xendit link while unpaid and hide the screenshot upload for Xendit payments");
+    Check(detailsView.IndexOf("ViewBag.CheckoutUrl is string payUrl") < detailsView.IndexOf("Cancel your appointment"),
+        "the Xendit pay panel sits above the cancel section");
+    Check(createView.Contains("Never send money to a personal account") && createView.Contains("Next you pay the down payment on Xendit")
+          && !createView.Contains("Estimated departure") && !createView.Contains("route feasibility must be reviewed"),
+        "the Xendit booking form and review popup describe online payment, not manual review");
+    foreach (var script in new[] { "booking-steps.js", "booking-steps-phase2.js" })
+    {
+        var js = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "wwwroot", "js", script));
+        Check(!js.Contains("Route feasibility") && !js.Contains("claimed payment") && js.Contains("Down payment to pay now"), $"{script} review popup has no manual-review leftovers");
+    }
+    var controllerSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "Controllers", "BookingsController.cs"));
+    Check(controllerSource.Contains("Your booking is confirmed once the down payment goes through."), "the time check message in Xendit mode says payment confirms the booking");
     Console.WriteLine($"All {checks} Xendit checks passed."); return;
 }
 if (args.Contains("--email-codes-only"))
