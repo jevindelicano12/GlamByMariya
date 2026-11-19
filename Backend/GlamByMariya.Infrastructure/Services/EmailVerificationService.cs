@@ -7,6 +7,9 @@ using Microsoft.Extensions.Caching.Memory;
 
 namespace GlamByMariya.Infrastructure.Services;
 
+/// <summary>A code for this email and purpose was sent less than a minute ago.</summary>
+public sealed class CodeCooldownException(string message) : InvalidOperationException(message);
+
 /// <summary>
 /// Local 6-digit email verification codes, sent through Brevo. Codes are SHA-256
 /// hashed at rest, expire in 15 minutes, allow 5 wrong attempts, and resends are
@@ -90,7 +93,7 @@ public sealed class EmailVerificationService
     private void StartCooldown(string scope, string email)
     {
         if (!store.TryStartCooldown(scope, email, ResendCooldown, UtcNow))
-            throw new InvalidOperationException("A code was just sent. Wait a minute before requesting another.");
+            throw new CodeCooldownException("A code was just sent. Wait a minute before requesting another.");
     }
 
     // The cooldown is claimed before sending (so two clicks cannot send twice) and

@@ -1,3 +1,23 @@
+// Send each form once. A double click or a second Enter used to post sign-in and sign-up twice:
+// the second sign-in failed its antiforgery check (HTTP 400) and the second sign-up showed the
+// empty form again. Runs on document, after a form's own handler, so a submit that handler
+// cancelled (the booking form checks availability first) is not counted. Opt out with
+// data-submit-guard="off"; forms that open a new tab are left alone.
+document.addEventListener('submit', event => {
+  const form = event.target;
+  if (!(form instanceof HTMLFormElement) || event.defaultPrevented) return;
+  if (form.dataset.submitGuard === 'off' || (form.target && form.target !== '_self')) return;
+  if (form.dataset.submitGuard === 'sent') { event.preventDefault(); return; }
+  form.dataset.submitGuard = 'sent';
+  form.setAttribute('aria-busy', 'true');
+  // A download or a stalled request must not lock the form for good.
+  window.setTimeout(() => { delete form.dataset.submitGuard; form.removeAttribute('aria-busy'); }, 15000);
+});
+// Coming back with the browser's Back button restores the page as it was; let it submit again.
+window.addEventListener('pageshow', event => {
+  if (event.persisted) document.querySelectorAll('form[data-submit-guard="sent"]').forEach(form => { delete form.dataset.submitGuard; form.removeAttribute('aria-busy'); });
+});
+
 // Enhance every password field once, including reset and account settings forms.
 document.querySelectorAll('input[type="password"]').forEach((input, index) => {
   if (!input.id) input.id = `studio-password-${index}`;

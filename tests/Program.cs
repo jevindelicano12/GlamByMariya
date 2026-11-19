@@ -251,6 +251,17 @@ if (args.Contains("--accounts-only"))
     Check(empty.Users.Count == 0 && empty.Bookings.Count == 0 && empty.Payments.Count == 0, "a new Demo store starts with no accounts and no sample booking");
     foreach (var file in new[] { "Backend/GlamByMariya.Infrastructure/Data/DemoStore.cs", "Backend/GlamByMariya.Infrastructure/Integrations/DemoAvatarStore.cs", "Frontend/GlamByMariya.Web/MakeupBookingDatabase.sql" })
         Check(!File.ReadAllText(Path.Combine(root, file)).Contains("lumiere.demo"), $"{Path.GetFileName(file)} has no @lumiere.demo account");
+
+    // A double click on "Create account" posts the form twice. The second post must lead to the
+    // code page too, not back to an empty sign-up form with a "wait a minute" error.
+    async Task<IActionResult> SignUp() => await Account().Register("Double", "Click", "double.click@example.test", 0, "Female",
+        "24 Synthetic Street, Quezon City", "Secret123!", birthday: new DateOnly(1995, 5, 5));
+    var firstPost = await SignUp();
+    var secondPost = await SignUp();
+    Check(firstPost is RedirectToActionResult { ActionName: "Verify" }, "signing up sends the customer to the code page");
+    Check(secondPost is RedirectToActionResult { ActionName: "Verify" }, "a repeated sign-up post right after the first also goes to the code page");
+    var siteJs = File.ReadAllText(Path.Combine(root, "Frontend", "GlamByMariya.Web", "wwwroot", "js", "site.js"));
+    Check(siteJs.Contains("data-submit-guard"), "site.js stops a form from being submitted twice");
     Console.WriteLine($"All {checks} account checks passed."); return;
 }
 if (args.Contains("--catalog-settings-only"))

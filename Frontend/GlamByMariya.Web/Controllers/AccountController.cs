@@ -216,6 +216,12 @@ public class AccountController(
         var pending = new EmailVerificationService.PendingRegistration(
             firstName.Trim(), lastName.Trim(), email, age, gender ?? "", address.Trim(), password, Suffix: suffix, Birthday: birthday);
         try { await codes.RequestRegistrationCodeAsync(email, pending, IssueRegistrationBrowserToken()); }
+        catch (CodeCooldownException)
+        {
+            // Usually a double click: the first post already sent the code, so go where it is entered.
+            TempData["Notice"] = "A code was just sent to this email. Check your inbox and spam folder, then enter it below.";
+            return RedirectToAction("Verify", new { email, returnUrl = ViewBag.ReturnUrl });
+        }
         catch (InvalidOperationException e) { ViewBag.Error = e.Message; return View("Login"); }
         TempData["Notice"] = "Your verification request was accepted. Check your inbox and spam folder for the code; delivery can take time.";
         return RedirectToAction("Verify", new { email, returnUrl = ViewBag.ReturnUrl });
