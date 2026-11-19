@@ -474,6 +474,13 @@ if (args.Contains("--xendit-only"))
     Check(!GlamByMariya.Web.ViewModels.AdminPaymentLabels.OnCalendar(Unpaid("Expired")) && !GlamByMariya.Web.ViewModels.AdminPaymentLabels.OnCalendar(Unpaid("Rejected"))
           && GlamByMariya.Web.ViewModels.AdminPaymentLabels.OnCalendar(Unpaid("Pending Payment")) && GlamByMariya.Web.ViewModels.AdminPaymentLabels.OnCalendar(Unpaid("Cancelled")) == false,
         "expired, rejected and cancelled bookings no longer count as appointments on the calendar");
+    // Business Settings on the live site (database + Xendit) only shows what applies there.
+    var settingsPage = AdminView("Settings.cshtml");
+    Check(settingsPage.Contains("Xendit.Enabled && DataStore.IsPersistent") && settingsPage.Contains("@if (!online)") && settingsPage.Contains("<input type=\"hidden\" name=\"paymentInstructions\""),
+        "with Xendit on, the GCash/Maya/bank QR uploads and payment instructions are hidden but kept");
+    Check(settingsPage.Contains("@(DataStore.IsPersistent ? $\"All times are in {Model.TimeZone}.\"") && settingsPage.Contains("@if (!DataStore.IsPersistent) { <text>Demo settings and bookings reset on restart. </text> }"),
+        "the live settings no longer say server local time or that settings reset on restart");
+    Check(settingsPage.Contains("Early and late fee settings can't be changed on the live site yet."), "the live settings explain the fee settings plainly");
     Console.WriteLine($"All {checks} Xendit checks passed."); return;
 }
 if (args.Contains("--email-codes-only"))
