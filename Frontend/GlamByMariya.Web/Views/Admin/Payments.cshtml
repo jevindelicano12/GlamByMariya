@@ -1,6 +1,7 @@
 @model List<Booking>
-@{ ViewData["Title"] = "Payments"; var payments = (List<Payment>)ViewBag.Payments; }
-<div class="page-heading"><div><div class="eyebrow">PAYMENT MANAGEMENT</div><h1>Payments</h1><p>Review submitted claims and recorded decisions. A screenshot does not confirm a transfer.</p></div></div>
+@inject XenditClient Xendit
+@{ ViewData["Title"] = "Payments"; var payments = (List<Payment>)ViewBag.Payments; var online = Xendit.Enabled && DataStore.IsPersistent; }
+<div class="page-heading"><div><div class="eyebrow">PAYMENT MANAGEMENT</div><h1>Payments</h1><p>@(online ? "Down payments made through Xendit, and cash balances recorded when an appointment is completed. Xendit marks a down payment verified only after it goes through." : "Review submitted claims and recorded decisions. A screenshot does not confirm a transfer.")</p></div></div>
 <section class="panel"><h2>Payment records</h2>
 @if (!payments.Any()) { <p>No payments recorded.</p> }
 @foreach (var p in payments) { var b = Model.FirstOrDefault(x => x.Id == p.BookingId); if (b == null) { continue; }

@@ -449,6 +449,11 @@ if (args.Contains("--xendit-only"))
     }
     var controllerSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "Controllers", "BookingsController.cs"));
     Check(controllerSource.Contains("Your booking is confirmed once the down payment goes through."), "the time check message in Xendit mode says payment confirms the booking");
+    string AdminView(string name) => File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "Views", "Admin", name));
+    var overview = AdminView("Index.cshtml"); var paymentsPage = AdminView("Payments.cshtml"); var reportsPage = AdminView("Reports.cshtml");
+    Check(overview.Contains("Waiting for Xendit checkout") && paymentsPage.Contains("Xendit marks a down payment verified") && reportsPage.Contains("Xendit down payments and cash balances"),
+        "the admin overview, payments and reports describe Xendit when it is on");
+    Check(new[] { overview, paymentsPage, reportsPage }.All(v => v.Contains("Xendit.Enabled && DataStore.IsPersistent")), "the admin wording follows whether Xendit is on");
     Console.WriteLine($"All {checks} Xendit checks passed."); return;
 }
 if (args.Contains("--email-codes-only"))
