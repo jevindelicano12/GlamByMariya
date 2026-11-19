@@ -95,7 +95,7 @@ if (args.Contains("--local-auth-only"))
     // Registration with email OTP, completed in the same browser.
     var email = "local.customer@example.test";
     var (register, registerHttp) = Account();
-    var started = await register.Register("Local", "Customer", email, 0, "Female", "24 Synthetic Street, Quezon City", "FirstPass123", birthday: new DateOnly(1995, 5, 5));
+    var started = await register.Register("Local", "Customer", email, 0, "Female", "24 Synthetic Street, Quezon City", "FirstPass123", birthday: new DateOnly(1995, 5, 5), acceptTerms: true);
     var issued = System.Text.RegularExpressions.Regex.Match(registerHttp.Response.Headers.SetCookie.ToString(), EmailVerificationService.BrowserCookieName + "=([^;]+)");
     Check(started is RedirectToActionResult { ActionName: "Verify" } && issued.Success && delivery.LastCode != null, "registration sends an email code and sets the browser cookie");
     Check(demo.Users.All(u => u.Email != email), "no account exists before the email code is confirmed");
@@ -107,7 +107,7 @@ if (args.Contains("--local-auth-only"))
         "the same browser confirms the code, creates the customer and signs in");
     Check(localCustomer!.Birthday == new DateOnly(1995, 5, 5) && localCustomer.Suffix == null && localCustomer.Age >= 30, "the registration birthday is saved and the age is computed from it");
     var (oldBirthday, _) = Account();
-    Check(Error(await oldBirthday.Register("Very", "Old", "very.old@example.test", 0, "Male", "24 Synthetic Street, Quezon City", "OldPass123", birthday: new DateOnly(1899, 12, 31)))?.Contains("birthday") == true,
+    Check(Error(await oldBirthday.Register("Very", "Old", "very.old@example.test", 0, "Male", "24 Synthetic Street, Quezon City", "OldPass123", birthday: new DateOnly(1899, 12, 31), acceptTerms: true))?.Contains("birthday") == true,
         "a birthday before 1900 is rejected with a clear message");
     var accountSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "Controllers", "AccountController.cs"));
     var publicSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Backend", "GlamByMariya.Infrastructure", "Data", "PublicStudioStore.cs"));
@@ -255,7 +255,22 @@ if (args.Contains("--accounts-only"))
     // A double click on "Create account" posts the form twice. The second post must lead to the
     // code page too, not back to an empty sign-up form with a "wait a minute" error.
     async Task<IActionResult> SignUp() => await Account().Register("Double", "Click", "double.click@example.test", 0, "Female",
+        "24 Synthetic Street, Quezon City", "Secret123!", birthday: new DateOnly(1995, 5, 5), acceptTerms: true);
+
+    // Sign-up needs the customer to agree to the Terms and Conditions; the server checks it too.
+    var noTerms = await Account().Register("No", "Terms", "no.terms@example.test", 0, "Female",
         "24 Synthetic Street, Quezon City", "Secret123!", birthday: new DateOnly(1995, 5, 5));
+    Check(noTerms is ViewResult && (string?)((ViewResult)noTerms).ViewData["Error"] is { } termsError && termsError.Contains("Terms and Conditions")
+        && !codes.HasPendingRegistration("no.terms@example.test"), "sign-up without agreeing to the Terms is refused and sends no code");
+    var signUpView = File.ReadAllText(Path.Combine(root, "Frontend", "GlamByMariya.Web", "Views", "Account", "Login.cshtml"));
+    Check(signUpView.Contains("name=\"acceptTerms\"") && signUpView.Contains("asp-action=\"Terms\""), "the sign-up form has the Terms checkbox and links to the Terms page");
+    var homeTerms = typeof(GlamByMariya.Web.Controllers.HomeController).GetMethod("Terms");
+    var termsView = Path.Combine(root, "Frontend", "GlamByMariya.Web", "Views", "Home", "Terms.cshtml");
+    Check(homeTerms != null && File.Exists(termsView), "there is a public Terms and Conditions page");
+    var termsText = File.Exists(termsView) ? File.ReadAllText(termsView) : "";
+    Check(new[] { "DownPaymentPercent", "30 minutes", "₱200", "24 hours", "Transportation" }.All(termsText.Contains), "the Terms page states the deposit, payment window, cancellation and transport rules");
+    Check(File.ReadAllText(Path.Combine(root, "Frontend", "GlamByMariya.Web", "Views", "Shared", "_PublicFooter.cshtml")).Contains("asp-action=\"Terms\"")
+        && File.ReadAllText(Path.Combine(root, "Frontend", "GlamByMariya.Web", "PublicOnlySite.cs")).Contains("\"/Home/Terms\""), "the footer links the Terms page and the public-only site allows it");
     var firstPost = await SignUp();
     var secondPost = await SignUp();
     Check(firstPost is RedirectToActionResult { ActionName: "Verify" }, "signing up sends the customer to the code page");

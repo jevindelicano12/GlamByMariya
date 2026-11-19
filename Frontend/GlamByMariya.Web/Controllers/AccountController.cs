@@ -192,10 +192,12 @@ public class AccountController(
     }
 
     [HttpPost, EnableRateLimiting(RateLimitPolicies.Register)]
-    public async Task<IActionResult> Register(string firstName, string lastName, string email, int age, string gender, string address, string password, string? returnUrl = null, string? suffix = null, DateOnly? birthday = null)
+    public async Task<IActionResult> Register(string firstName, string lastName, string email, int age, string gender, string address, string password, string? returnUrl = null, string? suffix = null, DateOnly? birthday = null, bool acceptTerms = false)
     {
         ViewBag.ReturnUrl = Url.IsLocalUrl(returnUrl) ? returnUrl : null;
         ViewBag.Gender = gender;
+        if (!acceptTerms)
+        { ViewBag.Error = "Please agree to the Terms and Conditions to create your account."; return View("Login"); }
         if (!ModelState.IsValid || !birthday.HasValue || birthday.Value > DateOnly.FromDateTime(store.Now) || birthday.Value < new DateOnly(1900, 1, 1))
         { ViewBag.Error = "Enter a valid birthday that is not in the future."; return View("Login"); }
         suffix = (suffix ?? "").Trim();

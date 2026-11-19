@@ -33,5 +33,6 @@ namespace GlamByMariya.Web.Controllers;
     public IActionResult Services() { lock (store.Gate) return View(store.Services.Where(x => x.Active && !x.Archived).ToList()); }
     public async Task<IActionResult> Gallery(CancellationToken ct) { await LoadPublished(ct); return View(); }
     public async Task<IActionResult> Contact(CancellationToken ct) { await LoadPublished(ct); return View(); }
+    public IActionResult Terms() { lock (store.Gate) return View(store.Settings); }
     public IActionResult Error() => Problem("An unexpected error occurred. Please try again.");
 }

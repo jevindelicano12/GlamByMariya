@@ -1,0 +1,54 @@
+@model GlamByMariya.Core.Entities.BusinessSettings
+@{ ViewData["Title"] = "Terms and Conditions"; var deposit = Model.DownPaymentPercent.ToString("0"); }
+<div class="public-page terms-page">
+    <h1>Terms and Conditions</h1>
+    <p class="public-breadcrumb"><a asp-action="Index">Home</a> / Terms and Conditions</p>
+    <p class="terms-intro">These terms apply when you create an account and book a home-service makeup appointment with Glam by Mariya. Please read them before you book.</p>
+
+    <section class="panel terms-section">
+        <h2>1. Your account</h2>
+        <p>Use your real name, a working email address and a correct service address. You confirm your email with a 6-digit code. Keep your password private; you are responsible for bookings made from your account.</p>
+    </section>
+
+    <section class="panel terms-section">
+        <h2>2. Bookings and down payment</h2>
+        <p>A booking is reserved only after you pay a down payment of @(deposit)% of the final booking total. The remaining balance is paid after your appointment.</p>
+        <p>After you submit a booking, your time is held for <strong>30 minutes</strong> while you pay. If the down payment is not received in that time, the booking expires and the time is released.</p>
+    </section>
+
+    <section class="panel terms-section">
+        <h2>3. Cancellations</h2>
+        <ul>
+            <li>An unpaid booking can be cancelled for free.</li>
+            <li>A confirmed booking can be cancelled up to <strong>24 hours</strong> before the appointment. <strong>₱200</strong> is deducted from your verified payment and the rest is refunded.</li>
+            <li>Less than 24 hours before the appointment, a confirmed booking can no longer be cancelled online. Please contact the artist.</li>
+        </ul>
+    </section>
+
+    <section class="panel terms-section">
+        <h2>4. Rescheduling</h2>
+        <p>You can request a new time from your appointment page. Your original time and prices stay in place until the artist approves the change.</p>
+    </section>
+
+    <section class="panel terms-section">
+        <h2>5. Transportation</h2>
+        <p>Transportation is not included in the makeup price or the down payment. You reimburse the artist's actual travel expense when she arrives, after she shows a receipt or an agreed fare breakdown. The amount can change with ride-hailing fares, fuel, tolls and distance.</p>
+    </section>
+
+    <section class="panel terms-section">
+        <h2>6. On the day</h2>
+        <p>Please be ready at the booked time at the address you gave, with a clean, well-lit space to work in. If the artist cannot reach the location or the appointment cannot go ahead because of the location, the artist will contact you to rearrange it.</p>
+    </section>
+
+    <section class="panel terms-section">
+        <h2>7. Your information</h2>
+        <p>We use your name, contact details and address only to manage your account and appointments. Payments are processed by our payment provider; we do not store your card or e-wallet details.</p>
+    </section>
+
+    <section class="panel terms-section">
+        <h2>8. Changes to these terms</h2>
+        <p>We may update these terms. The version shown here applies to bookings made from the date it is published.</p>
+    </section>
+
+    <p class="terms-back"><a class="button secondary" asp-controller="Account" asp-action="Register">Back to sign up</a></p>
+</div>

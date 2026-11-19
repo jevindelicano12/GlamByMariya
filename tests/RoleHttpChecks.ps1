@@ -60,7 +60,7 @@ try {
 
     # Tampered registration role is ignored: everyone becomes Customer.
     $evil = New-Object Microsoft.PowerShell.Commands.WebRequestSession
-    Submit '/Account/Register' '/Account/Register' @{firstName='Evil';lastName='User';email='evil@example.test';age='25';gender='Others';address='123 Evil Street';password='Evil1234!';role='SuperAdmin'} $evil | Out-Null
+    Submit '/Account/Register' '/Account/Register' @{firstName='Evil';lastName='User';email='evil@example.test';age='25';gender='Others';address='123 Evil Street';password='Evil1234!';acceptTerms='true';role='SuperAdmin'} $evil | Out-Null
     $verify = Get-Page '/Account/Verify?email=evil%40example.test' $evil
     Check ($verify.Content -match 'six-digit code') 'tampered registration still gated by email code'
     $safe = 'evil_example_test'

@@ -116,7 +116,7 @@ try {
     $registerToken = Get-Token '/Account/Register' $anon
     Assert-Limit 'registration' 5 {
         $email = "reg-$([guid]::NewGuid().ToString('N').Substring(0,10))@example.test"
-        Post '/Account/Register' @{firstName='Rate';lastName='Limit';email=$email;age='25';gender='Others';address='123 Rate Limit Street';password='RateLimit123!'} $anon $registerToken
+        Post '/Account/Register' @{firstName='Rate';lastName='Limit';email=$email;age='25';gender='Others';address='123 Rate Limit Street';password='RateLimit123!';acceptTerms='true'} $anon $registerToken
     } | Out-Null
 
     # Email verification (registration OTP).
