@@ -386,6 +386,18 @@ if (args.Contains("--xendit-only"))
     hook.Request.Headers["x-callback-token"] = "forged";
     webhook.ControllerContext = new ControllerContext { HttpContext = hook };
     Check(await webhook.Receive() is UnauthorizedResult && calls.Count == 2, "a webhook with a wrong token is refused before touching the database");
+
+    // MVC treats every non-nullable string parameter as [Required]. The Xendit booking form posts no
+    // payment reference or screenshot, so only fields it really sends may be non-nullable strings.
+    var createPost = typeof(GlamByMariya.Web.Controllers.BookingsController).GetMethods()
+        .Single(m => m.Name == "Create" && m.GetCustomAttributes(typeof(Microsoft.AspNetCore.Mvc.HttpPostAttribute), false).Length > 0);
+    var nullability = new System.Reflection.NullabilityInfoContext();
+    var requiredStrings = createPost.GetParameters()
+        .Where(p => p.ParameterType == typeof(string) && nullability.Create(p).WriteState == System.Reflection.NullabilityState.NotNull)
+        .Select(p => p.Name!).ToHashSet();
+    var xenditFormFields = new HashSet<string> { "address", "area", "method", "package" };
+    Check(requiredStrings.IsSubsetOf(xenditFormFields),
+        "the Xendit booking form posts every field MVC requires (required: " + string.Join(", ", requiredStrings) + ")");
     Console.WriteLine($"All {checks} Xendit checks passed."); return;
 }
 if (args.Contains("--email-codes-only"))

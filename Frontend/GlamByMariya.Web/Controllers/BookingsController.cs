@@ -153,7 +153,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
         }
     }
     [HttpPost, RequestSizeLimit(6_000_000)]
-    public async Task<IActionResult> Create(Guid serviceId, Guid[] addOnIds, DateTime start, string address, string area, decimal deposit, string method, string reference, IFormFile? proof, bool agreed, int people = 1, string package = "auto", bool travelAcknowledged = false, decimal? expectedTotal = null, decimal? expectedMinimum = null)
+    public async Task<IActionResult> Create(Guid serviceId, Guid[] addOnIds, DateTime start, string address, string area, decimal deposit, string method, string? reference, IFormFile? proof, bool agreed, int people = 1, string package = "auto", bool travelAcknowledged = false, decimal? expectedTotal = null, decimal? expectedMinimum = null)
     {
         string? path = null;
         try
@@ -163,6 +163,8 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
             if (UsesXendit) return await CreateWithXendit(serviceId, addOnIds, start, address, area, deposit, agreed, people, package, travelAcknowledged, expectedTotal, expectedMinimum);
             if (method == "Cash") throw new InvalidOperationException("Deposits must use GCash, Maya or Bank Transfer.");
             if (proof == null || proof.Length == 0) throw new InvalidOperationException("Upload a payment screenshot to submit your booking.");
+            // Nullable only because the Xendit form has no reference field; the manual flow still requires one.
+            if (string.IsNullOrWhiteSpace(reference)) throw new InvalidOperationException("Enter your payment reference number.");
             path = await SaveProof(proof);
             workflow.Create(UserId, serviceId, addOnIds, start, address, area, deposit, method, reference, path, agreed, people, package, travelAcknowledged, expectedTotal, expectedMinimum);
             CompleteStaging(path);
