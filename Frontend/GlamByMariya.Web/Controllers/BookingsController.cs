@@ -174,6 +174,14 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
         }
         catch (InvalidOperationException e) { CleanupFailedStaging(path); TempData["Error"] = e.Message; return RedirectToAction("Create", new { serviceId }); }
     }
+    // Tells the page whether this booking is paid on Xendit and, while it waits for the
+    // down payment, the link back to its Xendit payment page.
+    private void ShowXenditPayment(Booking booking)
+    {
+        ViewBag.PaidOnXendit = ((List<Payment>)ViewBag.Payments).Any(p => p.Method == "Xendit");
+        ViewBag.CheckoutUrl = UsesXendit && booking.Status == "Pending Payment"
+            ? ((IPersistentStudioStore)store).PendingCheckoutUrl(booking.Id) : null;
+    }
     // Database mode with Xendit configured: the down payment is paid on Xendit's checkout.
     private bool UsesXendit => xendit?.Enabled == true && store is IPersistentStudioStore;
 
@@ -251,6 +259,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
             if (store.IsPersistent && b.MixedPeople.Count > 0) return NotFound();
             ViewBag.Paid = workflow.Paid(b);
             ViewBag.Payments = store.Payments.Where(p => p.BookingId == id).ToList();
+            ShowXenditPayment(b);
             return View(b);
         }
     }
@@ -264,6 +273,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
             if (store.IsPersistent && b.MixedPeople.Count > 0) return NotFound();
             ViewBag.Paid = workflow.Paid(b);
             ViewBag.Payments = store.Payments.Where(p => p.BookingId == id).ToList();
+            ShowXenditPayment(b);
             return View(b);
         }
     }

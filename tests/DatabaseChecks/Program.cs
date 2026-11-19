@@ -323,11 +323,13 @@ if (Run("--xendit"))
     App().AttachInvoice(paid.Id, "inv_test_1", "https://checkout-staging.xendit.co/web/inv_test_1");
     var url = (string)(await Scalar($"SELECT checkout_url FROM public.payments WHERE provider_invoice_id='inv_test_1'"))!;
     Check(await Status(paid.Id) == "Pending Payment" && url.EndsWith("inv_test_1"), "a Xendit booking waits for payment with its invoice attached");
+    Check(App().PendingCheckoutUrl(paid.Id) == url, "the app can show the unpaid booking's Xendit payment link again");
     var wrong = "";
     try { App().XenditPaid("inv_test_1", paid.RequiredDownPayment - 1, "inv_test_1:PAID"); } catch (InvalidOperationException e) { wrong = e.Message; }
     Check(wrong.Contains("does not match") && await Status(paid.Id) == "Pending Payment", "a wrong paid amount does not confirm the booking");
     Check(App().XenditPaid("inv_test_1", paid.RequiredDownPayment, "inv_test_1:PAID") == "confirmed" && await Status(paid.Id) == "Confirmed",
         "the paid webhook confirms the booking");
+    Check(App().PendingCheckoutUrl(paid.Id) == null, "a paid booking no longer offers the payment link");
     Check((string)(await Scalar($"SELECT status||'/'||verification_status FROM public.payments WHERE provider_invoice_id='inv_test_1'"))! == "Paid/Verified",
         "the deposit is recorded as paid and verified");
     Check(App().XenditPaid("inv_test_1", paid.RequiredDownPayment, "inv_test_1:PAID") == "duplicate", "the same webhook event twice is ignored");
@@ -336,6 +338,7 @@ if (Run("--xendit"))
     App().AttachInvoice(late.Id, "inv_test_2", "https://checkout-staging.xendit.co/web/inv_test_2");
     await Exec($"UPDATE public.reservations SET payment_expires_at=now()-interval '1 minute' WHERE app_id='{late.Id}'");
     Check(App().XenditExpired("inv_test_2", "inv_test_2:EXPIRED") == "noted" && await Status(late.Id) == "Expired", "the expired webhook releases the unpaid booking");
+    Check(App().PendingCheckoutUrl(late.Id) == null, "an expired booking no longer offers the payment link");
     Check(App().XenditPaid("inv_test_2", late.RequiredDownPayment, "inv_test_2:PAID") == "late" && await Status(late.Id) == "Expired",
         "a payment after expiry is recorded for refund and does not confirm");
     var unknown = "";

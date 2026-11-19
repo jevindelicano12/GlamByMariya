@@ -383,6 +383,14 @@ public sealed class PublicStudioStore(
     public override string XenditPaid(string invoiceId, decimal amount, string eventKey) =>
         Transaction(null, () => pdb.Database.SqlQuery<string>($"SELECT public.mvc_xendit_paid({invoiceId}, {amount}, {eventKey}) AS \"Value\"").AsEnumerable().Single());
 
+    public override string? PendingCheckoutUrl(Guid booking) =>
+        pdb.Database.SqlQuery<string>($"""
+            SELECT p.checkout_url AS "Value" FROM public.payments p JOIN public.reservations r ON r.id = p.reservation_id
+            WHERE r.app_id = {booking} AND r.status = 'Pending Payment' AND p.provider = 'xendit'
+              AND p.provider_status = 'PENDING' AND p.checkout_url IS NOT NULL
+            LIMIT 1
+            """).AsEnumerable().FirstOrDefault();
+
     public override string XenditExpired(string invoiceId, string eventKey) =>
         Transaction(null, () => pdb.Database.SqlQuery<string>($"SELECT public.mvc_xendit_expired({invoiceId}, {eventKey}) AS \"Value\"").AsEnumerable().Single());
 

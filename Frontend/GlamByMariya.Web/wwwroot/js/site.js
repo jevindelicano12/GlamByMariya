@@ -454,6 +454,8 @@ document.querySelectorAll('.availability-picker').forEach(picker => {
   let month = today.slice(0, 7);
   let selectedDate = '';
   let snapshot = null;
+  // Until the first availability answer arrives, say so instead of showing every day as "No slots".
+  let firstLoad = true;
   const calendarGate = window.AvailabilityResponse.requestGate();
   const validationGate = window.AvailabilityResponse.requestGate();
   let calendarController = null;
@@ -636,7 +638,8 @@ document.querySelectorAll('.availability-picker').forEach(picker => {
       const number = document.createElement('span');
       number.textContent = Number(day.date.slice(-2));
       const indicator = document.createElement('small');
-       indicator.textContent = day.availableCount > 0 ? `${day.availableCount} request slots` : status === 'full' ? 'Fully booked' : status === 'past' ? 'Date has passed' : 'No slots';
+       const waiting = firstLoad && snapshot.durationMinutes === 0 && status !== 'past';
+       indicator.textContent = day.availableCount > 0 ? `${day.availableCount} request slots` : status === 'full' ? 'Fully booked' : status === 'past' ? 'Date has passed' : waiting ? 'Loading…' : 'No slots';
       button.append(number, indicator);
       const reason = day.date >= today && !day.availableCount
         ? snapshot.durationMinutes === 0 ? 'Live availability is unavailable; use Refresh to retry.' : day.slots.length === 0 ? 'The session and preparation buffer do not fit within booking hours.' : 'No times fit around booking hours, reservations or blocked time.'
@@ -655,7 +658,7 @@ document.querySelectorAll('.availability-picker').forEach(picker => {
     }
     picker.querySelector('[data-duration-label]').textContent = snapshot.durationMinutes > 0
       ? `${snapshot.durationMinutes} min session + ${snapshot.bufferMinutes} min buffer`
-      : 'Live availability is unavailable';
+      : firstLoad ? 'Checking availability…' : 'Live availability is unavailable';
   };
   const validateTime = async (force = false) => {
     if (!startInput.value) return false;
@@ -710,6 +713,7 @@ document.querySelectorAll('.availability-picker').forEach(picker => {
       if (!calendarGate.isCurrent(version) || month !== requestedMonth) return;
       const result = window.AvailabilityResponse.calendar(data, requestedMonth);
       snapshot = result;
+      firstLoad = false;
       today = result.today;
       const day = result.days.find(d => d.date === selectedDate);
       const lostTime = Boolean(startInput.value && !day?.slots.some(s => s.start === startInput.value && s.available));
@@ -730,6 +734,7 @@ document.querySelectorAll('.availability-picker').forEach(picker => {
         validationMessage(selectedDate ? 'Choose an available time for this date.' : 'Choose an available date, then a time.');
      } catch (error) {
        if (error.name !== 'AbortError' && calendarGate.isCurrent(version) && month === requestedMonth) {
+         firstLoad = false;
          if (!snapshot || snapshot.durationMinutes === 0) {
            snapshot = localMonthFallback();
            selectedDate = '';

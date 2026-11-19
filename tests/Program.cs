@@ -424,6 +424,19 @@ if (args.Contains("--xendit-only"))
     var xenditFormFields = new HashSet<string> { "address", "area", "method", "package" };
     Check(requiredStrings.IsSubsetOf(xenditFormFields),
         "the Xendit booking form posts every field MVC requires (required: " + string.Join(", ", requiredStrings) + ")");
+
+    // Customer-facing wording in Xendit mode: no manual-payment leftovers.
+    string View(params string[] parts) => File.ReadAllText(Path.Combine(new[] { Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "Views" }.Concat(parts).ToArray()));
+    var createView = View("Bookings", "Create.cshtml");
+    Check(createView.Contains("@if (ViewBag.XenditEnabled != true) { <partial name=\"_PaymentQr\"") && createView.Contains("Continue to secure payment"),
+        "the Xendit booking form hides the manual QR box and says it continues to secure payment");
+    Check(!View("Shared", "_AvailabilityCalendar.cshtml").Contains("not yet verified"), "the calendar note no longer shows an internal 'not yet verified' remark");
+    var receipt = View("Bookings", "Confirmation.cshtml");
+    Check(receipt.Contains("You’re booked!") && receipt.Contains("Complete payment") && receipt.Contains("PaidOnXendit"),
+        "the confirmation page matches the booking status and offers the payment link while unpaid");
+    var detailsView = View("Bookings", "Details.cshtml");
+    Check(detailsView.Contains("ViewBag.CheckoutUrl is string payUrl") && detailsView.Contains("ViewBag.PaidOnXendit != true"),
+        "booking details offer the Xendit link while unpaid and hide the screenshot upload for Xendit payments");
     Console.WriteLine($"All {checks} Xendit checks passed."); return;
 }
 if (args.Contains("--email-codes-only"))

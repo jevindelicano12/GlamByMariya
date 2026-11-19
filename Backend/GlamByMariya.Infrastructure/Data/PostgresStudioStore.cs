@@ -347,6 +347,7 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
     public virtual void AttachInvoice(Guid booking,string invoiceId,string checkoutUrl) => throw new InvalidOperationException("Xendit payments need the public schema.");
     public virtual string XenditPaid(string invoiceId,decimal amount,string eventKey) => throw new InvalidOperationException("Xendit payments need the public schema.");
     public virtual string XenditExpired(string invoiceId,string eventKey) => throw new InvalidOperationException("Xendit payments need the public schema.");
+    public virtual string? PendingCheckoutUrl(Guid booking) => null;
     public virtual void CancelBooking(Guid booking,Guid customer,bool confirmed) => Transaction(customer,()=>
     {
         var b=LockBooking(booking);

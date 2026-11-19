@@ -1,17 +1,54 @@
 @model Booking
-@{ ViewData["Title"] = "Booking submitted · " + Model.Reference; var payments = (List<Payment>)ViewBag.Payments; }
+@{
+    var payments = (List<Payment>)ViewBag.Payments;
+    var xendit = ViewBag.PaidOnXendit == true;
+    var checkoutUrl = ViewBag.CheckoutUrl as string;
+    var confirmed = Model.Status is "Confirmed" or "Completed";
+    var waiting = Model.Status == "Pending Payment";
+    ViewData["Title"] = (confirmed ? "Booking confirmed · " : "Booking submitted · ") + Model.Reference;
+    // Xendit sends the customer back before its webhook arrives, so a pending Xendit booking
+    // is usually seconds away from Confirmed.
+    var (heading, lead) = (xendit, Model.Status) switch
+    {
+        (true, "Confirmed" or "Completed") => ("You’re booked!", "Your down payment was received and your appointment is confirmed. We’ve saved everything below."),
+        (true, "Pending Payment") => ("Almost there.", "We’re waiting for Xendit to confirm your down payment. This usually takes a few seconds — refresh this page if it doesn’t update."),
+        (true, "Expired") => ("This booking expired.", "The down payment wasn’t received within 30 minutes, so the time was released. Nothing was charged. You can book again anytime."),
+        (true, "Cancelled") => ("This booking was cancelled.", "This appointment is no longer active."),
+        (false, "Confirmed" or "Completed") => ("You’re booked!", "Your payment was verified and your appointment is confirmed."),
+        _ => ("Booking request received.", "Your request is saved. It is not a confirmed appointment or verified payment yet.")
+    };
+}
 <link rel="stylesheet" href="~/css/mixed-payment.css" asp-append-version="true" />
 <div class="booking-receipt">
-    <header class="booking-receipt-header"><h1>Booking request received.</h1><p>Your request is saved. It is not a confirmed appointment or verified payment.</p><strong class="booking-reference">@Model.Reference</strong></header>
-    <section class="panel stack" aria-label="Submission receipt">
-        <h2>Your appointment request</h2>
+    <header class="booking-receipt-header @(confirmed ? "is-confirmed" : null)">
+        @if (confirmed) { <span class="receipt-check" aria-hidden="true">✓</span> }
+        <h1>@heading</h1><p>@lead</p><strong class="booking-reference">@Model.Reference</strong>
+    </header>
+    <section class="panel stack" aria-label="Booking summary">
+        <h2>Your appointment</h2>
+        <div class="detail-row"><span>Service</span><strong>@Model.ServiceDescription</strong></div>
         <div class="detail-row"><span>Makeup start</span><strong>@Model.Start.ToString("dddd, MMMM d, yyyy · h:mm tt")</strong></div>
         <div class="detail-row"><span>Booking status</span><strong>@Model.Status</strong></div>
-        <div class="detail-row"><span>Payment status</span><strong>@(payments.All(p => !p.Verified) ? "Unverified — awaiting Admin review" : Model.PaymentStatus)</strong></div>
+        <div class="detail-row"><span>Payment status</span><strong>@(xendit || payments.Any(p => p.Verified) ? Model.PaymentStatus : "Unverified — awaiting Admin review")</strong></div>
         <div class="detail-row"><span>Booking total</span><strong>₱@Model.Total.ToString("N2")</strong></div>
-        <div class="detail-row"><span>Claimed payment submitted</span><strong>₱@(Model.MixedSubmission?.ClaimedAmount.ToString("N2") ?? payments.Sum(p => p.Amount).ToString("N2"))</strong></div>
-        <p class="mixed-review-note">An uploaded screenshot is a payment claim, not proof of a confirmed transfer. An authorized Admin must review the transfer and appointment. Travel feasibility has not been verified; transportation is separate.</p>
+        @if (xendit)
+        {
+            var paid = payments.Where(p => p.Verified).Sum(p => p.Amount);
+            <div class="detail-row"><span>Down payment paid</span><strong>₱@paid.ToString("N2")</strong></div>
+            <div class="detail-row"><span>Balance after your appointment</span><strong>₱@((Model.Total - paid).ToString("N2"))</strong></div>
+            <p class="mixed-review-note">Transportation is separate: you reimburse the artist’s actual travel expense when she arrives.</p>
+        }
+        else
+        {
+            <div class="detail-row"><span>Claimed payment submitted</span><strong>₱@(Model.MixedSubmission?.ClaimedAmount.ToString("N2") ?? payments.Sum(p => p.Amount).ToString("N2"))</strong></div>
+            <p class="mixed-review-note">An uploaded screenshot is a payment claim, not proof of a confirmed transfer. An authorized Admin must review the transfer and appointment. Travel feasibility has not been verified; transportation is separate.</p>
+        }
         <partial name="_MixedPeople" model="Model" />
-        <div class="button-row"><a class="button" asp-action="Details" asp-route-id="@Model.Id">View appointment details</a><a class="button secondary" asp-action="Index">My appointments</a></div>
+        <div class="button-row">
+            @if (checkoutUrl != null) { <a class="button" href="@checkoutUrl">Complete payment</a> }
+            else if (waiting && xendit) { <a class="button" asp-action="Confirmation" asp-route-id="@Model.Id">Refresh status</a> }
+            <a class="button @(checkoutUrl != null || (waiting && xendit) ? "secondary" : null)" asp-action="Details" asp-route-id="@Model.Id">View appointment details</a>
+            <a class="button secondary" asp-action="Index">My appointments</a>
+        </div>
     </section>
 </div>

@@ -46,6 +46,8 @@ public interface IPersistentStudioStore : IStudioStore
     void AttachInvoice(Guid booking, string invoiceId, string checkoutUrl);
     string XenditPaid(string invoiceId, decimal amount, string eventKey);
     string XenditExpired(string invoiceId, string eventKey);
+    // The Xendit payment page of a booking still waiting for its down payment, or null.
+    string? PendingCheckoutUrl(Guid booking);
     void ManageBooking(Guid booking, string action, Guid admin, string reason, decimal amount, string reference, Guid? paymentId = null, long? reviewRevision = null, string? reviewVersion = null);
     List<Payment> ReviewPayments(Guid booking);
     void RequestReschedule(Guid booking, Guid customer, DateTime start);
