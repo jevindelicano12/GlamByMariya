@@ -383,6 +383,21 @@ public sealed class PublicStudioStore(
     public override string XenditPaid(string invoiceId, decimal amount, string eventKey) =>
         Transaction(null, () => pdb.Database.SqlQuery<string>($"SELECT public.mvc_xendit_paid({invoiceId}, {amount}, {eventKey}) AS \"Value\"").AsEnumerable().Single());
 
+    // The summary view has no payment deadline, so one booking reads it from its reservation;
+    // booking details then show "Complete your payment by …".
+    public override Booking? FindBooking(Guid id)
+    {
+        var booking = base.FindBooking(id);
+        if (booking is { Status: "Pending Payment", PaymentDueAt: null } && PaymentExpiresAt(id) is { } due)
+            booking.PaymentDueAt = Local(due);
+        return booking;
+    }
+
+    internal DateTime? PaymentExpiresAt(Guid booking) =>
+        pdb.Database.SqlQuery<DateTime?>($"""
+            SELECT payment_expires_at AS "Value" FROM public.reservations WHERE app_id = {booking}
+            """).AsEnumerable().FirstOrDefault();
+
     public override string? PendingCheckoutUrl(Guid booking) =>
         pdb.Database.SqlQuery<string>($"""
             SELECT p.checkout_url AS "Value" FROM public.payments p JOIN public.reservations r ON r.id = p.reservation_id

@@ -324,6 +324,8 @@ if (Run("--xendit"))
     var url = (string)(await Scalar($"SELECT checkout_url FROM public.payments WHERE provider_invoice_id='inv_test_1'"))!;
     Check(await Status(paid.Id) == "Pending Payment" && url.EndsWith("inv_test_1"), "a Xendit booking waits for payment with its invoice attached");
     Check(App().PendingCheckoutUrl(paid.Id) == url, "the app can show the unpaid booking's Xendit payment link again");
+    var dueStore = App(); var dueAt = dueStore.FindBooking(paid.Id)?.PaymentDueAt;
+    Check(dueAt is { } d && d > dueStore.Now && d <= dueStore.Now.AddMinutes(31), $"booking details know the unpaid booking's payment deadline (due {dueAt}, now {dueStore.Now})");
     var wrong = "";
     try { App().XenditPaid("inv_test_1", paid.RequiredDownPayment - 1, "inv_test_1:PAID"); } catch (InvalidOperationException e) { wrong = e.Message; }
     Check(wrong.Contains("does not match") && await Status(paid.Id) == "Pending Payment", "a wrong paid amount does not confirm the booking");
