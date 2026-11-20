@@ -444,6 +444,33 @@ if (Run("--website-content"))
     var duplicate = "";
     try { await Exec("INSERT INTO public.website_content_versions(id,status) VALUES(gen_random_uuid(),'draft')"); } catch (PostgresException e) { duplicate = e.SqlState ?? ""; }
     Check(duplicate == "23505", "a second draft row is refused by the database");
+    string Key() => "website-content/" + Guid.NewGuid().ToString("N") + ".jpg";
+    var writer = (GlamByMariya.Infrastructure.Services.IWebsiteAssetWriter)repo;
+    var assetA = await writer.AddAsset(owner.Id, Key(), "image/jpeg", 1234, default);
+    var heroKey = Key();
+    var assetHero = await writer.AddAsset(owner.Id, heroKey, "image/jpeg", 2000, default);
+    var assetB = await writer.AddAsset(owner.Id, Key(), "image/jpeg", 3000, default);
+    Check(assetA != Guid.Empty && assetA != assetHero, "adding an image record returns a new id");
+    var badKey = "";
+    try { await writer.AddAsset(owner.Id, "other/x.jpg", "image/jpeg", 10, default); } catch (PostgresException e) { badKey = e.SqlState ?? ""; }
+    Check(badKey == "23514", "an image key outside website-content/ is refused by the database");
+    var heroId = Guid.NewGuid();
+    var imageList = new List<GlamByMariya.Infrastructure.Services.WebsiteImageReference> {
+        new(heroId, assetHero, "hero", "Mariya at work", "", 0, true),
+        new(Guid.NewGuid(), assetA, "gallery", "Bridal look", "Bride", 1, true),
+        new(Guid.NewGuid(), assetB, "gallery", "Evening look", "", 2, true) };
+    await repo.ReplaceDraftImages(owner.Id, next.Id, next.Revision, imageList, default);
+    Check((await repo.ReadDraftImages(next.Id, default)).Count == 3, "a draft keeps its hero and two gallery images");
+    var staleImages = "";
+    try { await repo.ReplaceDraftImages(owner.Id, next.Id, next.Revision, imageList, default); } catch (InvalidOperationException e) { staleImages = e.Message; }
+    Check(staleImages != "", "replacing images with an old revision is refused");
+    Check((await repo.FindDraftImage(heroId, default))?.ObjectKey == heroKey, "a draft image can be found before publishing");
+    await repo.Publish(owner.Id, next.Id, next.Revision + 1, default);
+    Check((await repo.ReadPublishedImages(default)).Count == 3, "publishing makes the draft images live");
+    Check((await repo.FindPublishedImage(heroId, default))?.ObjectKey == heroKey, "a published image is found by its id");
+    Check(await repo.FindDraftImage(heroId, default) == null, "a published image is no longer a draft image");
+    var nextDraft = await repo.CreateDraft(owner.Id, default);
+    Check((await repo.ReadDraftImages(nextDraft.Id, default)).Count == 3, "a new draft copies the published images");
     var recorded = (long)(await Scalar("SELECT count(*) FROM public.schema_migrations"))!;
     Check(recorded == Directory.GetFiles(migrations, "*.sql").Length, "every migration file is recorded");
     Console.WriteLine($"All {checks - before} website content database checks passed.");
