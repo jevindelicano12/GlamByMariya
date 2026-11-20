@@ -28,7 +28,7 @@ public sealed class SyntheticTravelEstimator(IReadOnlyDictionary<(string Origin,
 // Not registered with MVC or used for reservation decisions. A synthetic fit is never a real route confirmation.
 public sealed class OfflineTravelScheduler(ITravelEstimator estimator)
 {
-    public async ValueTask<TravelReview> Review(TravelAnchor? previous, TravelStop candidate, TravelStop? next,
+    public async ValueTask<TravelReview> Review(TravelAnchor? previous, Entities.TravelStop candidate, Entities.TravelStop? next,
         bool nextKnown, RouteMode mode, TimeSpan travelBuffer, CancellationToken cancellationToken = default)
     {
         if (previous == null || candidate == null || !nextKnown || string.IsNullOrWhiteSpace(previous.LocationReference) ||
@@ -56,7 +56,7 @@ public sealed class OfflineTravelScheduler(ITravelEstimator estimator)
         catch (Exception e) when (e is not OperationCanceledException) { return new(TravelReviewStatus.Unavailable, null, null); }
     }
 
-    private static bool ValidStop(TravelStop stop) => !string.IsNullOrWhiteSpace(stop.LocationReference) &&
+    private static bool ValidStop(Entities.TravelStop stop) => !string.IsNullOrWhiteSpace(stop.LocationReference) &&
         stop.ServiceDuration > TimeSpan.Zero && stop.ServiceDuration <= TimeSpan.FromDays(1) &&
         stop.PreparationBuffer >= TimeSpan.Zero && stop.PreparationBuffer <= TimeSpan.FromDays(1);
     private static bool Matches(RouteEstimate? estimate, RouteRequest request) => estimate?.Status == RouteEstimateStatus.Synthetic &&

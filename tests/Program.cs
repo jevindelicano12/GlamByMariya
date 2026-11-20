@@ -5,6 +5,7 @@ using Microsoft.Extensions.Configuration;
 using Npgsql;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
+using TravelStop = GlamByMariya.Core.Entities.TravelStop; // the offline planner's stop; the travel rule's stop is spelled out where used
 
 var store = new DemoStore(presentationAccounts: true);
 var workflow = new BookingService(store, store, store, store, store);
@@ -1703,6 +1704,33 @@ if (args.Contains("--fees-only"))
 }
 if (args.Contains("--travel-only"))
 {
+    // The travel rule: pure functions, all times Manila-local.
+    const decimal mkLat = 14.5547m, mkLng = 121.0244m, fvLat = 14.7046m, fvLng = 121.0567m;
+    Check(TravelPlanner.Minutes(mkLat, mkLng, fvLat, fvLng, 15m, 30) == 90, "Makati to Fairview at 15 km/h takes 90 minutes");
+    Check(TravelPlanner.Minutes(mkLat, mkLng, mkLat, mkLng, 15m, 30) == 30, "the same point still takes the minimum");
+    Check(TravelPlanner.Minutes(null, mkLng, fvLat, fvLng, 15m, 30) == 30 && TravelPlanner.Minutes(mkLat, mkLng, fvLat, null, 15m, 30) == 30, "a missing pin on either side takes the minimum");
+    Check(TravelPlanner.Minutes(mkLat, mkLng, fvLat, fvLng, 60m, 30) == 30, "a fast trip never drops below the minimum");
+    Check(TravelPlanner.Minutes(mkLat, mkLng, mkLat, mkLng, 15m, 0) == 0, "a zero minimum allows zero travel");
+    Check(TravelPlanner.RoadFactor == 1.3m && TravelPlanner.RefusalMessage == "That time no longer fits the artist's travel. Choose another time.", "the road factor and refusal copy are fixed");
+
+    var day = new DateTime(2030, 3, 4);
+    DateTime At(int h, int m = 0) => day.AddHours(h).AddMinutes(m);
+    GlamByMariya.Core.BusinessRules.TravelStop Stop(int h, int endH) => new(At(h), At(endH), 45, mkLat, mkLng);
+    bool Fit(DateTime s, params GlamByMariya.Core.BusinessRules.TravelStop[] stops) =>
+        TravelPlanner.Fits(s, 60, 45, fvLat, fvLng, stops, null, At(0), 15m, 30);
+    var morning = Stop(7, 8);
+    Check(!Fit(At(10), morning), "10:00 is too soon after a Makati stop that ends at 8:00");
+    Check(Fit(At(10, 15), morning), "10:15 leaves buffer plus 90 minutes of travel");
+    Check(!Fit(At(10, 15), morning, Stop(13, 14)), "a Makati stop at 13:00 is too close to a 10:15 booking");
+    Check(Fit(At(10, 15), morning, Stop(15, 16)) && !Fit(At(12), morning, Stop(15, 16)), "a 15:00 stop allows 10:15 but not 12:00");
+    Check(Fit(At(10)), "with no neighbours any time fits");
+
+    var novaliches = ((decimal?)14.7290m, (decimal?)121.0370m);
+    bool Today(DateTime s) => TravelPlanner.Fits(s, 60, 45, fvLat, fvLng, [], novaliches, At(9), 15m, 30);
+    Check(!Today(At(9, 15)) && Today(At(9, 30)), "today the artist's current position needs the minimum travel");
+    Check(TravelPlanner.Fits(At(9), 60, 45, fvLat, fvLng, [], novaliches, At(9).AddDays(-1), 15m, 30), "on a later day the artist's current position is ignored");
+    Check(TravelPlanner.Fits(At(9, 15), 60, 45, fvLat, fvLng, [], null, At(9), 15m, 30), "today without a known position does not block");
+
     var routes = new Dictionary<(string, string), TimeSpan> {
         [("SYNTHETIC:BASE", "SYNTHETIC:A")] = TimeSpan.FromHours(2),
         [("SYNTHETIC:A", "SYNTHETIC:B")] = TimeSpan.FromHours(2)
