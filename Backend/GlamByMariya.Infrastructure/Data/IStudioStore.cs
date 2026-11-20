@@ -39,6 +39,8 @@ public interface IStudioStore : IServiceRepository, IAddOnRepository, IBookingRe
     void SetArtistCurrent(decimal? lat, decimal? lng);
     // Bookings holding a slot between from and until (Asia/Manila local), in start order, without exclude.
     IReadOnlyList<TravelAppointment> TravelStops(DateTime from, DateTime until, Guid? exclude);
+    // InProgress or Completed bookings between from and until (Asia/Manila local): where the artist already is today.
+    IReadOnlyList<TravelAppointment> FinishedStops(DateTime from, DateTime until);
 }
 
 public interface IPersistentStudioStore : IStudioStore

@@ -67,6 +67,10 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
             .Select(b => new TravelAppointment(b.Start, b.End, b.BufferMinutesSnapshot ?? Settings.BufferMinutes, b.Latitude, b.Longitude))
             .Where(x => x.Start < until && x.End.AddMinutes(x.BufferMinutes) > from)
             .OrderBy(x => x.Start).ToList();
+    public virtual IReadOnlyList<TravelAppointment> FinishedStops(DateTime from, DateTime until) =>
+        Bookings.Where(b => b.Status is "Completed" or "InProgress")
+            .Select(b => new TravelAppointment(b.Start, b.End, b.BufferMinutesSnapshot ?? Settings.BufferMinutes, b.Latitude, b.Longitude))
+            .Where(s => s.Start < until && s.End > from).OrderBy(s => s.End).ToList();
     public virtual Booking? FindBooking(Guid id) => LoadBookings(VisibleBookings.Where(b => b.Id == id)).SingleOrDefault();
     private List<Booking> LoadBookings(IQueryable<BookingRow> query)
     {

@@ -143,6 +143,13 @@ public class DemoStore : IStudioStore
                 .Where(s => s.Start < until && s.End.AddMinutes(s.BufferMinutes) > from)
                 .OrderBy(s => s.Start).ToList();
     }
+    public IReadOnlyList<TravelAppointment> FinishedStops(DateTime from, DateTime until)
+    {
+        lock (Gate)
+            return Bookings.Where(b => b.Status is "Completed" or "InProgress")
+                .Select(b => new TravelAppointment(b.Start, b.End, b.BufferMinutesSnapshot ?? Settings.BufferMinutes, b.Latitude, b.Longitude))
+                .Where(s => s.Start < until && s.End > from).OrderBy(s => s.End).ToList();
+    }
     public void SetAdminActive(Guid admin, bool active, Guid actor)
     {
         lock (Gate)

@@ -648,6 +648,33 @@ if (Run("--travel"))
     App().ManageBooking(moving.Id, "reschedule", owner.Id, "", 0, "", travelOverride: true);
     var overridden = (string)(await Scalar($"SELECT (start_at AT TIME ZONE 'Asia/Manila')::text||'/'||coalesce(travel_override_by::text,'none')||'/'||(travel_override_at IS NOT NULL) FROM public.reservations WHERE app_id='{moving.Id}'"))!;
     Check(overridden == $"{moveDay.AddHours(12).AddMinutes(15):yyyy-MM-dd HH:mm:ss}/{owner.Id}/true", $"the SuperAdmin override approves and records who and when ({overridden})");
+    App().RequestReschedule(moving.Id, customer.Id, moveDay.AddHours(9));
+    App().ManageBooking(moving.Id, "reschedule", owner.Id, "", 0, "");
+    var unset = (string)(await Scalar($"SELECT (start_at AT TIME ZONE 'Asia/Manila')::text||'/'||(travel_override_by IS NULL)||'/'||(travel_override_at IS NULL) FROM public.reservations WHERE app_id='{moving.Id}'"))!;
+    Check(unset == $"{moveDay.AddHours(9):yyyy-MM-dd HH:mm:ss}/true/true", $"a later approval that fits clears the travel override ({unset})");
+
+    // Today: an unpinned artist needs the minimum (45 here); after a finished booking, the artist starts from its pin.
+    var manila = App().Now;
+    if (manila.TimeOfDay > TimeSpan.FromHours(3) && manila.TimeOfDay < TimeSpan.FromHours(22))
+    {
+        await Exec("UPDATE public.makeup_artists SET home_lat=NULL, home_lng=NULL, current_lat=NULL, current_lng=NULL, current_updated_at=NULL");
+        Check(!GlamByMariya.Infrastructure.Services.BookingService.TravelFits(App(), manila.AddMinutes(40), 60, 45, fvLat, fvLng, null)
+            && GlamByMariya.Infrastructure.Services.BookingService.TravelFits(App(), manila.AddMinutes(50), 60, 45, fvLat, fvLng, null),
+            "today an unpinned artist needs now plus the minimum travel");
+        App().SetArtistCurrent(mkLat, mkLng);
+        var finished = BookAt(App(), bea.Id, day.AddDays(5).AddHours(10), fvLat, fvLng, "GCash");
+        await Exec($"""
+            SET session_replication_role = replica;
+            UPDATE public.reservations SET start_at=now()-interval '2 hours', end_at=now()-interval '1 hour', reserved_until=now()-interval '15 minutes', status='Completed' WHERE app_id='{finished.Id}';
+            SET session_replication_role = origin;
+            """);
+        var finishedStops = App().FinishedStops(manila.Date, manila.Date.AddDays(1));
+        Check(finishedStops.Count == 1 && finishedStops[0].Latitude == fvLat && finishedStops[0].Longitude == fvLng, $"today's completed booking is a finished stop with its pin ({finishedStops.Count})");
+        Check(GlamByMariya.Infrastructure.Services.BookingService.TravelFits(App(), manila.AddMinutes(50), 60, 45, fvLat, fvLng, null)
+            && !GlamByMariya.Infrastructure.Services.BookingService.TravelFits(App(), manila.AddMinutes(50), 60, 45, mkLat, mkLng, null),
+            "after a completed Fairview booking the artist starts from Fairview, not the current Makati pin");
+    }
+    else Console.WriteLine("SKIP: same-day travel checks need a Manila clock between 03:00 and 22:00");
 
     const string signature = "public.mvc_travel_stops(timestamptz,timestamptz,uuid)";
     var privileges = (string)(await Scalar($"""

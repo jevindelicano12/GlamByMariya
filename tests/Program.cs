@@ -1825,6 +1825,47 @@ if (args.Contains("--travel-rule-only"))
     adminPages.Action(makati.Id, "reschedule", rescheduleQuoteId: toEleven.Id, travelOverride: true);
     Check(makati.Start == tDay.AddHours(11).AddMinutes(15) && makati.TravelOverrideBy == tOwner.Id && makati.TravelOverrideAt != null,
         $"the SuperAdmin override approves and records who and when ({adminPages.TempData["Error"]})");
+    // A later approval that fits clears the old override.
+    var toEight = tFlow.OfferReschedule(makati, tCustomer.Id, tDay.AddHours(8));
+    tFlow.ConsentReschedule(makati, tCustomer.Id, toEight.Id, true);
+    tFlow.AdminAction(makati, "reschedule", tOwner.Id, "", 0, "");
+    Check(makati.Start == tDay.AddHours(8) && makati.TravelOverrideBy == null && makati.TravelOverrideAt == null, "a later approval that fits clears the travel override");
+
+    // Where the artist is today: the latest finished (InProgress/Completed) booking ending by the start,
+    // then the current pin, then home; with none, a location without a pin (minimum travel).
+    var clock = new DateTime(2030, 3, 4, 12, 0, 0);
+    var nowhere = new ArtistLocation(null, null, null, null, null);
+    var homeAndHere = new ArtistLocation(14.6760m, 121.0437m, mkLat, mkLng, clock);
+    var finished = new List<TravelAppointment> { new(clock.AddHours(-3), clock.AddHours(-2), 45, fvLat, fvLng), new(clock.AddHours(-5), clock.AddHours(-4), 45, 14.6000m, 121.0000m) };
+    Check(BookingService.ArtistLocationAt(clock.AddHours(1), clock, [], nowhere) == ((decimal?)null, (decimal?)null), "an unpinned artist is a location without a pin");
+    Check(TravelPlanner.Fits(clock.AddMinutes(15), 60, 45, fvLat, fvLng, [], BookingService.ArtistLocationAt(clock.AddMinutes(15), clock, [], nowhere), clock, 15m, 30) == false
+        && TravelPlanner.Fits(clock.AddMinutes(30), 60, 45, fvLat, fvLng, [], BookingService.ArtistLocationAt(clock.AddMinutes(30), clock, [], nowhere), clock, 15m, 30),
+        "today, with no earlier stop and an unpinned artist, the start needs now plus the minimum travel");
+    Check(BookingService.ArtistLocationAt(clock.AddHours(1), clock, [], homeAndHere) == ((decimal?)mkLat, (decimal?)mkLng), "the current pin comes before home");
+    Check(BookingService.ArtistLocationAt(clock.AddHours(1), clock, [], homeAndHere with { CurrentLat = null, CurrentLng = null, CurrentUpdatedAt = null }) == ((decimal?)14.6760m, (decimal?)121.0437m), "home is used without a current pin");
+    Check(BookingService.ArtistLocationAt(clock.AddHours(1), clock, finished, homeAndHere) == ((decimal?)fvLat, (decimal?)fvLng), "today the latest finished booking is where the artist is, ahead of the current pin");
+    Check(BookingService.ArtistLocationAt(clock.AddHours(-2).AddMinutes(-30), clock, finished, homeAndHere) == ((decimal?)14.6000m, (decimal?)121.0000m), "only a finished booking ending by the start counts");
+    Check(BookingService.ArtistLocationAt(clock.AddDays(1), clock, finished, homeAndHere) == ((decimal?)mkLat, (decimal?)mkLng), "finished bookings only count for today");
+
+    // The same through the demo store's travel check, when the clock allows a same-day test.
+    var liveNow = DateTime.Now;
+    if (liveNow.TimeOfDay > TimeSpan.FromHours(2) && liveNow.TimeOfDay < TimeSpan.FromHours(22))
+    {
+        var todayDemo = new DemoStore(presentationAccounts: true); var todayFlow = new BookingService(todayDemo, todayDemo, todayDemo, todayDemo, todayDemo);
+        Check(!BookingService.TravelFits(todayDemo, liveNow.AddMinutes(20), 60, 45, fvLat, fvLng, null) && BookingService.TravelFits(todayDemo, liveNow.AddMinutes(40), 60, 45, fvLat, fvLng, null),
+            "demo: an unpinned artist needs the 30-minute minimum before a booking today");
+        todayDemo.SetArtistCurrent(mkLat, mkLng);
+        var done = new Booking { CustomerId = tCustomer.Id, Service = new(soft.Id, soft.Name, soft.Price, soft.Minutes), Start = liveNow.AddMinutes(-90), BufferMinutesSnapshot = 45, Latitude = fvLat, Longitude = fvLng, Status = "Completed" };
+        todayDemo.Bookings.Add(done);
+        Check(todayDemo.FinishedStops(liveNow.Date, liveNow.Date.AddDays(1)).Count == 1, "demo: today's completed booking is a finished stop");
+        Check(BookingService.TravelFits(todayDemo, liveNow.AddMinutes(40), 60, 45, fvLat, fvLng, null) && !BookingService.TravelFits(todayDemo, liveNow.AddMinutes(40), 60, 45, mkLat, mkLng, null),
+            "demo: after a completed Fairview booking the artist starts from Fairview, not the current Makati pin");
+        var todayStart = liveNow.Date.AddMinutes(Math.Ceiling(liveNow.AddMinutes(40).TimeOfDay.TotalMinutes / 15) * 15);
+        var todaySlots = todayFlow.GetAvailability(new DateTime(liveNow.Year, liveNow.Month, 1), 60, null, mkLat, mkLng).Days.Single(d => d.Date == liveNow.ToString("yyyy-MM-dd")).Slots;
+        var probe = todaySlots.SingleOrDefault(s => s.Start == todayStart.ToString("yyyy-MM-ddTHH:mm"));
+        Check(probe == null || !probe.Available, "demo: availability today also starts from the completed booking");
+    }
+    else Console.WriteLine("SKIP: same-day demo travel checks need a clock between 02:00 and 22:00");
     Console.WriteLine($"All {checks} travel rule checks passed."); return;
 }
 if (args.Contains("--travel-only"))
@@ -2375,6 +2416,7 @@ public class PersistentQuoteProxy : System.Reflection.DispatchProxy
         if (method?.Name == nameof(IStudioStore.FindBooking)) return TestBookings.FirstOrDefault(b => b.Id == (Guid)args![0]!);
         if (method?.Name == "get_Payments") return TestPayments;
         if (method?.Name == nameof(IStudioStore.GetArtistLocation)) return new ArtistLocation(null, null, null, null, null);
+        if (method?.Name == nameof(IStudioStore.FinishedStops)) return new List<GlamByMariya.Core.BusinessRules.TravelAppointment>();
         if (method?.Name == nameof(IStudioStore.TravelStops))
             return TestBookings.Where(b => b.Id != (Guid?)args![2] && b.Status == "Confirmed")
                 .Select(b => new GlamByMariya.Core.BusinessRules.TravelAppointment(b.Start, b.End, b.BufferMinutesSnapshot ?? TestSettings.BufferMinutes, b.Latitude, b.Longitude))

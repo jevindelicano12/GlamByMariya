@@ -146,6 +146,21 @@ public sealed class PublicStudioStore(
             throw new InvalidOperationException("Availability cannot be verified. Please try again later.", e);
         }
     }
+    // Only times and pins leave the database, as in mvc_travel_stops.
+    public override IReadOnlyList<TravelAppointment> FinishedStops(DateTime from, DateTime until)
+    {
+        try
+        {
+            var rows = pdb.Database.SqlQueryRaw<TravelStopRow>(
+                """SELECT start_at AS "Start", end_at AS "End", buffer_minutes_snapshot AS "BufferMinutes", location_lat AS "Lat", location_lng AS "Lng" FROM public.reservations WHERE status IN ('InProgress','Completed') AND start_at < {1} AND end_at > {0}""",
+                Utc(from), Utc(until)).ToList();
+            return rows.Select(r => new TravelAppointment(Local(r.Start), Local(r.End), r.BufferMinutes, r.Lat, r.Lng)).OrderBy(x => x.End).ToList();
+        }
+        catch (Exception e) when (e is PostgresException or NpgsqlException)
+        {
+            throw new InvalidOperationException("Availability cannot be verified. Please try again later.", e);
+        }
+    }
     private sealed class TravelStopRow
     {
         public DateTime Start { get; set; }
@@ -592,6 +607,7 @@ public sealed class PublicStudioStore(
                     throw new InvalidOperationException("No reschedule request to review.");
                 if (action == "decline") pdb.Database.ExecuteSqlInterpolated($"UPDATE public.reservations SET notes={reason} WHERE app_id={booking}");
                 if (overridden) pdb.Database.ExecuteSqlInterpolated($"UPDATE public.reservations SET travel_override_by={admin}, travel_override_at=now() WHERE app_id={booking}");
+                else if (action == "reschedule") pdb.Database.ExecuteSqlInterpolated($"UPDATE public.reservations SET travel_override_by=NULL, travel_override_at=NULL WHERE app_id={booking} AND travel_override_by IS NOT NULL");
                 break;
             case "cancel":
                 // Business cancellation: no fee, allowed until the appointment starts. The database

@@ -230,10 +230,15 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
     public const string UnavailableReason = "The artist is unavailable during this time. Please choose another slot.";
     public const string PinRequired = "Pin your location to see available times.";
     public const string TravelOverrideRefused = "Only the SuperAdmin can approve a time that does not fit the artist's travel.";
-    // Where the artist is now: the current pin, else the home base, else unknown.
-    private static (decimal? Lat, decimal? Lng)? ArtistNow(ArtistLocation location) =>
-        location.CurrentLat is not null ? (location.CurrentLat, location.CurrentLng)
-        : location.HomeLat is not null ? (location.HomeLat, location.HomeLng) : null;
+    // Where the artist is for a start time: today, the latest InProgress/Completed booking ending by
+    // that start; else the current pin, else home; else a place with no pin (the minimum travel).
+    public static (decimal? Lat, decimal? Lng) ArtistLocationAt(DateTime start, DateTime now, IReadOnlyList<TravelAppointment> finishedToday, ArtistLocation location)
+    {
+        if (start.Date == now.Date && finishedToday.Where(f => f.Start.Date == now.Date && f.End <= start).OrderByDescending(f => f.End).FirstOrDefault() is { } last)
+            return (last.Latitude, last.Longitude);
+        return location.CurrentLat is not null ? (location.CurrentLat, location.CurrentLng)
+            : location.HomeLat is not null ? (location.HomeLat, location.HomeLng) : (null, null);
+    }
     // The travel rule for one start time against the other bookings of that Asia/Manila day.
     // Database callers run this inside their transaction, after taking the per-artist travel lock.
     public static bool TravelFits(IStudioStore store, DateTime start, int duration, int buffer, decimal? latitude, decimal? longitude, Guid? exclude, BusinessSettings? settings = null)
@@ -241,7 +246,9 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
         var current = settings ?? store.Settings;
         var day = start.Date;
         var stops = store.TravelStops(day, day.AddDays(1), exclude).Where(s => s.Start.Date == day).ToList();
-        return TravelPlanner.Fits(start, duration, buffer, latitude, longitude, stops, ArtistNow(store.GetArtistLocation()), store.Now, current.TravelSpeedKmh, current.TravelMinimumMinutes);
+        var now = store.Now;
+        var finished = day == now.Date ? store.FinishedStops(day, day.AddDays(1)) : [];
+        return TravelPlanner.Fits(start, duration, buffer, latitude, longitude, stops, ArtistLocationAt(start, now, finished, store.GetArtistLocation()), now, current.TravelSpeedKmh, current.TravelMinimumMinutes);
     }
     // A reschedule keeps the booking's own pin (pinless older bookings use the minimum travel);
     // a new booking needs a valid pin. Null means no pin was given.
@@ -287,7 +294,10 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             var stopsByDay = travel && pin != null
                 ? store.TravelStops(first.AddDays(-1), first.AddMonths(1).AddDays(1), exclude).ToLookup(s => s.Start.Date)
                 : null;
-            var artistNow = stopsByDay != null ? ArtistNow(store.GetArtistLocation()) : null;
+            var location = stopsByDay != null ? store.GetArtistLocation() : null;
+            // At most one extra read: today's finished bookings, only when this month includes today.
+            IReadOnlyList<TravelAppointment> finishedToday = location != null && now.Date >= first && now.Date < first.AddMonths(1)
+                ? store.FinishedStops(now.Date, now.Date.AddDays(1)) : [];
             var days = new List<AvailableDate>();
             for (var date = first; date < first.AddMonths(1); date = date.AddDays(1))
             {
@@ -304,7 +314,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
                         var issue = SlotIssue(start, duration, now, exclude, settings, booked, blocks, occupied);
                         if (travel && pin == null) issue = PinRequired;
                         else if (issue == null && pin is { } here && dayStops != null &&
-                            !TravelPlanner.Fits(start, duration, buffer, here.Lat, here.Lng, dayStops, artistNow, now, settings.TravelSpeedKmh, settings.TravelMinimumMinutes))
+                            !TravelPlanner.Fits(start, duration, buffer, here.Lat, here.Lng, dayStops, ArtistLocationAt(start, now, finishedToday, location!), now, settings.TravelSpeedKmh, settings.TravelMinimumMinutes))
                             issue = UnavailableReason; // never the travel detail
                         slots.Add(new(start.ToString("yyyy-MM-ddTHH:mm"), start.ToString("h:mm tt", System.Globalization.CultureInfo.InvariantCulture), issue == null, issue));
                     }
@@ -493,6 +503,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
                     var travelFits = TravelFits(store, approvedQuote.ProposedStart, approvedQuote.DurationMinutes, approvedQuote.BufferMinutes, b.Latitude, b.Longitude, b.Id);
                     if (!travelFits && !travelOverride) throw new InvalidOperationException(TravelPlanner.RefusalMessage);
                     if (!travelFits) { b.TravelOverrideBy = actor; b.TravelOverrideAt = store.Now; reason = (reason + " Travel override: the SuperAdmin is sure the artist can make it.").Trim(); }
+                    else { b.TravelOverrideBy = null; b.TravelOverrideAt = null; } // a time that fits needs no override
                     b.ApprovedReschedules.Add(new(approvedQuote, consent, actor, store.Now));
                     b.Start = approvedQuote.ProposedStart; b.RequestedStart = null; b.PendingReschedule = null; b.RescheduleOffer = null;
                     b.Note = "Your rescheduling request has been approved. If your updated appointment has additional charges or payment differences, please coordinate directly with Glam by Mariya for payment or refund arrangements.";
