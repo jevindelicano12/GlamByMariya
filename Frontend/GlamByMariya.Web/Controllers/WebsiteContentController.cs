@@ -166,10 +166,13 @@ public sealed class WebsiteContentController : Controller
     {
         var service = ContentService;
         if (service == null) return StatusCode(503, "Website publishing is not available.");
-        try { await service.Publish(User, draftId, revision, cancellationToken); RecordDemoPublication(draftId); return RedirectToAction(nameof(Index)); }
-        catch (ArgumentException e) { return BadRequest(e.Message); }
-        catch (InvalidOperationException) { return Conflict("The draft changed or could not be published. Reload and try again."); }
-        catch (Exception e) when (e is not OperationCanceledException) { return StatusCode(503, "Publishing could not be confirmed. Check published content before retrying."); }
+        // Always come back to the editor with a message: a second click on Publish (or Back + Publish)
+        // finds no draft, which used to show a bare error page even though publishing had worked.
+        try { await service.Publish(User, draftId, revision, cancellationToken); RecordDemoPublication(draftId); TempData["Success"] = "Published. Visitors now see these changes."; }
+        catch (ArgumentException e) { TempData["Error"] = e.Message; }
+        catch (InvalidOperationException) { TempData["Error"] = "This draft was already published or changed in another tab. The page below shows the latest version; check the website to see what is live."; }
+        catch (Exception e) when (e is not OperationCanceledException) { TempData["Error"] = "Publishing could not be confirmed. Check the website before trying again."; }
+        return RedirectToAction(nameof(Index));
     }
 
     [HttpPost, ValidateAntiForgeryToken]
