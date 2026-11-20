@@ -8,8 +8,10 @@
   certificate exception. It is the public Supabase Root 2021 CA (valid to
   2031-04-26, no private key) and is already committed at
   `Frontend/GlamByMariya.Web/App_Data/Certificates/`. Dockerfile line 27 is unchanged.
-- **Still open:** stock-photo approval, secret-screening approval, Render
-  hostname/AllowedHosts and public-content approval (items 3-5 below).
+- **Stock photos approved by owner (2026-11-20)** for the public gallery/inspiration
+  pages, presented as inspiration, not completed customer appointments.
+- **Still open:** Render service creation and its hostname for AllowedHosts
+  (item 4 below).
 - **Verification on Linux (.NET SDK 10.0.115):** solution builds with 0 errors;
   all offline check projects pass except `PasswordRegistrationPolicyChecks`;
   `V2DeploymentChecks` 52/52 against a fresh publish; disposable PostgreSQL 18.6:
