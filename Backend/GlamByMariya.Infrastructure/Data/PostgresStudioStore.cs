@@ -27,7 +27,7 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
     }
     protected BusinessSettings? settings;
     public BusinessSettings Settings => settings ??= LoadSettings();
-    private BusinessSettings LoadSettings()
+    protected virtual BusinessSettings LoadSettings()
     {
         var s = db.Set<SettingsRow>().AsNoTracking().Single(x => x.Id == 1);
         return new() { TimeZone = s.TimeZone, OpenHour = s.OpenHour, CloseHour = s.CloseHour, BufferMinutes = s.BufferMinutes,
@@ -48,6 +48,25 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
         : db.Set<BookingRow>().AsNoTracking();
     public List<Booking> Bookings => LoadBookings(VisibleBookings.OrderByDescending(x => x.StartsAt));
     // One row plus its own add-ons and refunds; customers still only see their own bookings.
+    // Legacy makeup schema has no travel columns: the pins live for this request only and the
+    // neighbours come from the loaded bookings. The public schema store persists both.
+    private ArtistLocation artistLocation = new(null, null, null, null, null);
+    public virtual ArtistLocation GetArtistLocation() => artistLocation;
+    public virtual void SetArtistHome(decimal lat, decimal lng)
+    {
+        if (!BookingLocation.IsValid(lat, lng)) throw new InvalidOperationException(BookingLocation.ArtistMessage);
+        artistLocation = artistLocation with { HomeLat = lat, HomeLng = lng };
+    }
+    public virtual void SetArtistCurrent(decimal? lat, decimal? lng)
+    {
+        if ((lat, lng) is not (null, null) && !BookingLocation.IsValid(lat, lng)) throw new InvalidOperationException(BookingLocation.ArtistMessage);
+        artistLocation = artistLocation with { CurrentLat = lat, CurrentLng = lng, CurrentUpdatedAt = lat is null ? null : Now };
+    }
+    public virtual IReadOnlyList<TravelAppointment> TravelStops(DateTime from, DateTime until, Guid? exclude) =>
+        Bookings.Where(b => b.Id != exclude && (b.Status == "Confirmed" || (b.Status == "Pending Payment" && !PaymentWindow.IsExpired(b, Now))))
+            .Select(b => new TravelAppointment(b.Start, b.End, b.BufferMinutesSnapshot ?? Settings.BufferMinutes, b.Latitude, b.Longitude))
+            .Where(x => x.Start < until && x.End.AddMinutes(x.BufferMinutes) > from)
+            .OrderBy(x => x.Start).ToList();
     public virtual Booking? FindBooking(Guid id) => LoadBookings(VisibleBookings.Where(b => b.Id == id)).SingleOrDefault();
     private List<Booking> LoadBookings(IQueryable<BookingRow> query)
     {

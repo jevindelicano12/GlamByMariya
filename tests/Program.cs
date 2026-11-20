@@ -1729,6 +1729,31 @@ if (args.Contains("--travel-rule-only"))
     Check(!Today(At(9, 15)) && Today(At(9, 30)), "today the artist's current position needs the minimum travel");
     Check(TravelPlanner.Fits(At(9), 60, 45, fvLat, fvLng, [], novaliches, At(9).AddDays(-1), 15m, 30), "on a later day the artist's current position is ignored");
     Check(TravelPlanner.Fits(At(9, 15), 60, 45, fvLat, fvLng, [], null, At(9), 15m, 30), "today without a known position does not block");
+
+    // The demo store keeps the same travel settings, artist pins and neighbour list as the database.
+    var travelDemo = new DemoStore(presentationAccounts: true);
+    Check(travelDemo.Settings.TravelSpeedKmh == 15m && travelDemo.Settings.TravelMinimumMinutes == 30, "demo travel settings default to 15 km/h and 30 minutes");
+    Check(travelDemo.GetArtistLocation() == new ArtistLocation(null, null, null, null, null), "the demo artist starts with no home or current pin");
+    travelDemo.SetArtistHome(14.6760m, 121.0437m);
+    travelDemo.SetArtistCurrent(mkLat, mkLng);
+    var pins = travelDemo.GetArtistLocation();
+    Check(pins.HomeLat == 14.6760m && pins.HomeLng == 121.0437m && pins.CurrentLat == mkLat && pins.CurrentLng == mkLng && pins.CurrentUpdatedAt != null, "the demo artist's home and current pins read back");
+    travelDemo.SetArtistCurrent(null, null);
+    var home = travelDemo.GetArtistLocation();
+    Check(home.CurrentLat == null && home.CurrentLng == null && home.CurrentUpdatedAt == null && home.HomeLat == 14.6760m && home.HomeLng == 121.0437m, "clearing the demo current pin keeps home");
+    Reject(() => travelDemo.SetArtistHome(15.5m, 121.0437m), "the demo store refuses a home pin outside Metro Manila");
+    Reject(() => travelDemo.SetArtistCurrent(mkLat, null), "the demo store refuses half a current pin");
+    var seed = travelDemo.Bookings.Single(); var seedDay = seed.Start.Date;
+    var laterStop = new Booking { CustomerId = seed.CustomerId, CustomerName = seed.CustomerName, Service = seed.Service, Start = seedDay.AddHours(14), BufferMinutesSnapshot = 45, Address = seed.Address, Area = seed.Area, Latitude = fvLat, Longitude = fvLng, Status = "Confirmed" };
+    var expiredStop = new Booking { CustomerId = seed.CustomerId, CustomerName = seed.CustomerName, Service = seed.Service, Start = seedDay.AddHours(16), BufferMinutesSnapshot = 45, Address = seed.Address, Area = seed.Area, Latitude = fvLat, Longitude = fvLng, PaymentDueAt = travelDemo.Now.AddMinutes(-1) };
+    travelDemo.Bookings.Add(expiredStop); travelDemo.Bookings.Add(laterStop);
+    var demoStops = travelDemo.TravelStops(seedDay, seedDay.AddDays(1), null);
+    Check(demoStops.Count == 2 && demoStops[0].Start == seed.Start && demoStops[1].Start == laterStop.Start, "the demo neighbours are the seed booking and the later one, in order, without the expired one");
+    Check(demoStops[0].End == seed.End && demoStops[0].BufferMinutes == seed.BufferMinutesSnapshot && demoStops[0].Latitude == seed.Latitude && demoStops[0].Longitude == seed.Longitude,
+        "a demo neighbour carries its times, buffer and pin");
+    var demoOthers = travelDemo.TravelStops(seedDay, seedDay.AddDays(1), seed.Id);
+    Check(demoOthers.Count == 1 && demoOthers[0].Start == laterStop.Start, "the demo store leaves out the booking being moved");
+    Check(travelDemo.TravelStops(seedDay.AddDays(1), seedDay.AddDays(2), null).Count == 0, "another demo day has no neighbours");
     Console.WriteLine($"All {checks} travel rule checks passed."); return;
 }
 if (args.Contains("--travel-only"))

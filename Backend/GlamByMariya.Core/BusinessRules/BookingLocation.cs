@@ -8,6 +8,7 @@ public static class BookingLocation
 {
     public const decimal MinLat = 14.20m, MaxLat = 14.95m, MinLng = 120.85m, MaxLng = 121.25m;
     public const string Message = "Pin your exact location inside Metro Manila.";
+    public const string ArtistMessage = "Pin the artist's location inside Metro Manila.";
 
     public static bool IsValid(decimal? lat, decimal? lng) =>
         lat is { } y && lng is { } x && y >= MinLat && y <= MaxLat && x >= MinLng && x <= MaxLng;

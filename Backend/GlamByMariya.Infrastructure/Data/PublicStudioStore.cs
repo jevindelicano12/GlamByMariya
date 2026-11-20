@@ -74,6 +74,87 @@ public sealed class PublicStudioStore(
         public DateTime Until { get; set; }
     }
 
+    // Travel settings (0015) are read here so the legacy makeup schema's settings row stays unchanged.
+    protected override BusinessSettings LoadSettings()
+    {
+        var value = base.LoadSettings();
+        var travel = pdb.Database.SqlQueryRaw<TravelSettingsRow>(
+            """SELECT travel_speed_kmh AS "Speed", travel_min_minutes AS "Minimum" FROM public.business_settings WHERE id=1""").AsEnumerable().Single();
+        value.TravelSpeedKmh = travel.Speed;
+        value.TravelMinimumMinutes = travel.Minimum;
+        return value;
+    }
+    private sealed class TravelSettingsRow
+    {
+        public decimal Speed { get; set; }
+        public int Minimum { get; set; }
+    }
+
+    public override ArtistLocation GetArtistLocation()
+    {
+        var (artist, _) = ResolveArtist();
+        var row = pdb.Database.SqlQueryRaw<ArtistLocationRow>(
+            """SELECT home_lat AS "HomeLat", home_lng AS "HomeLng", current_lat AS "CurrentLat", current_lng AS "CurrentLng", current_updated_at AS "CurrentUpdatedAt" FROM public.makeup_artists WHERE id={0}""",
+            artist).AsEnumerable().Single();
+        return new(row.HomeLat, row.HomeLng, row.CurrentLat, row.CurrentLng, row.CurrentUpdatedAt is { } at ? Local(at) : null);
+    }
+    private sealed class ArtistLocationRow
+    {
+        public decimal? HomeLat { get; set; }
+        public decimal? HomeLng { get; set; }
+        public decimal? CurrentLat { get; set; }
+        public decimal? CurrentLng { get; set; }
+        public DateTime? CurrentUpdatedAt { get; set; }
+    }
+
+    public override void SetArtistHome(decimal lat, decimal lng)
+    {
+        if (!BookingLocation.IsValid(lat, lng)) throw new InvalidOperationException(BookingLocation.ArtistMessage);
+        Transaction(ActorId, () =>
+        {
+            var (artist, _) = ResolveArtist();
+            pdb.Database.ExecuteSqlInterpolated($"UPDATE public.makeup_artists SET home_lat={lat}, home_lng={lng} WHERE id={artist}");
+        });
+    }
+
+    // Null clears the current pin: the artist is back home.
+    public override void SetArtistCurrent(decimal? lat, decimal? lng)
+    {
+        if ((lat, lng) is not (null, null) && !BookingLocation.IsValid(lat, lng)) throw new InvalidOperationException(BookingLocation.ArtistMessage);
+        Transaction(ActorId, () =>
+        {
+            var (artist, _) = ResolveArtist();
+            if (lat is { } y && lng is { } x)
+                pdb.Database.ExecuteSqlInterpolated($"UPDATE public.makeup_artists SET current_lat={y}, current_lng={x}, current_updated_at=now() WHERE id={artist}");
+            else
+                pdb.Database.ExecuteSqlRaw("UPDATE public.makeup_artists SET current_lat=NULL, current_lng=NULL, current_updated_at=NULL WHERE id={0}", artist);
+        });
+    }
+
+    public override IReadOnlyList<TravelAppointment> TravelStops(DateTime from, DateTime until, Guid? exclude)
+    {
+        try
+        {
+            var excluded = new NpgsqlParameter("excluded", NpgsqlTypes.NpgsqlDbType.Uuid) { Value = (object?)exclude ?? DBNull.Value };
+            var rows = pdb.Database.SqlQueryRaw<TravelStopRow>(
+                """SELECT start_at AS "Start", end_at AS "End", buffer_minutes AS "BufferMinutes", location_lat AS "Lat", location_lng AS "Lng" FROM public.mvc_travel_stops({0},{1},@excluded)""",
+                Utc(from), Utc(until), excluded).ToList();
+            return rows.Select(r => new TravelAppointment(Local(r.Start), Local(r.End), r.BufferMinutes, r.Lat, r.Lng)).OrderBy(x => x.Start).ToList();
+        }
+        catch (Exception e) when (e is PostgresException or NpgsqlException)
+        {
+            throw new InvalidOperationException("Availability cannot be verified. Please try again later.", e);
+        }
+    }
+    private sealed class TravelStopRow
+    {
+        public DateTime Start { get; set; }
+        public DateTime End { get; set; }
+        public int BufferMinutes { get; set; }
+        public decimal? Lat { get; set; }
+        public decimal? Lng { get; set; }
+    }
+
     private (long Id, Guid AppId) ResolveArtist()
     {
         var configured = config["Database:ArtistId"];
@@ -263,7 +344,7 @@ public sealed class PublicStudioStore(
         Admin(actor);
         var names = value.ServiceAreas.Split(',').Select(x => x.Trim()).Where(x => x.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         if (names.Length == 0 || names.Any(x => x.Length > 100)) throw new InvalidOperationException("Provide service area names of at most 100 characters.");
-        pdb.Database.ExecuteSqlInterpolated($"UPDATE public.business_settings SET time_zone={value.TimeZone}, open_hour={value.OpenHour}, close_hour={value.CloseHour}, buffer_minutes={value.BufferMinutes}, down_payment_percent={value.DownPaymentPercent}, travel_fee_informational={value.TravelFee}, payment_instructions={value.PaymentInstructions} WHERE id=1");
+        pdb.Database.ExecuteSqlInterpolated($"UPDATE public.business_settings SET time_zone={value.TimeZone}, open_hour={value.OpenHour}, close_hour={value.CloseHour}, buffer_minutes={value.BufferMinutes}, down_payment_percent={value.DownPaymentPercent}, travel_fee_informational={value.TravelFee}, payment_instructions={value.PaymentInstructions}, travel_speed_kmh={value.TravelSpeedKmh}, travel_min_minutes={value.TravelMinimumMinutes} WHERE id=1");
         pdb.Database.ExecuteSqlRaw("UPDATE public.service_areas SET is_active=false");
         foreach (var name in names)
             pdb.Database.ExecuteSqlInterpolated($"INSERT INTO public.service_areas(name) VALUES({name}) ON CONFLICT DO NOTHING");

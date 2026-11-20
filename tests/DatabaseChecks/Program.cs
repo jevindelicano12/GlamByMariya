@@ -530,6 +530,89 @@ if (Run("--booking-location"))
     Console.WriteLine($"All {checks - before} booking location database checks passed.");
 }
 
+if (Run("--travel"))
+{
+    // Travel settings, the artist's home and current pins, and the neighbour bookings the travel rule reads.
+    var before = checks;
+    await ResetPublic();
+    await SqlMigrator.ApplyAsync(source, migrations);
+    PublicStudioStore App() => NewStore(as_: appSource);
+    var owner = App().CreateInitialSuperAdmin("Maria", "Santos", "maria@example.test", "OwnerPass123");
+    var hasher = new Microsoft.AspNetCore.Identity.PasswordHasher<GlamByMariya.Core.Entities.AppUser>();
+    var customer = App().AddCustomerWithPasswordHash("Ana", "Cruz", "ana@example.test", hasher.HashPassword(new(), "AnaPass123"), 30, "Female", "24 Synthetic Street, Quezon City");
+
+    var defaults = App().Settings;
+    Check(defaults.TravelSpeedKmh == 15m && defaults.TravelMinimumMinutes == 30, $"travel settings default to 15 km/h and 30 minutes ({defaults.TravelSpeedKmh}/{defaults.TravelMinimumMinutes})");
+    var editor = App(); var edited = editor.Settings; edited.TravelSpeedKmh = 20.5m; edited.TravelMinimumMinutes = 45;
+    editor.SaveSettings(edited, owner.Id);
+    var saved = App().Settings;
+    Check(saved.TravelSpeedKmh == 20.5m && saved.TravelMinimumMinutes == 45, "saving the business settings keeps the travel speed and minimum");
+    async Task<string> State(string sql)
+    {
+        try { await Exec(sql); return ""; } catch (PostgresException e) { return e.SqlState ?? e.MessageText; }
+    }
+    Check(await State("UPDATE public.business_settings SET travel_speed_kmh=61 WHERE id=1") == "23514", "a travel speed of 61 km/h is refused");
+    Check(await State("UPDATE public.business_settings SET travel_speed_kmh=4.9 WHERE id=1") == "23514", "a travel speed under 5 km/h is refused");
+    Check(await State("UPDATE public.business_settings SET travel_min_minutes=181 WHERE id=1") == "23514" && await State("UPDATE public.business_settings SET travel_min_minutes=-1 WHERE id=1") == "23514",
+        "a travel minimum outside 0-180 minutes is refused");
+    var tooFast = App(); var fast = tooFast.Settings; fast.TravelSpeedKmh = 61;
+    var storeRefusal = "";
+    try { tooFast.SaveSettings(fast, owner.Id); } catch (InvalidOperationException e) { storeRefusal = (e.InnerException as PostgresException)?.SqlState ?? ""; }
+    Check(storeRefusal == "23514" && App().Settings.TravelSpeedKmh == 20.5m, "the store cannot save a travel speed of 61 km/h");
+
+    var none = App().GetArtistLocation();
+    Check(none == new GlamByMariya.Core.Entities.ArtistLocation(null, null, null, null, null), "a new artist has no home or current pin");
+    App().SetArtistHome(14.6760m, 121.0437m);
+    App().SetArtistCurrent(14.5547m, 121.0244m);
+    var pinned = App().GetArtistLocation();
+    Check(pinned.HomeLat == 14.6760m && pinned.HomeLng == 121.0437m && pinned.CurrentLat == 14.5547m && pinned.CurrentLng == 121.0244m && pinned.CurrentUpdatedAt != null,
+        "the artist's home and current pins read back");
+    App().SetArtistCurrent(null, null);
+    var cleared = App().GetArtistLocation();
+    Check(cleared.CurrentLat == null && cleared.CurrentLng == null && cleared.CurrentUpdatedAt == null && cleared.HomeLat == 14.6760m && cleared.HomeLng == 121.0437m,
+        "clearing the current pin keeps the home pin");
+    Check(await Refused(() => { App().SetArtistHome(15.5m, 121.0437m); return Task.CompletedTask; }) != "" && App().GetArtistLocation().HomeLat == 14.6760m,
+        "the store refuses a home pin outside Metro Manila");
+    Check(await Refused(() => { App().SetArtistCurrent(14.5547m, null); return Task.CompletedTask; }) != "", "the store refuses half a current pin");
+    Check(await State("UPDATE public.makeup_artists SET home_lat=14.6, home_lng=NULL") == "23514", "the database refuses a home latitude without a longitude");
+    Check(await State("UPDATE public.makeup_artists SET current_lat=14.5547, current_lng=121.3") == "23514", "the database refuses a current pin east of Metro Manila");
+
+    var soft = App().Services.Single(x => x.Name == "Soft Glam");
+    var quote = GlamByMariya.Core.BusinessRules.BookingPricing.Calculate(soft, [], 1, App().Settings.TravelFee, "auto", App().Settings.DownPaymentPercent);
+    var day = DateTime.Today.AddDays(4);
+    var n = 0;
+    GlamByMariya.Core.Entities.Booking Book(int hour, decimal lat, decimal lng) => App().SubmitBooking(customer.Id, soft.Id, [], day.AddHours(hour), "24 Synthetic Street, Quezon City", "Quezon City",
+        quote.RequiredDownPayment, "Xendit", $"XENDIT-TRAVEL-{++n}", null, true, true, 1, "auto", quote.FinalTotal, quote.RequiredDownPayment, latitude: lat, longitude: lng);
+    var afternoon = Book(13, 14.7046m, 121.0567m);
+    var morning = Book(10, 14.5547m, 121.0244m);
+    var late = Book(16, 14.6000m, 121.0000m);
+    var all = App().TravelStops(day, day.AddDays(1), null);
+    Check(all.Count == 3, $"every booking holding a slot that day is a neighbour ({all.Count})");
+    await Exec($"UPDATE public.reservations SET payment_expires_at=now()-interval '1 minute' WHERE app_id='{late.Id}'");
+    App().ExpireOverduePayments();
+    var stops = App().TravelStops(day, day.AddDays(1), null);
+    Check(stops.Count == 2 && stops[0].Start == day.AddHours(10) && stops[1].Start == day.AddHours(13),
+        "the two pinned bookings of the day come back in time order without the expired one");
+    Check(stops[0].End == day.AddHours(10).AddMinutes(soft.Minutes) && stops[0].BufferMinutes == 45 && stops[0].Latitude == 14.5547m && stops[0].Longitude == 121.0244m
+        && stops[1].Latitude == 14.7046m && stops[1].Longitude == 121.0567m, "each neighbour carries its Manila-local times, buffer and pin");
+    var others = App().TravelStops(day, day.AddDays(1), morning.Id);
+    Check(others.Count == 1 && others[0].Start == day.AddHours(13), "the booking being moved is left out");
+    Check(App().TravelStops(day.AddDays(1), day.AddDays(2), null).Count == 0, "another day has no neighbours");
+
+    const string signature = "public.mvc_travel_stops(timestamptz,timestamptz,uuid)";
+    var privileges = (string)(await Scalar($"""
+        SELECT has_function_privilege('anon','{signature}','EXECUTE')||'/'||has_function_privilege('authenticated','{signature}','EXECUTE')||'/'||
+               has_function_privilege('makeup_backend','{signature}','EXECUTE')||'/'||(SELECT p.prosecdef FROM pg_proc p WHERE p.oid='{signature}'::regprocedure)||'/'||
+               EXISTS(SELECT 1 FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a WHERE p.oid='{signature}'::regprocedure AND a.grantee=0 AND a.privilege_type='EXECUTE')
+        """))!;
+    Check(privileges == "false/false/true/false/false", $"only the backend role may run mvc_travel_stops, as invoker ({privileges})");
+    var overrides = await State($"UPDATE public.reservations SET travel_override_by='{owner.Id}' WHERE app_id='{morning.Id}'");
+    Check(overrides == "23514", $"a travel override needs both who and when ({overrides})");
+    var recorded = (long)(await Scalar("SELECT count(*) FROM public.schema_migrations"))!;
+    Check(recorded == Directory.GetFiles(migrations, "*.sql").Length, "every migration file is recorded");
+    Console.WriteLine($"All {checks - before} travel database checks passed.");
+}
+
 sealed class TestEnv : Microsoft.AspNetCore.Hosting.IWebHostEnvironment
 {
     public string ApplicationName { get; set; } = "DatabaseChecks";

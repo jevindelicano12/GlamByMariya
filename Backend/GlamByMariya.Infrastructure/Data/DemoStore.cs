@@ -122,6 +122,27 @@ public class DemoStore : IStudioStore
     public void RemoveBlock(Guid id, Guid actor) => Blocks.RemoveAll(x => x.Id == id);
     public void RecordAudit(Guid actor, string message) => AuditLogs.Add(new(actor, message, Now));
     public Booking? FindBooking(Guid id) => Bookings.FirstOrDefault(b => b.Id == id);
+    private ArtistLocation artistLocation = new(null, null, null, null, null);
+    public ArtistLocation GetArtistLocation() { lock (Gate) return artistLocation; }
+    public void SetArtistHome(decimal lat, decimal lng)
+    {
+        if (!BookingLocation.IsValid(lat, lng)) throw new InvalidOperationException(BookingLocation.ArtistMessage);
+        lock (Gate) artistLocation = artistLocation with { HomeLat = lat, HomeLng = lng };
+    }
+    public void SetArtistCurrent(decimal? lat, decimal? lng)
+    {
+        if ((lat, lng) is not (null, null) && !BookingLocation.IsValid(lat, lng)) throw new InvalidOperationException(BookingLocation.ArtistMessage);
+        lock (Gate) artistLocation = artistLocation with { CurrentLat = lat, CurrentLng = lng, CurrentUpdatedAt = lat is null ? null : Now };
+    }
+    // Same hold rule as BookingService.HoldsReservation and the database's mvc_travel_stops.
+    public IReadOnlyList<TravelAppointment> TravelStops(DateTime from, DateTime until, Guid? exclude)
+    {
+        lock (Gate)
+            return Bookings.Where(b => b.Id != exclude && (b.Status == "Confirmed" || (b.Status == "Pending Payment" && !PaymentWindow.IsExpired(b, Now))))
+                .Select(b => new TravelAppointment(b.Start, b.End, b.BufferMinutesSnapshot ?? Settings.BufferMinutes, b.Latitude, b.Longitude))
+                .Where(s => s.Start < until && s.End.AddMinutes(s.BufferMinutes) > from)
+                .OrderBy(s => s.Start).ToList();
+    }
     public void SetAdminActive(Guid admin, bool active, Guid actor)
     {
         lock (Gate)

@@ -143,6 +143,12 @@ public class BusinessSettings
     public int BufferMinutes { get; set; } = 45;
     public decimal TravelFee { get; set; } = 250;
     public decimal DownPaymentPercent { get; set; } = 50;
+    // Travel rule (Phase 5): average speed between bookings and the minimum travel between two places.
+    public decimal TravelSpeedKmh { get; set; } = 15;
+    public int TravelMinimumMinutes { get; set; } = 30;
     public string ServiceAreas { get; set; } = "Quezon City,Makati,Manila,Pasig,Taguig,Mandaluyong";
     public string PaymentInstructions { get; set; } = "Demo only — do not send real money. Contact the artist for verified GCash, Maya or bank account details.";
 }
+
+// The artist's home pin (where the day starts) and current pin (none = at home), Asia/Manila local update time.
+public sealed record ArtistLocation(decimal? HomeLat, decimal? HomeLng, decimal? CurrentLat, decimal? CurrentLng, DateTime? CurrentUpdatedAt);
