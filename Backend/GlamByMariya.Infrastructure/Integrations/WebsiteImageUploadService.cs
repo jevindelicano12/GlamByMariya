@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Microsoft.Extensions.Logging;
 
 namespace GlamByMariya.Infrastructure.Integrations;
 
@@ -6,7 +7,7 @@ namespace GlamByMariya.Infrastructure.Integrations;
 public sealed class WebsiteImageStorageException(Exception inner) : InvalidOperationException("Photo storage is unavailable.", inner);
 
 // Owner uploads and removes photos on the live website draft.
-public sealed class WebsiteImageUploadService(IWebsiteImageRepository images, IWebsiteAssetWriter assets, IAppFileStore files)
+public sealed class WebsiteImageUploadService(IWebsiteImageRepository images, IWebsiteAssetWriter assets, IAppFileStore files, Microsoft.Extensions.Logging.ILogger<WebsiteImageUploadService> log)
 {
     private static Guid RequireOwner(ClaimsPrincipal? principal)
     {
@@ -53,7 +54,8 @@ public sealed class WebsiteImageUploadService(IWebsiteImageRepository images, IW
         catch
         {
             // The draft does not reference this file; do not leave it behind.
-            try { files.Delete(key); } catch (Exception) { }
+            try { files.Delete(key); }
+            catch (Exception cleanup) { log.LogWarning(cleanup, "Could not delete orphaned website photo {ObjectKey} after a failed draft update.", key); }
             throw;
         }
     }

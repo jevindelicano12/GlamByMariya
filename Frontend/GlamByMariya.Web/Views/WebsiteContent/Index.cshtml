@@ -40,6 +40,7 @@
         }
         @if (ViewData["DemoPersistentText"] is not true && ViewData["DraftImages"] is IReadOnlyList<GlamByMariya.Infrastructure.Services.WebsiteImageReference> liveImages) {
             var gallery = liveImages.Where(x => x.Role == "gallery").OrderBy(x => x.SortOrder).ToList();
+            <p class="website-content-notice" role="note">Save your text changes before adding or removing photos.</p>
             <div class="website-content-grid demo-content-images">
             @foreach (var role in new[] { "hero", "portrait" }) {
                 var existing = liveImages.FirstOrDefault(x => x.Role == role);
@@ -77,7 +78,7 @@
                         </form>
                     }
                 </section>
-            </div><script src="~/js/website-image-preview.js" asp-append-version="true"></script>
+            </div><script src="~/js/website-image-preview.js" asp-append-version="true"></script><script src="~/js/website-unsaved-text.js" asp-append-version="true"></script>
         }
     }
 </div>

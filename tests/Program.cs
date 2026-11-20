@@ -365,10 +365,11 @@ if (args.Contains("--website-content-live-only"))
     var photo = File.ReadAllBytes(Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "wwwroot", "images", "looks", "soft-glam.jpg"));
     var keyPattern = new System.Text.RegularExpressions.Regex(@"\Awebsite-content/[0-9a-f]{32}\.(jpg|png)\z");
     var draftId = Guid.NewGuid();
+    var cleanupLog = new CapturingLogger<GlamByMariya.Infrastructure.Integrations.WebsiteImageUploadService>();
     (FakeWebsiteImages Images, FakeAssetWriter Assets, RecordingFileStore Files, GlamByMariya.Infrastructure.Integrations.WebsiteImageUploadService Upload) Uploads()
     {
         var fakeImages = new FakeWebsiteImages(); var fakeAssets = new FakeAssetWriter(); var fakeFiles = new RecordingFileStore();
-        return (fakeImages, fakeAssets, fakeFiles, new GlamByMariya.Infrastructure.Integrations.WebsiteImageUploadService(fakeImages, fakeAssets, fakeFiles));
+        return (fakeImages, fakeAssets, fakeFiles, new GlamByMariya.Infrastructure.Integrations.WebsiteImageUploadService(fakeImages, fakeAssets, fakeFiles, cleanupLog));
     }
     async Task<Exception?> Fails(Func<Task> action) { try { await action(); return null; } catch (Exception e) { return e; } }
 
@@ -415,6 +416,47 @@ if (args.Contains("--website-content-live-only"))
     var demoStart = viewSource.IndexOf("ViewData[\"DemoPersistentText\"] is true) {", viewSource.IndexOf("<partial name=\"_TextEditor\"", StringComparison.Ordinal), StringComparison.Ordinal);
     var demoEnd = demoStart < 0 ? -1 : viewSource.IndexOf("website-image-preview.js", demoStart, StringComparison.Ordinal);
     Check(demoEnd > 0 && viewSource.IndexOf("asp-action=\"SaveImage\"", demoEnd, StringComparison.Ordinal) > 0 && viewSource.IndexOf("asp-action=\"RemoveImage\"", demoEnd, StringComparison.Ordinal) > 0, "the live editor has photo save and remove forms outside the demo block");
+
+    // Review fixes: caching, unsaved-text guard, cleanup logging, message mapping.
+    up = Uploads(); up.Images.FailReplace = true; up.Files.FailDelete = true;
+    var cleanupErr = await Fails(() => up.Upload.Save(uploadOwner, draftId, up.Images.Revision, "portrait", "Mariya", null, photo, default));
+    Check(cleanupErr is InvalidOperationException { Message: "Simulated database failure." }, "a failed cleanup delete still rethrows the original error");
+    Check(cleanupLog.Entries.Any(e => e.Level == Microsoft.Extensions.Logging.LogLevel.Warning && e.Message.Contains(up.Files.Saved[0])), "a failed cleanup delete logs a warning with the object key");
+
+    var imagesSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "Controllers", "WebsiteImagesController.cs"));
+    Check(!imagesSource.Contains("NoStore") && imagesSource.Contains("public, max-age=86400") && imagesSource.Contains("nosniff"), "published images are cached publicly for a day and keep nosniff");
+    var contentSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "Controllers", "WebsiteContentController.cs"));
+    var draftAt = contentSource.IndexOf("Task<IActionResult> DraftImage", StringComparison.Ordinal);
+    Check(draftAt > 0 && contentSource[(draftAt - 140)..draftAt].Contains("NoStore = true"), "draft images stay no-store");
+
+    Check(viewSource.Contains("Save your text changes before adding or removing photos.") && viewSource.Contains("~/js/website-unsaved-text.js"), "the live photo area warns to save text first and loads the unsaved-text script");
+    var guardPath = Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "wwwroot", "js", "website-unsaved-text.js");
+    var guard = File.Exists(guardPath) ? File.ReadAllText(guardPath) : "";
+    Check(guard.Contains("beforeunload") && guard.Contains("website-content-editor") && guard.Contains("submit"), "the unsaved-text script warns on leave and clears on submit");
+
+    async Task<string?> SaveMessage(Func<GlamByMariya.Web.Controllers.WebsiteContentController, Task> act, RecordingFileStore f, FakeWebsiteImages im, FakeAssetWriter aw)
+    {
+        var svc = new GlamByMariya.Infrastructure.Integrations.WebsiteImageUploadService(im, aw, f, cleanupLog);
+        var sp = Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions.BuildServiceProvider(
+            Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton(new Microsoft.Extensions.DependencyInjection.ServiceCollection(), svc));
+        var http = new Microsoft.AspNetCore.Http.DefaultHttpContext { User = uploadOwner, RequestServices = sp };
+        var c = new GlamByMariya.Web.Controllers.WebsiteContentController { ControllerContext = new ControllerContext { HttpContext = http } };
+        c.TempData = new Microsoft.AspNetCore.Mvc.ViewFeatures.TempDataDictionary(http, new NoTempData());
+        c.Url = new Microsoft.AspNetCore.Mvc.Routing.UrlHelper(new ActionContext(http, new Microsoft.AspNetCore.Routing.RouteData(), new Microsoft.AspNetCore.Mvc.Abstractions.ActionDescriptor()));
+        await act(c);
+        return (string?)c.TempData["Error"];
+    }
+    Microsoft.AspNetCore.Http.FormFile Form() => new(new MemoryStream(photo), 0, photo.Length, "image", "soft-glam.jpg");
+    var mm1 = Uploads();
+    Check(await SaveMessage(c => c.SaveImage(draftId, mm1.Images.Revision + 5, "hero", "Alt", null, Form(), default), mm1.Files, mm1.Images, mm1.Assets) == "The draft changed. Reload and try again.", "a stale revision shows the draft-changed message");
+    var mm2 = Uploads(); mm2.Images.FailReplace = true;
+    Check(await SaveMessage(c => c.SaveImage(draftId, mm2.Images.Revision, "hero", "Alt", null, Form(), default), mm2.Files, mm2.Images, mm2.Assets) == "The photo could not be saved. Please try again.", "any other failure shows the generic photo message");
+    var mm3 = Uploads(); mm3.Files.FailSave = true;
+    Check(await SaveMessage(c => c.SaveImage(draftId, mm3.Images.Revision, "hero", "Alt", null, Form(), default), mm3.Files, mm3.Images, mm3.Assets) == "Photos can't be saved right now. Text changes still work.", "a storage outage shows the outage message");
+    var mm4 = Uploads(); mm4.Images.List.Add(new WebsiteImageReference(Guid.NewGuid(), Guid.NewGuid(), "gallery", "x", "", 0, true));
+    Check(await SaveMessage(c => c.RemoveImage(draftId, mm4.Images.Revision + 5, mm4.Images.List[0].Id, default), mm4.Files, mm4.Images, mm4.Assets) == "The draft changed. Reload and try again.", "removing with a stale revision shows the draft-changed message");
+    var mm5 = Uploads(); mm5.Images.List.Add(new WebsiteImageReference(Guid.NewGuid(), Guid.NewGuid(), "gallery", "x", "", 0, true)); mm5.Images.FailReplace = true;
+    Check(await SaveMessage(c => c.RemoveImage(draftId, mm5.Images.Revision, mm5.Images.List[0].Id, default), mm5.Files, mm5.Images, mm5.Assets) is { } removeMsg && !removeMsg.Contains("draft changed"), "removing with another failure does not claim the draft changed");
     Console.WriteLine($"All {checks} live website content checks passed."); return;
 }
 if (args.Contains("--package-label-only"))
@@ -2166,7 +2208,16 @@ sealed class RecordingFileStore : GlamByMariya.Infrastructure.Integrations.IAppF
     public List<string> Saved { get; } = [];
     public List<string> Deleted { get; } = [];
     public bool FailSave { get; set; }
+    public bool FailDelete { get; set; }
     public void Save(string key, byte[] bytes) { if (FailSave) throw new InvalidOperationException("Cloud file storage is temporarily unavailable. Please try again."); Saved.Add(key); }
     public (byte[] Bytes, string ContentType)? Read(string? key) => null;
-    public void Delete(string? key) { if (key != null) Deleted.Add(key); }
+    public void Delete(string? key) { if (FailDelete) throw new IOException("delete failed"); if (key != null) Deleted.Add(key); }
+}
+
+sealed class CapturingLogger<T> : Microsoft.Extensions.Logging.ILogger<T>
+{
+    public List<(Microsoft.Extensions.Logging.LogLevel Level, string Message)> Entries { get; } = [];
+    public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+    public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel level) => true;
+    public void Log<TState>(Microsoft.Extensions.Logging.LogLevel level, Microsoft.Extensions.Logging.EventId id, TState state, Exception? ex, Func<TState, Exception?, string> fmt) => Entries.Add((level, fmt(state, ex)));
 }

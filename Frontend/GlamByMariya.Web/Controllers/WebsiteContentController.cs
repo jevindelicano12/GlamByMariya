@@ -36,6 +36,7 @@ public sealed class WebsiteContentController : Controller
         ViewData["DraftImages"] = await images.DraftImages(User, draftId, cancellationToken);
     }
 
+    private const string StaleDraft = "The draft changed. Reload and try again.";
     private const string PhotoStorageDown = "Photos can't be saved right now. Text changes still work.";
 
     [HttpPost, ValidateAntiForgeryToken, RequestSizeLimit(5_100_000)]
@@ -52,8 +53,8 @@ public sealed class WebsiteContentController : Controller
         }
         catch (ArgumentException e) { TempData["Error"] = e.Message; }
         catch (WebsiteImageStorageException) { TempData["Error"] = PhotoStorageDown; }
-        catch (InvalidOperationException) { TempData["Error"] = "The draft changed. Reload and try again."; }
-        catch (Exception e) when (e is not OperationCanceledException and not UnauthorizedAccessException) { TempData["Error"] = PhotoStorageDown; }
+        catch (InvalidOperationException e) when (e.Message.StartsWith("The draft changed", StringComparison.Ordinal)) { TempData["Error"] = StaleDraft; }
+        catch (Exception e) when (e is not OperationCanceledException and not UnauthorizedAccessException) { TempData["Error"] = "The photo could not be saved. Please try again."; }
         return RedirectToAction(nameof(Index));
     }
 
@@ -68,7 +69,8 @@ public sealed class WebsiteContentController : Controller
             TempData["Success"] = "Photo removed from the draft. Publish the draft to update the website.";
         }
         catch (ArgumentException e) { TempData["Error"] = e.Message; }
-        catch (InvalidOperationException) { TempData["Error"] = "The draft changed. Reload and try again."; }
+        catch (WebsiteImageStorageException) { TempData["Error"] = PhotoStorageDown; }
+        catch (InvalidOperationException e) when (e.Message.StartsWith("The draft changed", StringComparison.Ordinal)) { TempData["Error"] = StaleDraft; }
         catch (Exception e) when (e is not OperationCanceledException and not UnauthorizedAccessException) { TempData["Error"] = "The photo could not be removed. Please try again."; }
         return RedirectToAction(nameof(Index));
     }
