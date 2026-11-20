@@ -340,7 +340,7 @@ if (bookingForm) {
       if (flexible) updatePayment(); else deposit.value = Number(quote.requiredDownPayment).toFixed(2);
       if (flexible) document.querySelector('#summary-addons').textContent = addonQuantities.filter(a => Number(a.value) > 0).map(a => `${a.dataset.name} × ${a.value}: ${money(Number(a.dataset.price) * Number(a.value))}`).join(', ') || 'None';
       else document.querySelector('#summary-addons').textContent = [...bookingForm.querySelectorAll('[name="addOnIds"]:checked')].map(a => `${a.closest('label').querySelector('strong').textContent} × 1: ${money(Number(a.dataset.price))}`).join(', ') || 'None';
-      document.querySelector('#look-selection-caption').textContent = `${quote.service} · ${quote.people} people · ${quote.durationMinutes} minutes`;
+      document.querySelector('#look-selection-caption').textContent = `${quote.service} · ${quote.people} ${quote.people === 1 ? 'person' : 'people'} · ${quote.durationMinutes} minutes`;
       pricingStatus.textContent = `Final total ${money(quote.finalTotal)} · Pay ${quote.downPaymentPercent}%: ${money(quote.requiredDownPayment)} · Balance: ${money(quote.remainingBalance)}`;
       bookingForm.dataset.priceState = 'ready';
       bookingForm.dispatchEvent(new Event('booking-price-updated'));
@@ -616,7 +616,7 @@ document.querySelectorAll('.availability-picker').forEach(picker => {
       const number = document.createElement('span');
       number.textContent = Number(day.date.slice(-2));
       const indicator = document.createElement('small');
-       indicator.textContent = day.availableCount > 0 ? `${day.availableCount} request slots` : status === 'full' ? 'Fully booked' : status === 'past' ? 'Date has passed' : 'No slots';
+       indicator.textContent = day.availableCount > 0 ? `${day.availableCount} ${day.availableCount === 1 ? 'time' : 'times'} available` : status === 'full' ? 'Fully booked' : status === 'past' ? 'Date has passed' : 'No slots';
       button.append(number, indicator);
       const reason = day.date >= today && !day.availableCount
         ? snapshot.durationMinutes === 0 ? 'Live availability is unavailable; use Refresh to retry.' : day.slots.length === 0 ? 'The session and preparation buffer do not fit within booking hours.' : 'No times fit around booking hours, reservations or blocked time.'

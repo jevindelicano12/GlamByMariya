@@ -91,7 +91,7 @@
 .public-menu { display:none; margin-left:auto; }
 .public-desktop-nav { display:flex; align-items:center; gap:2px; margin:0 0 0 auto; overflow:visible; }
 .public-desktop-nav a { padding:10px; color:var(--cocoa); white-space:nowrap; }
-.public-desktop-nav a:last-child { background:var(--dusty-pink); color:var(--cream); }
+.public-desktop-nav a:last-child { display:inline-flex; align-items:center; min-height:42px; margin-left:10px; padding:9px 18px; border:1px solid var(--dusty-pink); border-radius:5px; background:var(--dusty-pink); color:var(--cream); font-size:12px; font-weight:700; }
 .public-menu summary { display:none; cursor:pointer; }
 .public-menu nav { display:flex; align-items:center; gap:2px; margin:0; overflow:visible; }
 .public-menu nav a { padding:10px; color:var(--cocoa); white-space:nowrap; }

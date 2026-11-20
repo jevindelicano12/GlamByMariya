@@ -153,7 +153,7 @@ CREATE INDEX ix_method_qr ON payment_methods(qr_asset_id);
 -- There is no separately sold package catalog or per-guest form in the actual UI.
 CREATE TABLE bookings (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    reference varchar(11) GENERATED ALWAYS AS ('LM-' || upper(substr(replace(id::text,'-',''),1,8))) STORED UNIQUE,
+    reference varchar(12) GENERATED ALWAYS AS ('GBM-' || upper(substr(replace(id::text,'-',''),1,8))) STORED UNIQUE,
     customer_id uuid NOT NULL REFERENCES app_users(id) ON DELETE RESTRICT,
     artist_id uuid NOT NULL REFERENCES app_users(id) ON DELETE RESTRICT,
     customer_name_snapshot varchar(101) NOT NULL,

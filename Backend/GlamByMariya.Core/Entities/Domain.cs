@@ -35,7 +35,7 @@ public class Booking
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public string? StoredReference { get; set; }
-    public string Reference => StoredReference ?? "LM-" + Id.ToString("N")[..8].ToUpperInvariant();
+    public string Reference => StoredReference ?? "GBM-" + Id.ToString("N")[..8].ToUpperInvariant();
     public string BookingType => MixedPeople.Count > 0 ? "Mixed-service" : Package == "group" ? "Same-Service Package" : "Individual";
     public string ServiceDescription => MixedPeople.Count > 0 ? "Mixed-service group" : Service.Name;
     public Guid CustomerId { get; set; }

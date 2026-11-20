@@ -44,7 +44,7 @@ public sealed class PublicStudioStore(
             throw new InvalidOperationException("Mixed booking read visibility is unavailable.");
     }
 
-    private static string NewReference(Guid appId) => "LM-" + appId.ToString("N")[..8].ToUpperInvariant();
+    private static string NewReference(Guid appId) => "GBM-" + appId.ToString("N")[..8].ToUpperInvariant();
 
     private long CustomerBigId(Guid appId) =>
         pdb.Database.SqlQueryRaw<long>("SELECT id AS \"Value\" FROM public.customers WHERE app_id = {0}", appId).SingleOrDefault()

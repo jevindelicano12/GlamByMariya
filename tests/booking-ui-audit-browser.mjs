@@ -259,7 +259,7 @@ try {
   await submit(`document.querySelector('[name=email]').value='admin@glambymariya.demo';document.querySelector('[name=password]').value='Admin123!';document.querySelector('#auth-form').requestSubmit()`);
   const ax = await send('Accessibility.getFullAXTree');
   const names = ax.nodes.filter(n=>!n.ignored).map(n=>n.name?.value).filter(Boolean);
-  assert.ok(names.some(n=>String(n).startsWith('Appointment LM-')) && names.includes('Reference') && names.includes('Customer') && names.includes('Payment'), 'appointment field labels remain in the accessibility tree');
+  assert.ok(names.some(n=>String(n).startsWith('Appointment GBM-')) && names.includes('Reference') && names.includes('Customer') && names.includes('Payment'), 'appointment field labels remain in the accessibility tree');
   console.log('PASS appointment row and field labels are present in Chromium accessibility tree');
   // The Demo does not persist a correction state. Apply only the server-rendered
   // badge text/class to this synthetic DOM to exercise its responsive styling.
