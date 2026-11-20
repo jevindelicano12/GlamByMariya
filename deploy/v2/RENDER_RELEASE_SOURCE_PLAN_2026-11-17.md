@@ -1,5 +1,24 @@
 # V2 information-only Render release-source plan
 
+## Update 2026-11-20
+
+- **Repository decided:** the private V2 repository on GitHub
+  (`jevindelicano12/GlamByMariya`) holds the baseline snapshot `ccc2d3e`.
+- **Public CA decided:** keep `supabase-prod-ca-2021.crt` as the single allowed
+  certificate exception. It is the public Supabase Root 2021 CA (valid to
+  2031-04-26, no private key) and is already committed at
+  `Frontend/GlamByMariya.Web/App_Data/Certificates/`. Dockerfile line 27 is unchanged.
+- **Still open:** stock-photo approval, secret-screening approval, Render
+  hostname/AllowedHosts and public-content approval (items 3-5 below).
+- **Verification on Linux (.NET SDK 10.0.115):** solution builds with 0 errors;
+  all offline check projects pass except `PasswordRegistrationPolicyChecks`;
+  `V2DeploymentChecks` 52/52 against a fresh publish; disposable PostgreSQL 18.6:
+  `CustomerAuthenticationIntegrationChecks --exercise` 68 + 120 passed,
+  `public-migration-checks.mjs` 20 passed.
+- **Blocked:** `docs/` was never committed. `PasswordRegistrationPolicyChecks`,
+  `public-store-checks.mjs` and the booking-test runners read SQL candidates from it.
+- Docker image build not run (no Docker daemon in the verification environment).
+
 Status: **prepared for owner decisions, not committed/pushed/built/deployed**.
 No application source, Dockerfile, ignore file, deployment configuration, private
 configuration, credentials or hosted resources were modified by this preparation.
