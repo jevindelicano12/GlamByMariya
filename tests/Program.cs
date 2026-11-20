@@ -340,8 +340,19 @@ if (args.Contains("--storage-key-only"))
     try { files.Save("CatalogImages/test.jpg", [1, 2, 3]); } catch (Exception e) { saveError = e.GetType().Name + ": " + e.Message; }
     Check(saveError == "" && seen.Count == 1 && seen[0] == "https://example.supabase.co/storage/v1/object/app-files/CatalogImages/test.jpg apikey=sb_secret_example auth=",
         "a file upload trims a pasted storage key and URL" + (saveError == "" ? "" : " (" + saveError + ")") + (seen.Count > 0 ? " [" + seen[0] + "]" : ""));
+    // A key split across lines when pasted (new line inside it) still works: real keys contain no whitespace.
+    seen.Clear();
+    var splitConfig = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+    {
+        ["FileStorage:Provider"] = "Supabase", ["Supabase:Url"] = "https://example.supabase.co", ["SupabaseStorage:ServiceKey"] = "sb_secret_exa\r\nmple ",
+    }).Build();
+    var splitFiles = new GlamByMariya.Infrastructure.Integrations.SupabaseAppFileStore(factory, splitConfig, Microsoft.Extensions.Logging.Abstractions.NullLogger<GlamByMariya.Infrastructure.Integrations.SupabaseAppFileStore>.Instance);
+    var splitError = "";
+    try { splitFiles.Save("CatalogImages/test.jpg", [1, 2, 3]); } catch (Exception e) { splitError = e.GetType().Name + ": " + e.Message; }
+    Check(splitError == "" && seen.Count == 1 && seen[0].EndsWith("apikey=sb_secret_example auth="), "a storage key with a new line inside it still uploads" + (splitError == "" ? "" : " (" + splitError + ")"));
+    Check(GlamByMariya.Infrastructure.Integrations.StorageKey.Clean(" sb_secret_a\nb\tc ") == "sb_secret_abc" && GlamByMariya.Infrastructure.Integrations.StorageKey.Clean(null) == "", "storage keys drop every whitespace character");
     var avatarSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Backend", "GlamByMariya.Infrastructure", "Integrations", "AvatarStorageService.cs"));
-    Check(avatarSource.Contains("config[\"SupabaseStorage:ServiceKey\"]!.Trim()") && avatarSource.Contains("(config[\"Supabase:Url\"] ?? \"\").Trim().TrimEnd('/')"), "profile picture uploads trim the storage key and URL too");
+    Check(avatarSource.Contains("StorageKey.Clean(config[\"SupabaseStorage:ServiceKey\"])") && avatarSource.Contains("(config[\"Supabase:Url\"] ?? \"\").Trim().TrimEnd('/')"), "profile picture uploads trim the storage key and URL too");
     Console.WriteLine($"All {checks} storage key checks passed."); return;
 }
 if (args.Contains("--website-content-live-only"))

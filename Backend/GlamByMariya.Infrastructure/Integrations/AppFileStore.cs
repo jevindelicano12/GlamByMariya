@@ -135,7 +135,7 @@ public sealed class SupabaseAppFileStore(IHttpClientFactory factory, IConfigurat
         client.BaseAddress = new Uri((config["Supabase:Url"] ?? "").Trim().TrimEnd('/') + "/storage/v1/");
         client.Timeout = TimeSpan.FromSeconds(30);
         // A key pasted into the host settings may carry a trailing new line, which HTTP headers refuse.
-        var key = config["SupabaseStorage:ServiceKey"]!.Trim();
+        var key = StorageKey.Clean(config["SupabaseStorage:ServiceKey"]);
         client.DefaultRequestHeaders.Add("apikey", key);
         if (!key.StartsWith("sb_secret_", StringComparison.Ordinal)) client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", key);
         return client;

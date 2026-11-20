@@ -97,7 +97,7 @@ public sealed class AvatarStorageService(IHttpClientFactory factory, IConfigurat
         var client = factory.CreateClient();
         client.BaseAddress = new Uri(BaseUrl + "/storage/v1/");
         client.Timeout = TimeSpan.FromSeconds(30);
-        var key = config["SupabaseStorage:ServiceKey"]!.Trim();
+        var key = StorageKey.Clean(config["SupabaseStorage:ServiceKey"]);
         client.DefaultRequestHeaders.Add("apikey", key);
         if (!key.StartsWith("sb_secret_", StringComparison.Ordinal)) client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", key);
         return client;
