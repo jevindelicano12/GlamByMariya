@@ -114,5 +114,11 @@ Branch: `phase-5/booking-location-details` (from Task 3).
 
 ### Task 5: Release
 
-- [ ] Owner says "push na" → push the branches; apply migrations 0013 and 0014 on Supabase (execute_sql + migrator checksum, as for 0011/0012); fast-forward `main`; deploy (Manual Deploy if auto-deploy does not fire).
+- [ ] Owner says "push na" → push the branches, then release in this exact order:
+  - (a) Before applying anything, compare `pg_get_viewdef('public.mvc_booking_summary')` on Supabase with the last definition in `database/migrations/0002_public_integration.sql`.
+  - (b) Apply 0013 only (execute_sql + record the migrator checksum, as for 0011/0012).
+  - (c) Fast-forward `main` and deploy (Manual Deploy if auto-deploy does not fire); check `/healthz` and make one booking with a pin.
+  - (d) Only then apply 0014 (same checksum recording).
+  - Why this order: with 0014 and the old app every booking fails; with the new app and no 0013 every bookings page returns 500.
+  - Rollback note: after 0014 is applied, rolling the app back to a version without the pin requires first re-applying 0011's `mvc_reservation_guard` (removing the pin check).
 - [ ] Live check: the booking form shows the map; an existing booking shows "No pinned location"; a new booking (owner pays) shows its pin and the Google Maps button in admin.

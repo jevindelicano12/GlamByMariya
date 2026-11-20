@@ -357,6 +357,10 @@
   form.querySelector('#mixed-mode')?.addEventListener('change', () => show(current, false));
   form.querySelectorAll('[name="bookingType"]').forEach(input => input.addEventListener('change', () => show(current, false)));
   // site.js owns the validation/retry/duplicate lock; keep errors visible on payment.
+  // Once a valid pin is set, drop the stale pin reminder.
+  form.addEventListener('booking-location-changed', () => {
+    if (!notPinned() && message.textContent === 'Pin your exact location inside Metro Manila.') notify('');
+  });
   form.addEventListener('booking-submission-message', event => notify(event.detail.message));
 
   form.classList.add('has-booking-steps');

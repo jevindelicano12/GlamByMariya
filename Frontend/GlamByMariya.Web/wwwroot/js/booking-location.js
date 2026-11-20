@@ -19,6 +19,7 @@
   const outsideMessage = 'Pin your exact location inside Metro Manila.';
   const geolocationMessage = "We couldn't get your location. Drag the pin instead.";
   const noMatchMessage = 'No match found; drag the pin instead';
+  const busyMessage = 'Search is busy right now. Try again in a moment, or drag the pin.';
 
   const latitude = root.querySelector('[name="latitude"]');
   const longitude = root.querySelector('[name="longitude"]');
@@ -33,9 +34,10 @@
   const hasPin = () => latitude.value !== '' && longitude.value !== '';
   const areaCentre = () => centres[area?.value?.trim()] || metroManila;
 
+  const announce = () => form.dispatchEvent(new CustomEvent('booking-location-changed', { bubbles: true }));
   const saved = [parseFloat(latitude.value), parseFloat(longitude.value)];
   const restored = Number.isFinite(saved[0]) && Number.isFinite(saved[1]) && inside(saved[0], saved[1]);
-  if (!restored) { latitude.value = ''; longitude.value = ''; }
+  if (!restored) { latitude.value = ''; longitude.value = ''; announce(); }
   const startAt = restored ? saved : areaCentre();
 
   const map = L.map(root.querySelector('#booking-location-map'), { scrollWheelZoom: false }).setView(startAt, restored ? 17 : 14);
@@ -46,7 +48,6 @@
   const marker = L.marker(startAt, { draggable: true, keyboard: true, title: 'Service location pin' }).addTo(map);
   if (restored) say('Pinned. Drag the pin if you need to adjust it.');
 
-  const announce = () => form.dispatchEvent(new CustomEvent('booking-location-changed', { bubbles: true }));
   const setPin = (lat, lng, message) => {
     marker.setLatLng([lat, lng]);
     if (!inside(lat, lng)) {
@@ -110,7 +111,7 @@
       map.setView([lat, lng], 17);
       setPin(lat, lng, 'Pinned near your search result. Drag the pin to your exact spot.');
     } catch {
-      say(noMatchMessage);
+      say(busyMessage);
     } finally {
       searching = false;
       searchButton.disabled = false;

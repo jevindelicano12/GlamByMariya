@@ -870,6 +870,31 @@ if (args.Contains("--booking-location-only"))
     var viewScript = File.Exists(viewScriptPath) ? File.ReadAllText(viewScriptPath) : "";
     Check(viewScript.Contains("© OpenStreetMap contributors") && viewScript.Contains("https://tile.openstreetmap.org/{z}/{x}/{y}.png"), "the read-only map shows the tiles and attribution");
     Check(viewScript.Contains("draggable: false") && viewScript.Contains("dragging: false") && !viewScript.Contains("map.on('click'"), "the read-only map cannot move the pin");
+    // Final review fixes.
+    var locScript = File.ReadAllText(Path.Combine(web, "wwwroot", "js", "booking-location.js"));
+    var announceAt = locScript.IndexOf("const announce =", StringComparison.Ordinal);
+    var clearAt = locScript.IndexOf("if (!restored) {", StringComparison.Ordinal);
+    var clearEnd = clearAt >= 0 ? locScript.IndexOf('}', clearAt) : -1;
+    Check(announceAt >= 0 && announceAt < clearAt && clearEnd > clearAt && locScript[clearAt..clearEnd].Contains("announce()"), "clearing an invalid restored pin on load announces the change");
+    foreach (var stepsName in new[] { "booking-steps.js", "booking-steps-phase2.js" })
+    {
+        var stepsText = File.ReadAllText(Path.Combine(web, "wwwroot", "js", stepsName));
+        var listenAt = stepsText.IndexOf("addEventListener('booking-location-changed'", StringComparison.Ordinal);
+        var listenBody = listenAt >= 0 ? stepsText[listenAt..Math.Min(stepsText.Length, listenAt + 400)] : "";
+        Check(listenBody.Contains("notPinned()") && listenBody.Contains("Pin your exact location inside Metro Manila.") && listenBody.Contains("notify('')"), $"{stepsName} clears the pin message once a valid pin is set");
+    }
+    var busyText = "Search is busy right now. Try again in a moment, or drag the pin.";
+    var searchStart = locScript.IndexOf("const search = async", StringComparison.Ordinal);
+    var searchBody = searchStart >= 0 ? locScript[searchStart..] : "";
+    var catchAt = searchBody.IndexOf("catch", StringComparison.Ordinal);
+    Check(locScript.Contains("const busyMessage = '" + busyText + "'") && catchAt > 0 && searchBody[catchAt..].Contains("say(busyMessage)") && !searchBody[catchAt..searchBody.IndexOf("finally", StringComparison.Ordinal)].Contains("noMatchMessage") && searchBody[..catchAt].Contains("say(noMatchMessage)"), "a failed search says it is busy while an empty result still says no match");
+    Check(searchBody.Contains("lastSearch + 1000"), "the one-request-per-second guard stays");
+    var planText = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "docs", "superpowers", "plans", "2026-11-20-booking-location-pin.md"));
+    var task5 = planText[planText.IndexOf("### Task 5: Release", StringComparison.Ordinal)..];
+    var at13 = task5.IndexOf("0013", StringComparison.Ordinal); var atDeploy = task5.IndexOf("deploy", at13 < 0 ? 0 : at13, StringComparison.OrdinalIgnoreCase);
+    var atSmoke = task5.IndexOf("/healthz", StringComparison.Ordinal); var at14 = task5.IndexOf("0014", atSmoke < 0 ? 0 : atSmoke, StringComparison.Ordinal);
+    Check(task5.Contains("pg_get_viewdef('public.mvc_booking_summary')") && at13 >= 0 && atDeploy > at13 && atSmoke > atDeploy && at14 > atSmoke, "the release plan applies 0013, deploys and smoke-checks, then applies 0014");
+    Check(task5.Contains("mvc_reservation_guard") && task5.Contains("rolling the app back", StringComparison.OrdinalIgnoreCase), "the release plan has the rollback note");
     Console.WriteLine($"All {checks} booking location checks passed."); return;
 }
 if (args.Contains("--exact-deposit-only"))
