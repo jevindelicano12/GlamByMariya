@@ -344,6 +344,21 @@ if (args.Contains("--storage-key-only"))
     Check(avatarSource.Contains("config[\"SupabaseStorage:ServiceKey\"]!.Trim()") && avatarSource.Contains("(config[\"Supabase:Url\"] ?? \"\").Trim().TrimEnd('/')"), "profile picture uploads trim the storage key and URL too");
     Console.WriteLine($"All {checks} storage key checks passed."); return;
 }
+if (args.Contains("--website-content-live-only"))
+{
+    // Database mode registers the website content repository and services.
+    var programSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "Program.cs")).Replace("\r\n", "\n");
+    var dbStart = programSource.IndexOf("builder.Services.AddSingleton<PostgresWebsiteContentRepository>", StringComparison.Ordinal);
+    if (dbStart >= 0) dbStart = programSource.LastIndexOf("if (connection != null && schema == \"public\")\n{", dbStart, StringComparison.Ordinal);
+    Check(dbStart >= 0, "a database-only block registers PostgresWebsiteContentRepository");
+    var dbBlock = dbStart < 0 ? "" : programSource[dbStart..programSource.IndexOf("var app = builder.Build();", dbStart, StringComparison.Ordinal)];
+    foreach (var iface in new[] { "IWebsiteContentRepository", "IWebsiteImageRepository", "IWebsitePublishedAssetLookup", "IWebsiteDraftAssetLookup", "IWebsiteAssetWriter" })
+        Check(dbBlock.Contains("AddSingleton<" + iface + ">(sp => sp.GetRequiredService<PostgresWebsiteContentRepository>())"), iface + " is backed by the shared repository singleton");
+    Check(dbBlock.Contains("AddSingleton<WebsiteContentService>()") && dbBlock.Contains("AddSingleton<WebsiteImageService>()"), "content and image services are singletons");
+    Check(dbBlock.Contains("AddScoped<WebsitePublicImageService>()") && dbBlock.Contains("AddScoped<WebsiteDraftImageService>()"), "file-store image services are scoped");
+    Check(programSource.Contains("builder.Services.AddSingleton<IWebsiteContentRepository, DemoWebsiteContentRepository>();") && programSource.Contains("new DemoFileWebsiteContentRepository(fullRoot)"), "demo registrations are unchanged");
+    Console.WriteLine($"All {checks} live website content checks passed."); return;
+}
 if (args.Contains("--package-label-only"))
 {
     // Step 9a: the "Package" label only when the group rate was actually applied.

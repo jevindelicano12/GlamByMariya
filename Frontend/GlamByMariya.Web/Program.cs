@@ -230,6 +230,21 @@ else
     builder.Services.AddSingleton(sp => new PaymentQrService(sp.GetRequiredService<IWebHostEnvironment>().ContentRootPath));
     builder.Services.AddSingleton(sp => new CatalogImageService(sp.GetRequiredService<IWebHostEnvironment>().ContentRootPath, demoMedia: sp.GetService<DemoCatalogMedia>()));
 }
+if (connection != null && schema == "public")
+{
+    // Live website editing: one repository instance backs every website content interface.
+    builder.Services.AddSingleton<PostgresWebsiteContentRepository>(sp => new PostgresWebsiteContentRepository(sp.GetRequiredService<NpgsqlDataSource>()));
+    builder.Services.AddSingleton<IWebsiteContentRepository>(sp => sp.GetRequiredService<PostgresWebsiteContentRepository>());
+    builder.Services.AddSingleton<IWebsiteImageRepository>(sp => sp.GetRequiredService<PostgresWebsiteContentRepository>());
+    builder.Services.AddSingleton<IWebsitePublishedAssetLookup>(sp => sp.GetRequiredService<PostgresWebsiteContentRepository>());
+    builder.Services.AddSingleton<IWebsiteDraftAssetLookup>(sp => sp.GetRequiredService<PostgresWebsiteContentRepository>());
+    builder.Services.AddSingleton<IWebsiteAssetWriter>(sp => sp.GetRequiredService<PostgresWebsiteContentRepository>());
+    builder.Services.AddSingleton<WebsiteContentService>();
+    builder.Services.AddSingleton<WebsiteImageService>();
+    // These use the scoped IAppFileStore, so they must be scoped too.
+    builder.Services.AddScoped<WebsitePublicImageService>();
+    builder.Services.AddScoped<WebsiteDraftImageService>();
+}
 var app = builder.Build();
 if (databaseCommand != null)
 {
