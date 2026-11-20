@@ -53,7 +53,7 @@ try {
     check(page.status === 200 && !page.body.includes('id="studio-sidebar"') && page.body.includes('class="guest-brand"')
       && page.body.includes('href="/Account/Login"') && page.body.includes('href="/Account/Register"')
       && !page.body.includes('My appointments') && !page.body.includes('Manage administrators')
-      && !page.body.includes('customer@lumiere.demo') && !page.body.includes('admin@lumiere.demo'), `guest ${route} has branded header and no sidebar`);
+      && !page.body.includes('customer@glambymariya.demo') && !page.body.includes('admin@glambymariya.demo'), `guest ${route} has branded header and no sidebar`);
   }
   const landing = await guest('/');
   check(!/href="\/Bookings(?:\/|\?|")/.test(landing.body) && !/href="\/Admin(?:\/|\?|")/.test(landing.body), 'guest landing does not expose authenticated navigation links');

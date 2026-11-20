@@ -149,7 +149,7 @@ try {
     Check ($register.Content.Contains('/js/vendor/zod-3.23.8/index.umd.min.js')) 'Zod is served from the local application on the registration page'
     Check (-not $login.Content.Contains('cdn.jsdelivr.net')) 'login page does not request jsDelivr'
     Check (-not $register.Content.Contains('cdn.jsdelivr.net')) 'registration page does not request jsDelivr'
-    Check ($login.Content.Contains("localStorage.getItem('lumiere-sidebar')")) 'sidebar inline script remains present'
+    Check ($login.Content.Contains("localStorage.getItem('glambymariya-sidebar')")) 'sidebar inline script remains present'
     Check ($login.Content.Contains('schema.safeParse')) 'Zod validation inline script remains present'
     Check (-not $login.Content.Contains('style=')) 'login page has no inline style attributes'
     Check (-not $register.Content.Contains('style=')) 'registration page has no inline style attributes'

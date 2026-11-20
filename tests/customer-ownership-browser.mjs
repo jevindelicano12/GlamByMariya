@@ -49,7 +49,7 @@ try {
     await Promise.all([page.waitForURL(u => !u.pathname.includes('/Account/Login')), page.locator('#auth-form button.button').click()]);
     return { ctx, page };
   }
-  const a = await login('customer@lumiere.demo', 'Customer123!');
+  const a = await login('customer@glambymariya.demo', 'Customer123!');
   const b = await login('ownership-b@example.test', 'SyntheticCustomerB123!');
   check(a.ctx !== b.ctx && a.page.context() !== b.page.context(), 'Customers use independently authenticated browser contexts');
   const aCookie = (await a.ctx.cookies()).find(cookie => cookie.name === '.AspNetCore.Cookies');
@@ -151,8 +151,8 @@ try {
   await denial(b, 'POST', '/Bookings/Cancel', { id: randomUUID(), confirmed: 'true' }, 'B unknown submitted ID');
 
   // Role checks are separate from the cross-Customer ownership assertions.
-  const admin = await login('admin@lumiere.demo', 'Admin123!');
-  const owner = await login('owner@lumiere.demo', 'Owner123!');
+  const admin = await login('admin@glambymariya.demo', 'Admin123!');
+  const owner = await login('owner@glambymariya.demo', 'Owner123!');
   async function get(ctx, route) { return ctx.request.get(base + route, { maxRedirects: 0 }); }
   function redirectedTo(response, target) { return response.status() === 302 && new URL(response.headers().location, base).pathname === target; }
   check((await get(admin.ctx, '/Admin/Appointments')).status() === 200, 'Admin may access appointments (HTTP 200)');

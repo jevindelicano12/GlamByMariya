@@ -145,7 +145,7 @@ if (sidebarToggle) {
   sidebarToggle.addEventListener('click', () => {
     if (matchMedia('(max-width: 850px)').matches) { staffMenu.open = !staffMenu.open; return; }
     document.body.classList.toggle('sidebar-collapsed');
-    try { localStorage.setItem('lumiere-sidebar', document.body.classList.contains('sidebar-collapsed') ? 'collapsed' : 'expanded'); } catch { }
+    try { localStorage.setItem('glambymariya-sidebar', document.body.classList.contains('sidebar-collapsed') ? 'collapsed' : 'expanded'); } catch { }
     syncSidebar();
   });
   syncSidebar();

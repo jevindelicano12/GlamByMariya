@@ -18,7 +18,7 @@ try {
   const dates=JSON.parse(await readFile(path.join(root,'fixture-dates.json'),'utf8'));
   browser=await chromium.launch({executablePath:process.env.BROWSER_EXECUTABLE || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',headless:true});
   async function login(email,password){const ctx=await browser.newContext({viewport:{width:1440,height:900},reducedMotion:'reduce'});await ctx.route('**/*',r=>new URL(r.request().url()).origin===base?r.continue():r.abort());const p=await ctx.newPage();await p.goto(base+'/Account/Login');await p.fill('[name=email]',email);await p.fill('[name=password]',password);await Promise.all([p.waitForURL(u=>!u.pathname.includes('/Account/Login')),p.locator('#auth-form button.button').click()]);return p;}
-  const owner=await login('owner@lumiere.demo','Owner123!'), customer=await login('customer@lumiere.demo','Customer123!'), admin=await login('admin@lumiere.demo','Admin123!');
+  const owner=await login('owner@glambymariya.demo','Owner123!'), customer=await login('customer@glambymariya.demo','Customer123!'), admin=await login('admin@glambymariya.demo','Admin123!');
   const open=async(p,id,role='Admin')=>p.goto(`${base}/${role}/Details/${id}`);
   const post=async(p,id,fields,token)=>p.context().request.post(base+'/Admin/Action',{form:{__RequestVerificationToken:token ?? await p.locator('[name=__RequestVerificationToken]').first().inputValue(),id,...fields},maxRedirects:0});
   const submit=async(p,button)=>{await Promise.all([p.waitForResponse(r=>r.url().endsWith('/Admin/Action')&&r.request().method()==='POST'),button.click()]);await p.waitForLoadState('load');};

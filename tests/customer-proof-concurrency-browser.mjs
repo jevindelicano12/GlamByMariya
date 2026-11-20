@@ -34,8 +34,8 @@ try {
     await Promise.all([page.waitForURL(u => !u.pathname.includes('/Account/Login')), page.locator('#auth-form button.button').click()]);
     return { ctx, page };
   }
-  const a = await login('customer@lumiere.demo', 'Customer123!'), b = await login('customer@lumiere.demo', 'Customer123!');
-  const admin = await login('admin@lumiere.demo', 'Admin123!');
+  const a = await login('customer@glambymariya.demo', 'Customer123!'), b = await login('customer@glambymariya.demo', 'Customer123!');
+  const admin = await login('admin@glambymariya.demo', 'Admin123!');
   async function snapshot(id) {
     const tag = randomUUID(); const r = await a.ctx.request.get(`${base}/Bookings/Details/${id}`, { headers: { 'X-Ownership-Test-Case': tag } }); assert.equal(r.status(), 200);
     for (let i = 0; i < 200; i++) { try { const s = JSON.parse(await readFile(path.join(root, 'review-state.json'), 'utf8')); if (s.tag === tag) { delete s.tag; return s; } } catch (e) { if (e.code !== 'ENOENT' && !(e instanceof SyntaxError)) throw e; } await new Promise(r => setTimeout(r, 10)); }

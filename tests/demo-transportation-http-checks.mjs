@@ -57,8 +57,8 @@ try {
   }
   const ids = html => [...html.matchAll(/href="\/Bookings\/Details\/([a-f0-9-]+)"/g)].map(match => match[1]);
   const status = html => html.match(/<span>Transportation policy<\/span><strong>([^<]+)<\/strong>/)?.[1];
-  await signIn(customer, 'customer@lumiere.demo', 'Customer123!', '/Bookings');
-  await signIn(admin, 'admin@lumiere.demo', 'Admin123!', '/Admin');
+  await signIn(customer, 'customer@glambymariya.demo', 'Customer123!', '/Bookings');
+  await signIn(admin, 'admin@glambymariya.demo', 'Admin123!', '/Admin');
   const before = ids((await request(customer, '/Bookings')).body);
   const history = new Map();
   for (const id of before) history.set(id, status((await request(admin, '/Admin/Details/' + id)).body));

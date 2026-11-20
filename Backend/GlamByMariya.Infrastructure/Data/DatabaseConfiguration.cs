@@ -71,7 +71,7 @@ public static class DatabaseConfiguration
         connection.PersistSecurityInfo=false;
         connection.Timeout=15;
         connection.CommandTimeout=30;
-        connection.ApplicationName="LumiereMakeupMVC";
+        connection.ApplicationName="GlamByMariya";
         // One budget per process, shared by EF and Data Protection. Session
         // pooler limit is 15: default 4 leaves room for a rolling-deploy overlap
         // (2 x 4) and other clients. Configuration may LOWER or adjust this up

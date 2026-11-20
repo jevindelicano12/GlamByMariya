@@ -817,7 +817,7 @@ if (args.Contains("--reservation-only"))
 }
 var oldAvatars = new DemoAvatarStore("unused");
 var presentationAvatars = new DemoAvatarStore("unused", true);
-foreach (var (role, oldEmail, newEmail) in new[] { ("Customer", "customer@lumiere.demo", "presentation-customer@example.test"), ("Admin", "admin@lumiere.demo", "presentation-admin@example.test"), ("SuperAdmin", "owner@lumiere.demo", "presentation-owner@example.test") })
+foreach (var (role, oldEmail, newEmail) in new[] { ("Customer", "customer@glambymariya.demo", "presentation-customer@example.test"), ("Admin", "admin@glambymariya.demo", "presentation-admin@example.test"), ("SuperAdmin", "owner@glambymariya.demo", "presentation-owner@example.test") })
 {
     var oldUser = new AppUser { Role = role, Email = oldEmail };
     var newUser = new AppUser { Role = role, Email = newEmail };

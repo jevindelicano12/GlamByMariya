@@ -36,7 +36,7 @@ try {
     $b = New-Object Microsoft.PowerShell.Commands.WebRequestSession
     $guest = Get-Page '/Account/Settings' $a
     Check ($guest.Content -match 'id="auth-form"') 'settings requires authentication'
-    foreach ($s in @($a,$b)) { Submit 'Login' '/Account/Login' @{email='customer@lumiere.demo';password=$env:GLAM_DEMO_CUSTOMER_PASSWORD} $s | Out-Null }
+    foreach ($s in @($a,$b)) { Submit 'Login' '/Account/Login' @{email='customer@glambymariya.demo';password=$env:GLAM_DEMO_CUSTOMER_PASSWORD} $s | Out-Null }
     $page = Get-Page '/Account/Settings' $a
     Check ($page.Content -match 'Your profile' -and $page.Content -match 'Notifications') 'settings sections render'
     $bad = Submit 'SaveProfile' '/Account/Settings' @{firstName='Alex';lastName='Morgan';age='5';gender='Others';address='123 Demo Street'} $a
@@ -48,7 +48,7 @@ try {
     $toggle = [regex]::Match($prefs,'<input[^>]*name="notificationsEnabled"[^>]*>').Value
     Check ($toggle -notmatch 'checked') 'notifications opt out persisted'
     Submit 'SendEmailVerification' '/Account/Settings' @{} $a | Out-Null
-    $codeFile = Join-Path $root 'Frontend/GlamByMariya.Web/App_Data/EmailCodes/customer_lumiere_demo.txt'
+    $codeFile = Join-Path $root 'Frontend/GlamByMariya.Web/App_Data/EmailCodes/customer_glambymariya_demo.txt'
     $code = [regex]::Match((Get-Content $codeFile -Raw),'\b\d{6}\b').Value
     $wrong = Submit 'ConfirmEmail' '/Account/Settings' @{code='000000'} $a
     Check ($wrong.Content -match 'Incorrect code') 'wrong verification code rejected'
@@ -60,9 +60,9 @@ try {
     Check ($wrongPassword.Content -match 'Current password is incorrect') 'current password required'
     Submit 'ChangePassword' '/Account/Settings' @{currentPassword=$env:GLAM_DEMO_CUSTOMER_PASSWORD;newPassword='Updated123!';confirmPassword='Updated123!'} $a | Out-Null
     Check ((Get-Page '/Account/Settings' $b).Content -match 'id="auth-form"') 'password change invalidates other sessions'
-    $old = Submit 'Login' '/Account/Login' @{email='customer@lumiere.demo';password=$env:GLAM_DEMO_CUSTOMER_PASSWORD} $a
+    $old = Submit 'Login' '/Account/Login' @{email='customer@glambymariya.demo';password=$env:GLAM_DEMO_CUSTOMER_PASSWORD} $a
     Check ($old.Content -match 'Email or password is incorrect') 'old password no longer works'
-    Submit 'Login' '/Account/Login' @{email='customer@lumiere.demo';password='Updated123!'} $a | Out-Null
+    Submit 'Login' '/Account/Login' @{email='customer@glambymariya.demo';password='Updated123!'} $a | Out-Null
     Check ((Get-Page '/Account/Settings' $a).Content -match 'Your profile') 'new password signs in'
     $logoutPage = Submit 'Logout' '/Account/Settings' @{} $a
     Check ($logoutPage.BaseResponse.ResponseUri.AbsolutePath -eq '/Account/Login') 'POST logout redirects to public login GET'

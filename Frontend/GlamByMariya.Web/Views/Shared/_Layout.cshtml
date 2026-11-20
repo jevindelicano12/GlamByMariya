@@ -9,7 +9,7 @@
 
 <body class="@(authenticated ? (staff ? "member-layout staff-layout " : "member-layout customer-layout ") : "guest-layout ")@(controller == "Home" ? "landing-page" : controller == "Bookings" && action == "Create" ? "booking-page" : "")">
 @if (authenticated && staff) {
-<script nonce="@cspNonce">try { if (localStorage.getItem('lumiere-sidebar') === 'collapsed') document.body.classList.add('sidebar-collapsed'); } catch { }</script>
+<script nonce="@cspNonce">try { if (localStorage.getItem('glambymariya-sidebar') === 'collapsed') document.body.classList.add('sidebar-collapsed'); } catch { }</script>
 <aside class="sidebar" id="studio-sidebar">
     <button class="brand" type="button" id="sidebar-toggle" aria-controls="studio-sidebar" aria-expanded="true" aria-label="Collapse sidebar" title="Collapse sidebar"><span class="brand-mark">G<span>✦</span></span><span class="brand-name">GLAM BY MARIYA<small>HOME SERVICE</small></span></button>
     <div class="nav-label">@(staff ? "MAKEUP ARTIST WORKSPACE" : "HOME-SERVICE MAKEUP")</div>

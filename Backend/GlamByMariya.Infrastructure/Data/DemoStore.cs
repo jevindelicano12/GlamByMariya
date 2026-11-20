@@ -63,9 +63,9 @@ public class DemoStore : IStudioStore, IAdminProvisioningStore, IVerifiedProvide
         }
         else
         {
-            AddUser("Makeup", "Artist", "admin@lumiere.demo", passwords[0], "Admin", 35, "Others", "Address on file");
-            AddUser("Business", "Owner", "owner@lumiere.demo", passwords[1], "SuperAdmin", 35, "Others", "Address on file");
-            customer = AddUser("Alex", "Morgan", "customer@lumiere.demo", passwords[2], "Customer", 28, "Others", "24 Sample Street, Demo Barangay");
+            AddUser("Makeup", "Artist", "admin@glambymariya.demo", passwords[0], "Admin", 35, "Others", "Address on file");
+            AddUser("Business", "Owner", "owner@glambymariya.demo", passwords[1], "SuperAdmin", 35, "Others", "Address on file");
+            customer = AddUser("Alex", "Morgan", "customer@glambymariya.demo", passwords[2], "Customer", 28, "Others", "24 Sample Street, Demo Barangay");
         }
         var service = Services.FirstOrDefault(x => x.Active && !x.Archived);
         if (service != null)

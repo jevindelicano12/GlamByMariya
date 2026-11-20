@@ -40,7 +40,7 @@ try {
   const shot=async name=>{const image=await send('Page.captureScreenshot',{format:'png'});await writeFile(path.join(temp,name),Buffer.from(image.data,'base64'));};
   const luminance = rgb => { const c=rgb.match(/\d+/g).slice(0,3).map(Number).map(x=>{const v=x/255;return v<=.04045?v/12.92:((v+.055)/1.055)**2.4});return c[0]*.2126+c[1]*.7152+c[2]*.0722; };
   await navigate('/Account/Login');
-  await submit(`document.querySelector('[name=email]').value='customer@lumiere.demo';document.querySelector('[name=password]').value='Customer123!';document.querySelector('#auth-form').requestSubmit()`);
+  await submit(`document.querySelector('[name=email]').value='customer@glambymariya.demo';document.querySelector('[name=password]').value='Customer123!';document.querySelector('#auth-form').requestSubmit()`);
   await navigate('/Bookings/Create');
   await evalJs(`document.querySelector('[name=bookingType][value=package]').click();document.querySelector('[name=people]').value='3';document.querySelector('[name=people]').dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('#mixed-mode').click()`);
   assert.equal(await evalJs(`document.querySelectorAll('.mixed-person').length`),3);

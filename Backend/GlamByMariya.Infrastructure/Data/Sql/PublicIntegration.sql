@@ -206,7 +206,7 @@ BEGIN
  finish:=ends+make_interval(mins=>buffer);local_start:=starts AT TIME ZONE s.time_zone;local_end:=finish AT TIME ZONE s.time_zone;
  IF starts<=clock_timestamp() OR ends<=starts OR ends-starts>interval '24 hours' OR buffer NOT BETWEEN 0 AND 180
  OR local_start<date_trunc('day',local_start)+make_interval(hours=>s.open_hour)
- OR local_end>date_trunc('day',local_start)+make_interval(hours=>s.close_hour) THEN RAISE EXCEPTION 'Choose a future session that fits the studio hours including travel time'; END IF;
+ OR local_end>date_trunc('day',local_start)+make_interval(hours=>s.close_hour) THEN RAISE EXCEPTION 'Choose a future session that fits our service hours including travel time'; END IF;
  IF EXISTS(SELECT 1 FROM public.artist_availability WHERE artist_id=aid) AND NOT EXISTS
  (SELECT 1 FROM public.artist_availability WHERE artist_id=aid AND weekday=extract(dow FROM local_start)::int
  AND local_start>=local_start::date+start_time AND local_end<=local_start::date+end_time) THEN RAISE EXCEPTION 'The artist is outside weekly availability'; END IF;

@@ -48,7 +48,7 @@ public static class PublicSmokeTest
         var views = pdb.Database.SqlQueryRaw<int>("SELECT count(*)::int AS \"Value\" FROM pg_views WHERE schemaname='public' AND viewname LIKE 'mvc_%'").Single();
         Check(views >= 10, $"Integration views present ({views})");
         Check(store.Services.Count == 3, "Customer catalog reads 3 legacy services");
-        Check(smokeArtistApp != Guid.Empty, "Studio artist Angela Cruz active");
+        Check(smokeArtistApp != Guid.Empty, "Artist Angela Cruz active");
 
         // 1. Registration + login hash verification (isolated test customer).
         var customerEmail = $"smoke.customer.{stamp}@example.test";

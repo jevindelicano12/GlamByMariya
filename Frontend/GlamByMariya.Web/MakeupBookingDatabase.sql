@@ -110,7 +110,7 @@ CREATE TABLE catalog_images (
 );
 CREATE INDEX ix_catalog_images_asset ON catalog_images(asset_id);
 
--- 3. Studio settings. Opening/closing are integer hours to preserve 24:00 closing.
+-- 3. Business settings. Opening/closing are integer hours to preserve 24:00 closing.
 CREATE TABLE business_settings (
     id smallint PRIMARY KEY DEFAULT 1 CHECK (id = 1),
     business_name varchar(100) NOT NULL DEFAULT 'Glam by Mariya',
@@ -450,7 +450,7 @@ BEGIN
     IF p_start <= clock_timestamp() OR p_duration NOT BETWEEN 1 AND 1440
        OR local_start < date_trunc('day',local_start) + make_interval(hours => s.open_hour)
        OR local_end > date_trunc('day',local_start) + make_interval(hours => s.close_hour) THEN
-        RAISE EXCEPTION 'Appointment must be future and fit studio hours including travel buffer';
+        RAISE EXCEPTION 'Appointment must be future and fit service hours including travel buffer';
     END IF;
     IF EXISTS (SELECT 1 FROM artist_schedule_entries e WHERE e.artist_id=p_artist
                AND (e.booking_id IS NULL OR e.booking_id IS DISTINCT FROM p_exclude)
@@ -858,8 +858,8 @@ INSERT INTO roles(id,name) VALUES
 ('10000000-0000-0000-0000-000000000002','Customer'),
 ('10000000-0000-0000-0000-000000000003','SuperAdmin');
 INSERT INTO app_users(id,role_id,first_name,last_name,age_at_registration,gender,address,email,password_hash) VALUES
-('20000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001','Studio','Admin',35,'Others','Studio address on file','admin@lumiere.demo','DISABLED-DEMO-NOT-A-PASSWORD-HASH'),
-('20000000-0000-0000-0000-000000000002','10000000-0000-0000-0000-000000000002','Alex','Morgan',28,'Others','24 Sample Street, Demo Barangay','customer@lumiere.demo','DISABLED-DEMO-NOT-A-PASSWORD-HASH');
+('20000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001','Glam by Mariya','Admin',35,'Others','Address on file','admin@glambymariya.demo','DISABLED-DEMO-NOT-A-PASSWORD-HASH'),
+('20000000-0000-0000-0000-000000000002','10000000-0000-0000-0000-000000000002','Alex','Morgan',28,'Others','24 Sample Street, Demo Barangay','customer@glambymariya.demo','DISABLED-DEMO-NOT-A-PASSWORD-HASH');
 INSERT INTO catalog_categories(id,name) VALUES
 ('30000000-0000-0000-0000-000000000001','The everyday edit'),
 ('30000000-0000-0000-0000-000000000002','The occasion edit'),

@@ -65,9 +65,9 @@ try {
     $anon = New-Object Microsoft.PowerShell.Commands.WebRequestSession
 
     # Role permissions first (each login also consumes the shared login window).
-    Post '/Account/Login' @{email='owner@lumiere.demo';password='Owner123!'} $owner (Get-Token '/Account/Login' $owner) | Out-Null; $script:loginPosts++
-    Post '/Account/Login' @{email='admin@lumiere.demo';password='Admin123!'} $admin (Get-Token '/Account/Login' $admin) | Out-Null; $script:loginPosts++
-    Post '/Account/Login' @{email='customer@lumiere.demo';password='Customer123!'} $customer (Get-Token '/Account/Login' $customer) | Out-Null; $script:loginPosts++
+    Post '/Account/Login' @{email='owner@glambymariya.demo';password='Owner123!'} $owner (Get-Token '/Account/Login' $owner) | Out-Null; $script:loginPosts++
+    Post '/Account/Login' @{email='admin@glambymariya.demo';password='Admin123!'} $admin (Get-Token '/Account/Login' $admin) | Out-Null; $script:loginPosts++
+    Post '/Account/Login' @{email='customer@glambymariya.demo';password='Customer123!'} $customer (Get-Token '/Account/Login' $customer) | Out-Null; $script:loginPosts++
     Check ((Invoke-WebRequest "$base/Admin/Users" -WebSession $owner -UseBasicParsing).StatusCode -eq 200) 'SuperAdmin can open Manage Administrators'
     Check (Denied $admin '/Admin/Users') 'plain Admin is denied Manage Administrators'
     Check (Denied $customer '/Admin/Users') 'Customer is denied Manage Administrators'
@@ -100,7 +100,7 @@ try {
     $inviteCount = 0
     $inviteBlocked = Assert-Limit 'administrator invitation issuance' 10 {
         $script:inviteCount++
-        $email = if ($script:inviteCount -eq 1) { "invite-$([guid]::NewGuid().ToString('N').Substring(0,10))@example.test" } else { 'customer@lumiere.demo' }
+        $email = if ($script:inviteCount -eq 1) { "invite-$([guid]::NewGuid().ToString('N').Substring(0,10))@example.test" } else { 'customer@glambymariya.demo' }
         Post '/Admin/Invite' @{email=$email} $owner $inviteToken
     }
 

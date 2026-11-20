@@ -46,7 +46,7 @@ try {
     await Promise.all([page.waitForURL(u => !u.pathname.includes('/Account/Login')), page.locator('#auth-form button.button').click()]);
     return { ctx, page };
   }
-  const a = await login('customer@lumiere.demo', 'Customer123!');
+  const a = await login('customer@glambymariya.demo', 'Customer123!');
   const b = await login('ownership-b@example.test', 'SyntheticCustomerB123!');
   const aCookie = (await a.ctx.cookies()).find(c => c.name === '.AspNetCore.Cookies');
   const bCookie = (await b.ctx.cookies()).find(c => c.name === '.AspNetCore.Cookies');

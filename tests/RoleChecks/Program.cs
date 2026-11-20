@@ -21,11 +21,11 @@ void Reject(Action action, string name)
 }
 
 var store = new DemoStore();
-var admin = store.Users.Single(u => u.Email == "admin@lumiere.demo");
+var admin = store.Users.Single(u => u.Email == "admin@glambymariya.demo");
 Check(admin.Role == Roles.Admin, "demo seeds an Admin");
-var owner = store.Users.Single(u => u.Email == "owner@lumiere.demo");
+var owner = store.Users.Single(u => u.Email == "owner@glambymariya.demo");
 Check(owner.Role == Roles.SuperAdmin, "demo seeds a SuperAdmin");
-Check(store.Users.Single(u => u.Email == "customer@lumiere.demo").Role == Roles.Customer, "demo seeds a Customer");
+Check(store.Users.Single(u => u.Email == "customer@glambymariya.demo").Role == Roles.Customer, "demo seeds a Customer");
 var hasher = new PasswordHasher<AppUser>();
 var unrelatedPassword = "fixture-" + Guid.NewGuid().ToString("N");
 Check(hasher.VerifyHashedPassword(admin, admin.PasswordHash, unrelatedPassword) == PasswordVerificationResult.Failed, "default synthetic Admin rejects an unrelated password");

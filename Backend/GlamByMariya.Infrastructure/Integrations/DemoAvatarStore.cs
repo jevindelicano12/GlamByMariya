@@ -9,9 +9,9 @@ public sealed class DemoAvatarStore(string root, bool presentationAccounts = fal
     private readonly object gate = new();
     private string? Key(AppUser user) => (presentationAccounts, user.Role, user.Email.ToLowerInvariant()) switch
     {
-        (false, "Customer", "customer@lumiere.demo") or (true, "Customer", "presentation-customer@example.test") => "customer",
-        (false, "Admin", "admin@lumiere.demo") or (true, "Admin", "presentation-admin@example.test") => "admin",
-        (false, "SuperAdmin", "owner@lumiere.demo") or (true, "SuperAdmin", "presentation-owner@example.test") => "owner",
+        (false, "Customer", "customer@glambymariya.demo") or (true, "Customer", "presentation-customer@example.test") => "customer",
+        (false, "Admin", "admin@glambymariya.demo") or (true, "Admin", "presentation-admin@example.test") => "admin",
+        (false, "SuperAdmin", "owner@glambymariya.demo") or (true, "SuperAdmin", "presentation-owner@example.test") => "owner",
         _ => null
     };
     public bool Supports(AppUser user) => Key(user) != null;

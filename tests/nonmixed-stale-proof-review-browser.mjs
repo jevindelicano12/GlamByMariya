@@ -40,9 +40,9 @@ try {
     await Promise.all([page.waitForURL(u => !u.pathname.includes('/Account/Login')), page.locator('#auth-form button.button').click()]);
     return { ctx, page };
   }
-  const customer = await login('customer@lumiere.demo', 'Customer123!');
-  const admin = await login('admin@lumiere.demo', 'Admin123!');
-  const owner = await login('owner@lumiere.demo', 'Owner123!');
+  const customer = await login('customer@glambymariya.demo', 'Customer123!');
+  const admin = await login('admin@glambymariya.demo', 'Admin123!');
+  const owner = await login('owner@glambymariya.demo', 'Owner123!');
   const anonymous = await context();
   check(customer.ctx !== admin.ctx && admin.ctx !== owner.ctx, 'Customer, Admin and SuperAdmin use separate browser contexts');
   async function capture(tag) {

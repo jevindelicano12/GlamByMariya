@@ -333,7 +333,7 @@ if (customerAuthTest) CustomerAuthIntegrationProfile.UseAuthenticatedPageRedirec
 app.UseAuthorization();
 if (customerAuthTest) CustomerAuthIntegrationProfile.MapSessionProbe(app);
 // Render health check. Anonymous, dependency-free, safe to hit every few seconds.
-app.MapGet("/healthz", () => Results.Ok(new { status = "ok", service = "lumiere-makeup" }));
+app.MapGet("/healthz", () => Results.Ok(new { status = "ok", service = "glam-by-mariya" }));
 app.MapControllerRoute("default", "{controller=Home}/{action=Index}/{id?}");
 startupStage = CustomerAuthStartupStage.HttpsBinding;
 if (customerAuthTest)

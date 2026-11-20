@@ -42,7 +42,7 @@ try {
   const anonymous=await fetch(base+'/Bookings/MixedAvailability',{method:'POST',headers:{'content-type':'application/json'},body:'{}',redirect:'manual'});
   assert.notEqual(anonymous.status,200);
   await navigate('/Account/Login');
-  await submit(`document.querySelector('[name=email]').value='customer@lumiere.demo';document.querySelector('[name=password]').value='Customer123!';document.querySelector('#auth-form').requestSubmit()`);
+  await submit(`document.querySelector('[name=email]').value='customer@glambymariya.demo';document.querySelector('[name=password]').value='Customer123!';document.querySelector('#auth-form').requestSubmit()`);
   await navigate('/Bookings/Create');
   const result=await evalJs(`(async()=>{
     const f=document.querySelector('#booking-form'),token=f.querySelector('[name=__RequestVerificationToken]').value;

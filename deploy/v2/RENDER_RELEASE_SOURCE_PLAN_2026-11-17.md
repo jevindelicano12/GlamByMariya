@@ -18,6 +18,11 @@
 - **Blocked:** `docs/` was never committed. `PasswordRegistrationPolicyChecks`,
   `public-store-checks.mjs` and the booking-test runners read SQL candidates from it.
 - Docker image build not run (no Docker daemon in the verification environment).
+- **Secret scan (owner-approved):** gitleaks v8.21.2 (full git history and working
+  tree) and detect-secrets 1.5.0 over both V2 and V1 repositories. No real
+  credentials found. All hits reviewed as synthetic test passwords/keys,
+  placeholder connection strings on `.invalid`/`example.test` hosts, SHA-256
+  checksums, rate-limit policy names, or ignored local `temp/` test keys.
 
 Status: **prepared for owner decisions, not committed/pushed/built/deployed**.
 No application source, Dockerfile, ignore file, deployment configuration, private

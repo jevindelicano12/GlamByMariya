@@ -35,9 +35,9 @@ try {
     $owner = New-Object Microsoft.PowerShell.Commands.WebRequestSession
     $customer = New-Object Microsoft.PowerShell.Commands.WebRequestSession
     $admin = New-Object Microsoft.PowerShell.Commands.WebRequestSession
-    Submit '/Account/Login' '/Account/Login' @{email='owner@lumiere.demo';password=$env:GLAM_DEMO_OWNER_PASSWORD} $owner | Out-Null
-    Submit '/Account/Login' '/Account/Login' @{email='customer@lumiere.demo';password=$env:GLAM_DEMO_CUSTOMER_PASSWORD} $customer | Out-Null
-    Submit '/Account/Login' '/Account/Login' @{email='admin@lumiere.demo';password=$env:GLAM_DEMO_ADMIN_PASSWORD} $admin | Out-Null
+    Submit '/Account/Login' '/Account/Login' @{email='owner@glambymariya.demo';password=$env:GLAM_DEMO_OWNER_PASSWORD} $owner | Out-Null
+    Submit '/Account/Login' '/Account/Login' @{email='customer@glambymariya.demo';password=$env:GLAM_DEMO_CUSTOMER_PASSWORD} $customer | Out-Null
+    Submit '/Account/Login' '/Account/Login' @{email='admin@glambymariya.demo';password=$env:GLAM_DEMO_ADMIN_PASSWORD} $admin | Out-Null
     Check ((Get-Page '/Admin/Users' $owner).StatusCode -eq 200) 'SuperAdmin opens Manage Administrators'
     Check ((Get-Page '/Admin/Users' $owner).Content -match 'Invite an administrator') 'invite form renders'
     function Denied($session, $path) {
@@ -50,11 +50,11 @@ try {
     Check (Denied $customer '/Admin/Users') 'customer denied from Manage Administrators'
 
     # Existing account: duplicate invitation must not change role/password/auth.
-    $duplicateResult = (Submit '/Admin/Invite' '/Admin/Users' @{email='customer@lumiere.demo'} $owner).Content
+    $duplicateResult = (Submit '/Admin/Invite' '/Admin/Users' @{email='customer@glambymariya.demo'} $owner).Content
     Check ($duplicateResult -match 'already registered') 'existing account invitation is rejected clearly'
-    Check ($duplicateResult -notmatch 'Invitation sent to customer@lumiere.demo') 'existing account receives no invitation'
+    Check ($duplicateResult -notmatch 'Invitation sent to customer@glambymariya.demo') 'existing account receives no invitation'
     $customerAgain = New-Object Microsoft.PowerShell.Commands.WebRequestSession
-    Submit '/Account/Login' '/Account/Login' @{email='customer@lumiere.demo';password=$env:GLAM_DEMO_CUSTOMER_PASSWORD} $customerAgain | Out-Null
+    Submit '/Account/Login' '/Account/Login' @{email='customer@glambymariya.demo';password=$env:GLAM_DEMO_CUSTOMER_PASSWORD} $customerAgain | Out-Null
     Check ((Get-Page '/Bookings' $customerAgain).BaseResponse.ResponseUri -match '/Bookings') 'existing customer still logs in after rejected invitation'
 
     # Tampered registration role is ignored: everyone becomes Customer.

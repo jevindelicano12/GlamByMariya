@@ -55,7 +55,7 @@ function New-PsqlBaselineInfo($Config, [string]$ProfileDirectory) {
         PGUSER=$Config.Database__Username; PGPASSWORD=$Config.Database__Password
         PGSSLMODE='verify-full'; PGSSLNEGOTIATION='postgres'; PGGSSENCMODE='disable'
         PGSSLSNI='1'; PGCHANNELBINDING='prefer'; PGCONNECT_TIMEOUT='15'
-        PGPASSFILE='NUL'; PSQL_HISTORY='NUL'; PGAPPNAME='LumiereMakeupMVC'
+        PGPASSFILE='NUL'; PSQL_HISTORY='NUL'; PGAPPNAME='GlamByMariya'
         PGCLIENTENCODING='UTF8'
         PGSSLROOTCERT='system'
         HOME=$ProfileDirectory; USERPROFILE=$ProfileDirectory; APPDATA=$ProfileDirectory; LOCALAPPDATA=$ProfileDirectory
