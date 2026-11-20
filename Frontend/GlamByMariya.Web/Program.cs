@@ -244,6 +244,7 @@ if (connection != null && schema == "public")
     // These use the scoped IAppFileStore, so they must be scoped too.
     builder.Services.AddScoped<WebsitePublicImageService>();
     builder.Services.AddScoped<WebsiteDraftImageService>();
+    builder.Services.AddScoped<WebsiteImageUploadService>();
 }
 var app = builder.Build();
 if (databaseCommand != null)

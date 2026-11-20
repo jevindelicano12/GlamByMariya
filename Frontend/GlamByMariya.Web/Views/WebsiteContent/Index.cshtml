@@ -38,5 +38,46 @@
             }
             </div><script src="~/js/website-image-preview.js" asp-append-version="true"></script>
         }
+        @if (ViewData["DemoPersistentText"] is not true && ViewData["DraftImages"] is IReadOnlyList<GlamByMariya.Infrastructure.Services.WebsiteImageReference> liveImages) {
+            var gallery = liveImages.Where(x => x.Role == "gallery").OrderBy(x => x.SortOrder).ToList();
+            <div class="website-content-grid demo-content-images">
+            @foreach (var role in new[] { "hero", "portrait" }) {
+                var existing = liveImages.FirstOrDefault(x => x.Role == role);
+                <section class="website-content-card"><h2>@(role == "hero" ? "Homepage hero photo" : "About Me portrait")</h2>
+                    @if (existing != null) { <img class="demo-content-preview" src="@Url.Action("DraftImage", "WebsiteContent", new { id = existing.Id })" alt="@existing.AltText" /> } else { <p>No photo in this draft yet.</p> }
+                    <form asp-action="SaveImage" method="post" enctype="multipart/form-data" class="stack demo-image-form">
+                        <input type="hidden" name="draftId" value="@Model.DraftId" /><input type="hidden" name="revision" value="@Model.Revision" /><input type="hidden" name="role" value="@role" />
+                        <label>JPG or PNG, up to 5 MB<input type="file" name="image" accept="image/jpeg,image/png" required /></label>
+                        <img class="demo-content-preview" data-selected-preview alt="Selected photo preview" hidden />
+                        <label>Alternative text<input name="altText" maxlength="250" required value="@existing?.AltText" /></label>
+                        <button class="button secondary" type="submit">@(existing == null ? "Add photo to draft" : "Replace photo in draft")</button>
+                    </form>
+                </section>
+            }
+                <section class="website-content-card"><h2>Gallery</h2><p>@gallery.Count of @GlamByMariya.Core.BusinessRules.WebsiteContentRules.MaxGalleryImages photos.</p>
+                    @if (gallery.Count == 0) { <p>No gallery photos in this draft yet.</p> }
+                    @foreach (var item in gallery) {
+                        <div class="stack">
+                            <img class="demo-content-preview" src="@Url.Action("DraftImage", "WebsiteContent", new { id = item.Id })" alt="@item.AltText" />
+                            @if (!string.IsNullOrEmpty(item.Caption)) { <p>@item.Caption</p> }
+                            <form asp-action="RemoveImage" method="post">
+                                <input type="hidden" name="draftId" value="@Model.DraftId" /><input type="hidden" name="revision" value="@Model.Revision" /><input type="hidden" name="imageId" value="@item.Id" />
+                                <button class="button secondary" type="submit">Remove</button>
+                            </form>
+                        </div>
+                    }
+                    @if (gallery.Count < GlamByMariya.Core.BusinessRules.WebsiteContentRules.MaxGalleryImages) {
+                        <form asp-action="SaveImage" method="post" enctype="multipart/form-data" class="stack demo-image-form">
+                            <input type="hidden" name="draftId" value="@Model.DraftId" /><input type="hidden" name="revision" value="@Model.Revision" /><input type="hidden" name="role" value="gallery" />
+                            <label>JPG or PNG, up to 5 MB<input type="file" name="image" accept="image/jpeg,image/png" required /></label>
+                            <img class="demo-content-preview" data-selected-preview alt="Selected photo preview" hidden />
+                            <label>Alternative text<input name="altText" maxlength="250" required /></label>
+                            <label>Caption (optional)<input name="caption" maxlength="500" /></label>
+                            <button class="button secondary" type="submit">Add to gallery</button>
+                        </form>
+                    }
+                </section>
+            </div><script src="~/js/website-image-preview.js" asp-append-version="true"></script>
+        }
     }
 </div>

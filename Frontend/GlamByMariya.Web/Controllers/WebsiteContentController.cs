@@ -19,8 +19,58 @@ public sealed class WebsiteContentController : Controller
         if (service == null) return View(new WebsiteContentEditorModel());
         ViewData["DemoTextEditing"] = HttpContext.RequestServices.GetService<IWebsiteContentRepository>() is DemoWebsiteContentRepository;
         ViewData["DemoPersistentText"] = HttpContext.RequestServices.GetService<IWebsiteContentRepository>() is DemoFileWebsiteContentRepository;
-        try { if (HttpContext.RequestServices.GetService<IWebsiteContentRepository>() is DemoFileWebsiteContentRepository local) ViewData["DemoDraftImages"] = local.Images(true); return View(WebsiteContentEditorModel.FromDraft(await service.Preview(User, cancellationToken))); }
+        try
+        {
+            if (HttpContext.RequestServices.GetService<IWebsiteContentRepository>() is DemoFileWebsiteContentRepository local) ViewData["DemoDraftImages"] = local.Images(true);
+            var draft = await service.Preview(User, cancellationToken);
+            if (draft != null) await LoadDraftImages(draft.Id, cancellationToken);
+            return View(WebsiteContentEditorModel.FromDraft(draft));
+        }
         catch (Exception e) when (e is not OperationCanceledException) { return StatusCode(503, "Website content is temporarily unavailable."); }
+    }
+
+    // Live photo cards appear only when uploads are registered (database mode).
+    private async Task LoadDraftImages(Guid draftId, CancellationToken cancellationToken)
+    {
+        if (HttpContext.RequestServices.GetService<WebsiteImageUploadService>() == null || HttpContext.RequestServices.GetService<WebsiteImageService>() is not { } images) return;
+        ViewData["DraftImages"] = await images.DraftImages(User, draftId, cancellationToken);
+    }
+
+    private const string PhotoStorageDown = "Photos can't be saved right now. Text changes still work.";
+
+    [HttpPost, ValidateAntiForgeryToken, RequestSizeLimit(5_100_000)]
+    public async Task<IActionResult> SaveImage(Guid draftId, long revision, string role, string? altText, string? caption, IFormFile? image, CancellationToken cancellationToken)
+    {
+        var uploads = HttpContext.RequestServices.GetService<WebsiteImageUploadService>();
+        if (uploads == null) return NotFound();
+        if (image == null || image.Length <= 0 || image.Length > WebsiteContentRules.MaxImageBytes) { TempData["Error"] = "Choose a JPG or PNG image up to 5 MB."; return RedirectToAction(nameof(Index)); }
+        try
+        {
+            await using var buffer = new MemoryStream(); await image.CopyToAsync(buffer, cancellationToken);
+            await uploads.Save(User, draftId, revision, role, altText, caption, buffer.ToArray(), cancellationToken);
+            TempData["Success"] = "Photo saved to the draft. Publish the draft to make it public.";
+        }
+        catch (ArgumentException e) { TempData["Error"] = e.Message; }
+        catch (WebsiteImageStorageException) { TempData["Error"] = PhotoStorageDown; }
+        catch (InvalidOperationException) { TempData["Error"] = "The draft changed. Reload and try again."; }
+        catch (Exception e) when (e is not OperationCanceledException and not UnauthorizedAccessException) { TempData["Error"] = PhotoStorageDown; }
+        return RedirectToAction(nameof(Index));
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> RemoveImage(Guid draftId, long revision, Guid imageId, CancellationToken cancellationToken)
+    {
+        var uploads = HttpContext.RequestServices.GetService<WebsiteImageUploadService>();
+        if (uploads == null) return NotFound();
+        try
+        {
+            await uploads.Remove(User, draftId, revision, imageId, cancellationToken);
+            TempData["Success"] = "Photo removed from the draft. Publish the draft to update the website.";
+        }
+        catch (ArgumentException e) { TempData["Error"] = e.Message; }
+        catch (InvalidOperationException) { TempData["Error"] = "The draft changed. Reload and try again."; }
+        catch (Exception e) when (e is not OperationCanceledException and not UnauthorizedAccessException) { TempData["Error"] = "The photo could not be removed. Please try again."; }
+        return RedirectToAction(nameof(Index));
     }
 
     private WebsiteContentService? ContentService => HttpContext.RequestServices.GetService<WebsiteContentService>();
@@ -95,6 +145,7 @@ public sealed class WebsiteContentController : Controller
         catch (Exception e) when (e is not OperationCanceledException) { ModelState.AddModelError("", "Saving failed. Your submitted text remains below; try again."); }
         input.Links ??= []; input.Faqs ??= [];
         input.AddEmptySlots();
+        try { await LoadDraftImages(input.DraftId, cancellationToken); } catch (Exception e) when (e is not OperationCanceledException) { }
         return View("Index", input);
     }
 

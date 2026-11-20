@@ -357,6 +357,64 @@ if (args.Contains("--website-content-live-only"))
     Check(dbBlock.Contains("AddSingleton<WebsiteContentService>()") && dbBlock.Contains("AddSingleton<WebsiteImageService>()"), "content and image services are singletons");
     Check(dbBlock.Contains("AddScoped<WebsitePublicImageService>()") && dbBlock.Contains("AddScoped<WebsiteDraftImageService>()"), "file-store image services are scoped");
     Check(programSource.Contains("builder.Services.AddSingleton<IWebsiteContentRepository, DemoWebsiteContentRepository>();") && programSource.Contains("new DemoFileWebsiteContentRepository(fullRoot)"), "demo registrations are unchanged");
+    Check(dbBlock.Contains("AddScoped<WebsiteImageUploadService>()"), "the photo upload service is scoped (it uses the scoped file store)");
+
+    // Task 4: owner uploads and removes photos on the live draft.
+    var uploadOwner = new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim(ClaimTypes.NameIdentifier, Guid.NewGuid().ToString()), new Claim(ClaimTypes.Role, "SuperAdmin") }, "Cookies"));
+    var uploadAdmin = new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim(ClaimTypes.NameIdentifier, Guid.NewGuid().ToString()), new Claim(ClaimTypes.Role, "Admin") }, "Cookies"));
+    var photo = File.ReadAllBytes(Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "wwwroot", "images", "looks", "soft-glam.jpg"));
+    var keyPattern = new System.Text.RegularExpressions.Regex(@"\Awebsite-content/[0-9a-f]{32}\.(jpg|png)\z");
+    var draftId = Guid.NewGuid();
+    (FakeWebsiteImages Images, FakeAssetWriter Assets, RecordingFileStore Files, GlamByMariya.Infrastructure.Integrations.WebsiteImageUploadService Upload) Uploads()
+    {
+        var fakeImages = new FakeWebsiteImages(); var fakeAssets = new FakeAssetWriter(); var fakeFiles = new RecordingFileStore();
+        return (fakeImages, fakeAssets, fakeFiles, new GlamByMariya.Infrastructure.Integrations.WebsiteImageUploadService(fakeImages, fakeAssets, fakeFiles));
+    }
+    async Task<Exception?> Fails(Func<Task> action) { try { await action(); return null; } catch (Exception e) { return e; } }
+
+    var up = Uploads();
+    await up.Upload.Save(uploadOwner, draftId, up.Images.Revision, "hero", "Bride with soft glam", null, photo, default);
+    Check(up.Files.Saved.Count == 1 && keyPattern.IsMatch(up.Files.Saved[0]) && up.Images.List.Count(x => x.Role == "hero") == 1, "owner saves a hero photo under a website-content key");
+    Check(up.Assets.Added.Single().Key == up.Files.Saved[0] && up.Images.List.Single().AssetId == up.Assets.Added.Single().Id, "the hero points at the new asset");
+    await up.Upload.Save(uploadOwner, draftId, up.Images.Revision, "hero", "Second hero", "", photo, default);
+    Check(up.Images.List.Count(x => x.Role == "hero") == 1 && up.Images.List.Single(x => x.Role == "hero").AltText == "Second hero", "a second hero replaces the first");
+
+    up = Uploads();
+    Check(await Fails(() => up.Upload.Save(uploadAdmin, draftId, up.Images.Revision, "hero", "Alt", null, photo, default)) is UnauthorizedAccessException && up.Files.Saved.Count == 0, "an Admin who is not SuperAdmin cannot upload photos");
+    Check(await Fails(() => up.Upload.Save(uploadOwner, draftId, up.Images.Revision, "hero", "Alt", null, "not an image"u8.ToArray(), default)) != null && up.Files.Saved.Count == 0, "bytes that are not an image are refused before storage");
+
+    up = Uploads(); up.Images.FailReplace = true;
+    Check(await Fails(() => up.Upload.Save(uploadOwner, draftId, up.Images.Revision, "portrait", "Mariya", null, photo, default)) != null && up.Files.Saved.Count == 1 && up.Files.Deleted.SequenceEqual(up.Files.Saved), "a failed draft update deletes the stored file");
+
+    up = Uploads();
+    up.Images.List.AddRange(Enumerable.Range(0, 20).Select(i => new WebsiteImageReference(Guid.NewGuid(), Guid.NewGuid(), "gallery", $"Look {i}", "", i, true)));
+    var galleryFull = await Fails(() => up.Upload.Save(uploadOwner, draftId, up.Images.Revision, "gallery", "One more", null, photo, default));
+    Check(galleryFull is ArgumentException { Message: "The gallery already has 20 photos." } && up.Files.Saved.Count == 0, "a 21st gallery photo is refused before storage");
+
+    up = Uploads();
+    await up.Upload.Save(uploadOwner, draftId, up.Images.Revision, "gallery", "First look", "Caption one", photo, default);
+    await up.Upload.Save(uploadOwner, draftId, up.Images.Revision, "gallery", "Second look", "", photo, default);
+    var looks = up.Images.List.Where(x => x.Role == "gallery").OrderBy(x => x.SortOrder).ToList();
+    Check(looks.Count == 2 && looks[1].SortOrder == looks[0].SortOrder + 1 && looks[0].Caption == "Caption one", "gallery photos append in order with their captions");
+    await up.Upload.Remove(uploadOwner, draftId, up.Images.Revision, looks[0].Id, default);
+    Check(up.Images.List.Count == 1 && up.Images.List[0].Id == looks[1].Id, "Remove drops only the chosen photo");
+
+    // A storage outage shows a friendly message; text editing is unaffected.
+    up = Uploads(); up.Files.FailSave = true;
+    var uploadServices = Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions.BuildServiceProvider(
+        Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton(new Microsoft.Extensions.DependencyInjection.ServiceCollection(), up.Upload));
+    var uploadHttp = new Microsoft.AspNetCore.Http.DefaultHttpContext { User = uploadOwner, RequestServices = uploadServices };
+    var uploadController = new GlamByMariya.Web.Controllers.WebsiteContentController { ControllerContext = new ControllerContext { HttpContext = uploadHttp } };
+    uploadController.TempData = new Microsoft.AspNetCore.Mvc.ViewFeatures.TempDataDictionary(uploadHttp, new NoTempData());
+    uploadController.Url = new Microsoft.AspNetCore.Mvc.Routing.UrlHelper(new ActionContext(uploadHttp, new Microsoft.AspNetCore.Routing.RouteData(), new Microsoft.AspNetCore.Mvc.Abstractions.ActionDescriptor()));
+    var formFile = new Microsoft.AspNetCore.Http.FormFile(new MemoryStream(photo), 0, photo.Length, "image", "soft-glam.jpg");
+    var stored = await uploadController.SaveImage(draftId, up.Images.Revision, "hero", "Alt", null, formFile, default);
+    Check(stored is RedirectToActionResult { ActionName: "Index" } && (string?)uploadController.TempData["Error"] == "Photos can't be saved right now. Text changes still work.", "a storage outage shows the friendly photo message");
+
+    var viewSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "Views", "WebsiteContent", "Index.cshtml"));
+    var demoStart = viewSource.IndexOf("ViewData[\"DemoPersistentText\"] is true) {", viewSource.IndexOf("<partial name=\"_TextEditor\"", StringComparison.Ordinal), StringComparison.Ordinal);
+    var demoEnd = demoStart < 0 ? -1 : viewSource.IndexOf("website-image-preview.js", demoStart, StringComparison.Ordinal);
+    Check(demoEnd > 0 && viewSource.IndexOf("asp-action=\"SaveImage\"", demoEnd, StringComparison.Ordinal) > 0 && viewSource.IndexOf("asp-action=\"RemoveImage\"", demoEnd, StringComparison.Ordinal) > 0, "the live editor has photo save and remove forms outside the demo block");
     Console.WriteLine($"All {checks} live website content checks passed."); return;
 }
 if (args.Contains("--package-label-only"))
@@ -2080,4 +2138,35 @@ sealed class RecordingHttpFactory(List<string> seen) : IHttpClientFactory
             return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK));
         }
     }
+}
+
+sealed class FakeWebsiteImages : IWebsiteImageRepository
+{
+    public List<WebsiteImageReference> List { get; } = [];
+    public long Revision { get; private set; } = 1;
+    public bool FailReplace { get; set; }
+    public Task<IReadOnlyList<WebsiteImageReference>> ReadDraftImages(Guid draftId, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<WebsiteImageReference>>(List.ToList());
+    public Task<IReadOnlyList<WebsiteImageReference>> ReadPublishedImages(CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<WebsiteImageReference>>([]);
+    public Task ReplaceDraftImages(Guid actor, Guid draftId, long expectedRevision, IReadOnlyList<WebsiteImageReference> images, CancellationToken cancellationToken)
+    {
+        if (FailReplace) throw new InvalidOperationException("Simulated database failure.");
+        if (expectedRevision != Revision) throw new InvalidOperationException("The draft changed.");
+        List.Clear(); List.AddRange(images); Revision++; return Task.CompletedTask;
+    }
+}
+
+sealed class FakeAssetWriter : IWebsiteAssetWriter
+{
+    public List<(Guid Id, string Key)> Added { get; } = [];
+    public Task<Guid> AddAsset(Guid actor, string objectKey, string contentType, int byteLength, CancellationToken ct) { var id = Guid.NewGuid(); Added.Add((id, objectKey)); return Task.FromResult(id); }
+}
+
+sealed class RecordingFileStore : GlamByMariya.Infrastructure.Integrations.IAppFileStore
+{
+    public List<string> Saved { get; } = [];
+    public List<string> Deleted { get; } = [];
+    public bool FailSave { get; set; }
+    public void Save(string key, byte[] bytes) { if (FailSave) throw new InvalidOperationException("Cloud file storage is temporarily unavailable. Please try again."); Saved.Add(key); }
+    public (byte[] Bytes, string ContentType)? Read(string? key) => null;
+    public void Delete(string? key) { if (key != null) Deleted.Add(key); }
 }
