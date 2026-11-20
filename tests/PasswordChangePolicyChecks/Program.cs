@@ -120,8 +120,16 @@ foreach (var role in new[] { "Customer", "Admin", "SuperAdmin" })
     using var fixture = new ChangeFixture(remote: true, role: role, durable: true);
     var result = await fixture.Controller.Login(ChangeFixture.Email, ChangeFixture.ExistingPassword);
     Check(result is RedirectResult && fixture.Auth.LastPrincipal?.FindFirstValue(DurableSessionAuthorization.EpochClaim) == "1"
+        && fixture.Auth.LastPrincipal?.FindFirstValue(VersionedSessionAuthorization.SecurityVersionClaim) == "1"
         && fixture.Auth.LastPrincipal?.IsInRole(role) == true && fixture.Store.LinkCalls == 0,
         role + ": durable MVC login issues epoch-bearing ticket without relinking");
+}
+foreach (var role in new[] { "Customer", "Admin", "SuperAdmin" })
+{
+    using var fixture = new ChangeFixture(remote: true, role: role, durable: true, persistentStore: false);
+    var result = await fixture.Controller.Login(ChangeFixture.Email, ChangeFixture.ExistingPassword);
+    Check(result is ViewResult && fixture.Auth.LastPrincipal == null && fixture.Http.SignInCalls == 0,
+        role + ": durable MVC login fails closed on a non-persistent store before contacting the provider");
 }
 foreach (var scenario in new[] { "unknown", "mismatch", "database", "disabled" })
 {
@@ -305,7 +313,7 @@ sealed class ChangeFixture : IDisposable
     public FakeDurable Durable { get; }
     private readonly ServiceProvider requestServices;
 
-    public ChangeFixture(bool remote, string role = "Customer", bool durable = false)
+    public ChangeFixture(bool remote, string role = "Customer", bool durable = false, bool persistentStore = true)
     {
         var subject = Guid.Parse("11111111-1111-1111-1111-111111111111");
         User = remote && !durable && role == "Customer"
@@ -328,9 +336,12 @@ sealed class ChangeFixture : IDisposable
 
         var services = new ServiceCollection();
         Durable = new FakeDurable(User);
+        Store.Persistent = durable && persistentStore;
         if (durable)
         {
             services.AddSingleton<IAccountSecuritySnapshotProvider>(Durable);
+            services.AddSingleton<IVersionedAccountSecurityProvider>(Durable);
+            services.AddSingleton(new VersionedSessionAuthorization(Durable));
             services.AddSingleton(new DurableSessionAuthorization(Durable));
             services.AddSingleton(new DurableCredentialUpdate(Durable));
         }
@@ -345,6 +356,7 @@ sealed class ChangeFixture : IDisposable
             new Claim(ClaimTypes.Role, User.Role),
             new Claim(DurableSessionAuthorization.EpochClaim, "1"),
             new Claim(DurableSessionAuthorization.SubjectClaim, "11111111-1111-1111-1111-111111111111"),
+            new Claim(VersionedSessionAuthorization.SecurityVersionClaim, "1"),
             new Claim("account_version", AccountSession.Version(User.PasswordHash))
         ], "SyntheticTestAuth"));
         Controller.ControllerContext = new ControllerContext { HttpContext = context };
@@ -367,8 +379,11 @@ sealed class ChangeFixture : IDisposable
     }
 }
 
-sealed class FakeDurable(AppUser user) : IAccountSecuritySnapshotProvider, IDurableCredentialStore
+sealed class FakeDurable(AppUser user) : IAccountSecuritySnapshotProvider, IVersionedAccountSecurityProvider, IDurableCredentialStore
 {
+    public long SecurityVersion { get; set; } = 1;
+    async Task<VersionedAccountSecurity?> IVersionedAccountSecurityProvider.LoadAsync(Guid id, CancellationToken ct) =>
+        await LoadAsync(id, ct) is { } account ? new VersionedAccountSecurity(account, SecurityVersion) : null;
     private static readonly Guid Subject = Guid.Parse("11111111-1111-1111-1111-111111111111");
     public long Epoch { get; set; } = 1;
     public SessionCredentialState State { get; set; } = SessionCredentialState.Ready;
@@ -404,6 +419,8 @@ sealed class FakeDurable(AppUser user) : IAccountSecuritySnapshotProvider, IDura
 sealed class FakeStore : DemoStore, IStudioStore, ISupabaseIdentityStore, IVerifiedProviderCustomerStore
 {
     public int LinkCalls { get; private set; }
+    public bool Persistent { get; set; }
+    bool IStudioStore.IsPersistent => Persistent;
     public bool FailReads { get; set; }
     public bool IdentityLinkingEnabled => true;
     public bool RestrictLegacyFallback => true;
