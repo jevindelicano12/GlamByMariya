@@ -1563,9 +1563,9 @@ if (args.Contains("--mixed-pricing-only"))
     mixedStore.Bookings.Add(new Booking { Start = busyMixed.AddHours(8), Service = new PriceSnapshot(Guid.NewGuid(), "Synthetic reserved service", 100, 300), People = 1, Status = "Confirmed", BufferMinutesSnapshot = 45 });
     mixedStore.Blocks.Add(new AvailabilityBlock(Guid.NewGuid(), busyMixed.AddDays(1).AddHours(8), busyMixed.AddDays(1).AddHours(20), "Synthetic block"));
     MixedPersonSelection[] tenHourMixed = Enumerable.Repeat(new MixedPersonSelection(bridalMixed.Id, []), 5).ToArray();
-    var busyCalendar = mixedFlow.GetAvailability(busyMixed, mixedFlow.QuoteMixed(tenHourMixed).DurationMinutes);
+    var busyCalendar = mixedFlow.GetMixedAvailability(busyMixed, mixedFlow.QuoteMixed(tenHourMixed).DurationMinutes);
     Check(busyCalendar.Days.Single(d => d.Date == busyMixed.ToString("yyyy-MM-dd")).AvailableCount == 0, "ten-hour group cannot fit around a five-hour reserved appointment");
-    var shortCalendar = mixedFlow.GetAvailability(busyMixed, mixedFlow.QuoteMixed([new(softMixed.Id, []), new(softMixed.Id, [])]).DurationMinutes);
+    var shortCalendar = mixedFlow.GetMixedAvailability(busyMixed, mixedFlow.QuoteMixed([new(softMixed.Id, []), new(softMixed.Id, [])]).DurationMinutes);
     Check(shortCalendar.Days.Single(d => d.Date == busyMixed.ToString("yyyy-MM-dd")).AvailableCount > 0, "a reservation does not automatically make the entire day unavailable");
     var suggestions = mixedFlow.FindMixedAlternatives(tenHourMixed, busyMixed, 10);
     Check(suggestions.Dates.Count == 3 && suggestions.Dates[0].Date == busyMixed.AddDays(2).ToString("yyyy-MM-dd") && suggestions.Dates.All(d => d.Slots.Any(s => s.Available)), "suggestions skip the blocked date and contain server-checked start times");
@@ -1653,7 +1653,7 @@ if (args.Contains("--late-fees-only"))
     Reject(() => flow.CheckSlot(day.AddHours(21), 120), "9 PM two-hour service is rejected by 10 PM closing");
     Reject(() => flow.CheckSlot(day.AddHours(22), 60), "final closing is not a permitted start");
     Reject(() => flow.CheckSlot(day.AddHours(18), group.DurationMinutes), "group and add-on duration must fit with buffer");
-    var slots = flow.GetAvailability(day, 60).Days.Single(d => d.Date == day.ToString("yyyy-MM-dd")).Slots;
+    var slots = flow.GetAvailability(day, 60, latitude: 14.5547m, longitude: 121.0244m).Days.Single(d => d.Date == day.ToString("yyyy-MM-dd")).Slots;
     Check(slots.Any(s => s.Start == day.AddHours(20).AddMinutes(45).ToString("yyyy-MM-ddTHH:mm") && s.Available) && !slots.Any(s => s.Start == day.AddHours(21).ToString("yyyy-MM-ddTHH:mm")), "calendar omits starts that cannot finish with buffer");
     demo.Settings.EarlyFeeEnabled = true; demo.Settings.EarlyStartHour = 5; demo.Settings.EarlyFee = 100;
     var early = flow.Quote(item.Id, [], 1, "auto", day.AddHours(5));
@@ -1754,6 +1754,77 @@ if (args.Contains("--travel-rule-only"))
     var demoOthers = travelDemo.TravelStops(seedDay, seedDay.AddDays(1), seed.Id);
     Check(demoOthers.Count == 1 && demoOthers[0].Start == laterStop.Start, "the demo store leaves out the booking being moved");
     Check(travelDemo.TravelStops(seedDay.AddDays(1), seedDay.AddDays(2), null).Count == 0, "another demo day has no neighbours");
+
+    // Task 3: availability, booking and reschedule apply the rule (demo store).
+    var tDemo = new DemoStore(presentationAccounts: true); var tFlow = new BookingService(tDemo, tDemo, tDemo, tDemo, tDemo);
+    var tCustomer = tDemo.Users.First(u => u.Role == Roles.Customer); var tOwner = tDemo.Users.First(u => u.Role == Roles.SuperAdmin); var tStaff = tDemo.Users.First(u => u.Role == Roles.Admin);
+    var soft = tDemo.Services.First(s => s.Minutes == 60);
+    var tDay = DateTime.Today.AddDays(5);
+    var makati = new Booking { CustomerId = tCustomer.Id, CustomerName = tCustomer.Name, Service = new(soft.Id, soft.Name, soft.Price, soft.Minutes), Start = tDay.AddHours(7), BufferMinutesSnapshot = 45,
+        Address = "1 Synthetic Street, Makati", Area = "Makati", Latitude = mkLat, Longitude = mkLng, Status = "Confirmed", AppliedPricePerPerson = soft.Price };
+    tDemo.Bookings.Add(makati);
+    string SlotKey(int h, int m = 0) => tDay.AddHours(h).AddMinutes(m).ToString("yyyy-MM-ddTHH:mm");
+    List<AvailableTimeSlot> DaySlots(decimal? lat, decimal? lng, Guid? exclude = null) =>
+        tFlow.GetAvailability(new DateTime(tDay.Year, tDay.Month, 1), 60, exclude, lat, lng).Days.Single(d => d.Date == tDay.ToString("yyyy-MM-dd")).Slots;
+    AvailableTimeSlot At15(List<AvailableTimeSlot> slots, int h, int m = 0) => slots.Single(s => s.Start == SlotKey(h, m));
+    var fairviewSlots = DaySlots(fvLat, fvLng);
+    Check(Enumerable.Range(0, 5).All(i => !At15(fairviewSlots, 9, i * 15).Available), "a Fairview pin hides 9:00-10:00 after a 7:00 Makati booking");
+    Check(At15(fairviewSlots, 10, 15).Available, "a Fairview pin shows 10:15");
+    Check(At15(fairviewSlots, 9).Reason == BookingService.UnavailableReason && !fairviewSlots.Any(s => s.Reason?.Contains("travel", StringComparison.OrdinalIgnoreCase) == true),
+        "a time hidden by travel gives only the generic reason");
+    var samePlace = DaySlots(mkLat, mkLng);
+    Check(!At15(samePlace, 9).Available && At15(samePlace, 9, 15).Available, "a pin at the same place needs only the minimum travel");
+    var pinless = DaySlots(null, null);
+    Check(pinless.Count > 0 && pinless.All(s => !s.Available && s.Reason == "Pin your location to see available times."), "without a pin every time says to pin the location");
+
+    var staleStart = tDay.AddHours(9).AddMinutes(45);
+    var staleQuote = tFlow.Quote(soft.Id, [], 1, "auto", staleStart);
+    Booking TravelCreate(DateTime start, decimal lat, decimal lng, string reference) => tFlow.Create(tCustomer.Id, soft.Id, [], start, "24 Synthetic Street", "Quezon City", staleQuote.RequiredDownPayment, "GCash",
+        reference, "synthetic-proof.png", true, 1, "auto", true, staleQuote.FinalTotal, staleQuote.RequiredDownPayment, latitude: lat, longitude: lng);
+    var bookingsBefore = tDemo.Bookings.Count; var staleMessage = "";
+    try { TravelCreate(staleStart, fvLat, fvLng, "TRAVEL-STALE-1"); } catch (InvalidOperationException e) { staleMessage = e.Message; }
+    Check(staleMessage == TravelPlanner.RefusalMessage && tDemo.Bookings.Count == bookingsBefore, "a stale page booking 9:45 from Fairview is refused with the travel message");
+
+    // The booking pages pass the pin to ValidateSlot and Availability.
+    T WireAs<T>(T controller, AppUser user) where T : Controller
+    {
+        var http = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+        http.User = new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()), new Claim(ClaimTypes.Role, user.Role) }, "Cookies"));
+        controller.ControllerContext = new ControllerContext { HttpContext = http };
+        controller.TempData = new Microsoft.AspNetCore.Mvc.ViewFeatures.TempDataDictionary(http, new NoTempData());
+        return controller;
+    }
+    object? Field(IActionResult result, string name) => result is JsonResult { Value: { } v } ? v.GetType().GetProperty(name)?.GetValue(v) : null;
+    var pages = WireAs(new BookingsController(tDemo, tFlow, null!, null!, null!, null!), tCustomer);
+    var staleCheck = pages.ValidateSlot(SlotKey(9, 45), soft.Id, [], null, 1, "auto", fvLat, fvLng);
+    Check(Field(staleCheck, "available") is false && Field(staleCheck, "message") as string == TravelPlanner.RefusalMessage, "ValidateSlot refuses 9:45 for a Fairview pin");
+    Check(Field(pages.ValidateSlot(SlotKey(10, 15), soft.Id, [], null, 1, "auto", fvLat, fvLng), "available") is true, "ValidateSlot accepts 10:15 for a Fairview pin");
+    var unpinnedCheck = pages.ValidateSlot(SlotKey(10, 15), soft.Id, [], null, 1, "auto", null, null);
+    Check(Field(unpinnedCheck, "available") is false && Field(unpinnedCheck, "message") as string == "Pin your location to see available times.", "ValidateSlot without a pin asks for one");
+    var travelCalendar = pages.Availability(tDay.ToString("yyyy-MM"), soft.Id, [], null, 1, "auto", fvLat, fvLng) as JsonResult;
+    Check(travelCalendar?.Value is AvailabilityCalendar cal && !cal.Days.Single(d => d.Date == tDay.ToString("yyyy-MM-dd")).Slots.Single(s => s.Start == SlotKey(9, 30)).Available
+        && cal.Days.Single(d => d.Date == tDay.ToString("yyyy-MM-dd")).Slots.Single(s => s.Start == SlotKey(10, 15)).Available, "the Availability endpoint uses the pin");
+
+    // Reschedule: the moved booking is not its own neighbour.
+    var toNine = tFlow.OfferReschedule(makati, tCustomer.Id, tDay.AddHours(9));
+    tFlow.ConsentReschedule(makati, tCustomer.Id, toNine.Id, true);
+    tFlow.AdminAction(makati, "reschedule", tOwner.Id, "", 0, "");
+    Check(makati.Start == tDay.AddHours(9) && makati.TravelOverrideBy == null && makati.TravelOverrideAt == null, "rescheduling 7:00 to 9:00 does not count the booking itself");
+
+    // A request that fit when asked stops fitting after a new Fairview booking at 13:00.
+    var toEleven = tFlow.OfferReschedule(makati, tCustomer.Id, tDay.AddHours(11).AddMinutes(15));
+    tFlow.ConsentReschedule(makati, tCustomer.Id, toEleven.Id, true);
+    var fairviewBooking = TravelCreate(tDay.AddHours(13), fvLat, fvLng, "TRAVEL-AFTERNOON-1");
+    Check(tFlow.HoldsReservation(fairviewBooking), "a 13:00 Fairview booking fits after the 9:00 Makati one");
+    string Refusal(Action action) { try { action(); } catch (InvalidOperationException e) { return e.Message; } return ""; }
+    Check(Refusal(() => tFlow.AdminAction(makati, "reschedule", tOwner.Id, "", 0, "")) == TravelPlanner.RefusalMessage && makati.Start == tDay.AddHours(9),
+        "approval re-runs the rule and refuses 11:15 before a 13:00 Fairview booking");
+    Check(Refusal(() => tFlow.AdminAction(makati, "reschedule", tStaff.Id, "", 0, "", travelOverride: true)) == BookingService.TravelOverrideRefused && makati.Start == tDay.AddHours(9),
+        "an Admin cannot override the travel rule");
+    var adminPages = WireAs(new AdminController(tDemo, tFlow, null!, null!, new MemoryInvitationService(TimeProvider.System), null!), tOwner);
+    adminPages.Action(makati.Id, "reschedule", rescheduleQuoteId: toEleven.Id, travelOverride: true);
+    Check(makati.Start == tDay.AddHours(11).AddMinutes(15) && makati.TravelOverrideBy == tOwner.Id && makati.TravelOverrideAt != null,
+        $"the SuperAdmin override approves and records who and when ({adminPages.TempData["Error"]})");
     Console.WriteLine($"All {checks} travel rule checks passed."); return;
 }
 if (args.Contains("--travel-only"))
@@ -1810,7 +1881,7 @@ if (args.Contains("--reservation-only"))
     Reject(() => flow.CheckSlot(reservation.End.AddMinutes(14), 60), "existing snapshotted buffer remains reserved after settings change");
     flow.CheckSlot(reservation.End.AddMinutes(15), 60);
     Check(!flow.DemoOpenWindows(reservation.Start.Date).Any(w => w.From <= reservation.Start && w.To > reservation.Start), "open windows exclude the pending interval");
-    var reservationCalendar = flow.GetAvailability(new DateTime(when.Year, when.Month, 1), 60);
+    var reservationCalendar = flow.GetAvailability(new DateTime(when.Year, when.Month, 1), 60, latitude: 14.5547m, longitude: 121.0244m);
     Check(reservationCalendar.Days.Single(x => x.Date == reservation.Start.ToString("yyyy-MM-dd")).Slots.Single(x => x.Start == reservation.Start.ToString("yyyy-MM-ddTHH:mm")).Available == false, "customer availability excludes pending slot");
     flow.AdminAction(reservation, "reject", reviewer.Id, "Synthetic rejection", 0, "");
     flow.CheckSlot(reservation.Start, 60);
@@ -2303,6 +2374,11 @@ public class PersistentQuoteProxy : System.Reflection.DispatchProxy
         if (method?.Name == "get_Bookings") return TestBookings;
         if (method?.Name == nameof(IStudioStore.FindBooking)) return TestBookings.FirstOrDefault(b => b.Id == (Guid)args![0]!);
         if (method?.Name == "get_Payments") return TestPayments;
+        if (method?.Name == nameof(IStudioStore.GetArtistLocation)) return new ArtistLocation(null, null, null, null, null);
+        if (method?.Name == nameof(IStudioStore.TravelStops))
+            return TestBookings.Where(b => b.Id != (Guid?)args![2] && b.Status == "Confirmed")
+                .Select(b => new GlamByMariya.Core.BusinessRules.TravelAppointment(b.Start, b.End, b.BufferMinutesSnapshot ?? TestSettings.BufferMinutes, b.Latitude, b.Longitude))
+                .Where(x => x.Start < (DateTime)args![1]! && x.End.AddMinutes(x.BufferMinutes) > (DateTime)args![0]!).ToList();
         if (method?.Name != nameof(IPersistentStudioStore.SubmitBooking)) throw new InvalidOperationException("Unexpected repository call.");
         Arguments = args;
         return new Booking();

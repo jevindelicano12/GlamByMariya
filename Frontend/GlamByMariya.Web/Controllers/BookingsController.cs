@@ -43,7 +43,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
             return BadRequest(new { error = "Choose a valid month and services for every person." });
         lock (store.Gate)
         {
-            try { return Json(workflow.GetAvailability(month, workflow.QuoteMixed(request.People).DurationMinutes, cancellationToken: HttpContext.RequestAborted)); }
+            try { return Json(workflow.GetMixedAvailability(month, workflow.QuoteMixed(request.People).DurationMinutes, HttpContext.RequestAborted)); }
             catch (InvalidOperationException e) { return BadRequest(new { error = e.Message }); }
             catch (OperationCanceledException) when (HttpContext.RequestAborted.IsCancellationRequested) { return new EmptyResult(); }
         }
@@ -68,7 +68,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
             try
             {
                 var quote = workflow.QuoteMixed(request.People, start);
-                var calendar = workflow.GetAvailability(start, quote.DurationMinutes, cancellationToken: HttpContext.RequestAborted);
+                var calendar = workflow.GetMixedAvailability(start, quote.DurationMinutes, HttpContext.RequestAborted);
                 var slot = calendar.Days.SelectMany(day => day.Slots).FirstOrDefault(candidate => candidate.Start == request.Start);
                 if (slot == null || !slot.Available) return Json(new { available = false, message = slot?.Reason ?? "This time is outside the available booking slots." });
                 workflow.CheckSlot(start, quote.DurationMinutes);
@@ -86,7 +86,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
         catch (InvalidOperationException e) { return BadRequest(new { error = e.Message }); }
     }
     [HttpGet, ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
-    public IActionResult Availability(string month, Guid serviceId, Guid[] addOnIds, Guid? bookingId, int people = 1, string package = "auto")
+    public IActionResult Availability(string month, Guid serviceId, Guid[] addOnIds, Guid? bookingId, int people = 1, string package = "auto", decimal? latitude = null, decimal? longitude = null)
     {
         if (!DateTime.TryParseExact(month, "yyyy-MM", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var date)) return BadRequest(new { error = "Choose a valid month." });
         if (!ModelState.IsValid) return BadRequest(new { error = "Invalid availability request." });
@@ -96,14 +96,14 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
             {
                 var selection = AvailabilitySelection(serviceId, addOnIds, bookingId, people, package);
                 if (selection == null) return NotFound(new { error = "This appointment cannot be rescheduled." });
-                return Json(workflow.GetAvailability(date, selection.Value.Duration, selection.Value.Exclude, HttpContext.RequestAborted));
+                return Json(workflow.GetAvailability(date, selection.Value.Duration, selection.Value.Exclude, latitude, longitude, HttpContext.RequestAborted));
             }
             catch (InvalidOperationException e) { return BadRequest(new { error = e.Message }); }
             catch (OperationCanceledException) when (HttpContext.RequestAborted.IsCancellationRequested) { return new EmptyResult(); }
         }
     }
     [HttpGet, ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
-    public IActionResult ValidateSlot(string start, Guid serviceId, Guid[] addOnIds, Guid? bookingId, int people = 1, string package = "auto")
+    public IActionResult ValidateSlot(string start, Guid serviceId, Guid[] addOnIds, Guid? bookingId, int people = 1, string package = "auto", decimal? latitude = null, decimal? longitude = null)
     {
         if (!DateTime.TryParseExact(start, "yyyy-MM-ddTHH:mm", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var date) || !ModelState.IsValid) return BadRequest(new { error = "Choose a valid date and time." });
         lock (store.Gate)
@@ -113,6 +113,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
                 var selection = AvailabilitySelection(serviceId, addOnIds, bookingId, people, package);
                 if (selection == null) return NotFound(new { error = "This appointment cannot be rescheduled." });
                 workflow.CheckSlot(date, selection.Value.Duration, selection.Value.Exclude);
+                workflow.CheckTravel(date, selection.Value.Duration, selection.Value.Exclude, latitude, longitude);
                  return Json(new { available = true, message = UsesXendit
                      ? "This time is available. It covers makeup and preparation; travel time is not included. Your booking is confirmed once the down payment goes through."
                      : "Available for request at this moment; service and preparation time only. Travel is not estimated. Confirmation requires payment review and approval." });

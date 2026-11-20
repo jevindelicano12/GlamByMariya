@@ -55,7 +55,8 @@ public interface IPersistentStudioStore : IStudioStore
     string XenditExpired(string invoiceId, string eventKey);
     // The Xendit payment page of a booking still waiting for its down payment, or null.
     string? PendingCheckoutUrl(Guid booking);
-    void ManageBooking(Guid booking, string action, Guid admin, string reason, decimal amount, string reference, Guid? paymentId = null, long? reviewRevision = null, string? reviewVersion = null);
+    // travelOverride: the SuperAdmin approves a reschedule that fails the travel rule (recorded on the booking).
+    void ManageBooking(Guid booking, string action, Guid admin, string reason, decimal amount, string reference, Guid? paymentId = null, long? reviewRevision = null, string? reviewVersion = null, bool travelOverride = false);
     List<Payment> ReviewPayments(Guid booking);
     void RequestReschedule(Guid booking, Guid customer, DateTime start);
     void CorrectPayment(Guid booking, Guid customer, string reference, string? proof);

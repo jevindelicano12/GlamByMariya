@@ -60,6 +60,9 @@ public class Booking
     // The customer's exact map pin (Metro Manila); older bookings have none.
     public decimal? Latitude { get; set; }
     public decimal? Longitude { get; set; }
+    // Set when the SuperAdmin approved a reschedule that fails the travel rule ("I'm sure the artist can make it").
+    public Guid? TravelOverrideBy { get; set; }
+    public DateTime? TravelOverrideAt { get; set; }
     public decimal TravelFee { get; set; }
     public decimal EarlyFeeSnapshot { get; set; }
     public decimal LateFeeSnapshot { get; set; }

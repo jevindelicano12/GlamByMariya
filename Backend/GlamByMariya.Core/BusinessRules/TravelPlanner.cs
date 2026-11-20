@@ -28,7 +28,8 @@ public static class TravelPlanner
     }
 
     // Overlaps are not this rule's job: the existing overlap check rejects them.
-    public static bool Fits(DateTime start, int durationMinutes, int bufferMinutes, decimal lat, decimal lng,
+    // A booking without a pin (older bookings) takes the minimum travel on both sides.
+    public static bool Fits(DateTime start, int durationMinutes, int bufferMinutes, decimal? lat, decimal? lng,
         IReadOnlyList<TravelAppointment> sameDayStops, (decimal? Lat, decimal? Lng)? artistNow, DateTime now,
         decimal speedKmh, int minimumMinutes)
     {

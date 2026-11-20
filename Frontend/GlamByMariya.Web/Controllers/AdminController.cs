@@ -124,7 +124,7 @@ public class AdminController(IStudioStore store, BookingService workflow, Paymen
         }
     }
     [HttpPost, ValidateAntiForgeryToken]
-    public IActionResult Action(Guid id, string operation, string reason = "", decimal amount = 0, string reference = "", Guid? paymentId = null, int? paymentRevision = null, bool reviewed = false, DateTime? requestedStart = null, Guid? rescheduleQuoteId = null, bool confirmed = false, long? reviewRevision = null, string? reviewVersion = null)
+    public IActionResult Action(Guid id, string operation, string reason = "", decimal amount = 0, string reference = "", Guid? paymentId = null, int? paymentRevision = null, bool reviewed = false, DateTime? requestedStart = null, Guid? rescheduleQuoteId = null, bool confirmed = false, long? reviewRevision = null, string? reviewVersion = null, bool travelOverride = false)
     {
         lock (store.Gate)
         {
@@ -169,7 +169,7 @@ public class AdminController(IStudioStore store, BookingService workflow, Paymen
                 }
                 if ((b.MixedPeople.Count > 0 || store.IsPersistent) && (operation is "reschedule" or "decline") && (!requestedStart.HasValue || b.RequestedStart != requestedStart))
                     throw new InvalidOperationException("The requested time changed. Reload this booking before deciding.");
-                workflow.AdminAction(b, operation, UserId, reason, amount, reference, confirmed, paymentId, reviewRevision, reviewVersion); TempData["Success"] = operation == "cancel" ? "Appointment cancelled. Payment and refund arrangements require personal review." : operation == "complete" ? "Appointment marked completed. Payment status was not changed." : "Booking updated successfully.";
+                workflow.AdminAction(b, operation, UserId, reason, amount, reference, confirmed, paymentId, reviewRevision, reviewVersion, travelOverride); TempData["Success"] = operation == "cancel" ? "Appointment cancelled. Payment and refund arrangements require personal review." : operation == "complete" ? "Appointment marked completed. Payment status was not changed." : "Booking updated successfully.";
             }
             catch (InvalidOperationException e) { TempData["Error"] = e.Message; }
             return RedirectToAction("Details", new { id });

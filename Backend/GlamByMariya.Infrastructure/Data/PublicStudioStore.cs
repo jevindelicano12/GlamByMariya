@@ -155,6 +155,11 @@ public sealed class PublicStudioStore(
         public decimal? Lng { get; set; }
     }
 
+    // Serializes travel checks per artist until the transaction ends, so two saves that each fit
+    // on their own cannot both pass (the overlap trigger alone does not see travel).
+    private void LockTravel(long artistId) =>
+        pdb.Database.ExecuteSqlRaw("SELECT pg_advisory_xact_lock(hashtext('travel:' || {0}::text))", artistId);
+
     private (long Id, Guid AppId) ResolveArtist()
     {
         var configured = config["Database:ArtistId"];
@@ -422,6 +427,9 @@ public sealed class PublicStudioStore(
                     PreparedPersistentBooking.ValidateClaim(deposit, quote);
                     var coverage = pdb.Set<AreaRow>().SingleOrDefault(x => x.IsActive && x.Name.ToLower() == area.Trim().ToLower()) ?? throw new InvalidOperationException("The address must be within the service area.");
                     var (artistId, _) = ResolveArtist();
+                    LockTravel(artistId);
+                    if (!BookingService.TravelFits(this, start, quote.DurationMinutes, Settings.BufferMinutes, latitude, longitude, null, Settings))
+                        throw new InvalidOperationException(TravelPlanner.RefusalMessage);
                     var customerId = CustomerBigId(customer);
                     var serviceId = ServiceBigId(service);
                     var utc = Utc(start);
@@ -545,9 +553,13 @@ public sealed class PublicStudioStore(
         Notify(booking, "Customer updated payment proof for review.");
     });
 
-    public override void ManageBooking(Guid booking, string action, Guid admin, string reason, decimal amount, string reference, Guid? paymentId = null, long? reviewRevision = null, string? reviewVersion = null) => Transaction(admin, () =>
+    public override void ManageBooking(Guid booking, string action, Guid admin, string reason, decimal amount, string reference, Guid? paymentId = null, long? reviewRevision = null, string? reviewVersion = null, bool travelOverride = false) => Transaction(admin, () =>
     {
         Admin(admin);
+        if (travelOverride && action != "reschedule") throw new InvalidOperationException("A travel override applies only to a reschedule approval.");
+        if (travelOverride && pdb.Database.SqlQuery<int>($"SELECT count(*)::int AS \"Value\" FROM public.admin_users WHERE app_id={admin} AND role='SuperAdmin' AND is_active").Single() == 0)
+            throw new InvalidOperationException(BookingService.TravelOverrideRefused);
+        if (action == "reschedule") LockTravel(ResolveArtist().Id); // before the booking row, same order as SubmitBooking
         var b = LockBooking(booking);
         if (action is "verify" or "approve") CheckPaymentReview(booking, paymentId, reviewRevision, reviewVersion, b.Status == "Confirmed");
         var reservationId = ReservationBigId(booking);
@@ -574,10 +586,12 @@ public sealed class PublicStudioStore(
             case "reschedule":
             case "decline":
                 if (action == "decline" && string.IsNullOrWhiteSpace(reason)) throw new InvalidOperationException("Provide a decline reason.");
+                var overridden = action == "reschedule" && RescheduleNeedsOverride(booking, b, reservationId, travelOverride);
                 var status = action == "reschedule" ? "Approved" : "Declined";
                 if (pdb.Database.ExecuteSqlInterpolated($"UPDATE public.reschedule_requests SET status={status}, reason={reason}, reviewed_by={admin}, reviewed_at=now() WHERE reservation_id={reservationId} AND status='Pending'") == 0)
                     throw new InvalidOperationException("No reschedule request to review.");
                 if (action == "decline") pdb.Database.ExecuteSqlInterpolated($"UPDATE public.reservations SET notes={reason} WHERE app_id={booking}");
+                if (overridden) pdb.Database.ExecuteSqlInterpolated($"UPDATE public.reservations SET travel_override_by={admin}, travel_override_at=now() WHERE app_id={booking}");
                 break;
             case "cancel":
                 // Business cancellation: no fee, allowed until the appointment starts. The database
@@ -614,6 +628,19 @@ public sealed class PublicStudioStore(
             default: throw new InvalidOperationException("Unknown booking action.");
         }
     });
+
+    // The travel rule for the pending reschedule's new time, without the moved booking.
+    // True when it fails and the SuperAdmin chose to override; throws when it fails without one.
+    private bool RescheduleNeedsOverride(Guid booking, BookingRow b, long reservationId, bool travelOverride)
+    {
+        var requested = pdb.Database.SqlQueryRaw<DateTime>(
+            "SELECT requested_start AS \"Value\" FROM public.reschedule_requests WHERE reservation_id={0} AND status='Pending'", reservationId).AsEnumerable().FirstOrDefault();
+        if (requested == default) return false; // no pending request: the update below reports it
+        var duration = (int)(b.EndsAt - b.StartsAt).TotalMinutes;
+        if (BookingService.TravelFits(this, Local(requested), duration, b.BufferMinutesSnapshot, b.LocationLat, b.LocationLng, booking)) return false;
+        if (!travelOverride) throw new InvalidOperationException(TravelPlanner.RefusalMessage);
+        return true;
+    }
 
     protected override void Notify(Guid booking, string message)
     {

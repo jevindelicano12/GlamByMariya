@@ -81,7 +81,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             var checkedThrough = afterDate;
             for (var first = new DateTime(afterDate.Year, afterDate.Month, 1); first <= end; first = first.AddMonths(1))
             {
-                var calendar = GetAvailability(first, quote.DurationMinutes);
+                var calendar = GetMixedAvailability(first, quote.DurationMinutes);
                 foreach (var day in calendar.Days)
                 {
                     var date = DateTime.ParseExact(day.Date, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
@@ -227,7 +227,44 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             return Quote(serviceId, addOnIds, people, package).DurationMinutes;
         }
     }
-    public AvailabilityCalendar GetAvailability(DateTime month, int duration, Guid? exclude = null, CancellationToken cancellationToken = default)
+    public const string UnavailableReason = "The artist is unavailable during this time. Please choose another slot.";
+    public const string PinRequired = "Pin your location to see available times.";
+    public const string TravelOverrideRefused = "Only the SuperAdmin can approve a time that does not fit the artist's travel.";
+    // Where the artist is now: the current pin, else the home base, else unknown.
+    private static (decimal? Lat, decimal? Lng)? ArtistNow(ArtistLocation location) =>
+        location.CurrentLat is not null ? (location.CurrentLat, location.CurrentLng)
+        : location.HomeLat is not null ? (location.HomeLat, location.HomeLng) : null;
+    // The travel rule for one start time against the other bookings of that Asia/Manila day.
+    // Database callers run this inside their transaction, after taking the per-artist travel lock.
+    public static bool TravelFits(IStudioStore store, DateTime start, int duration, int buffer, decimal? latitude, decimal? longitude, Guid? exclude, BusinessSettings? settings = null)
+    {
+        var current = settings ?? store.Settings;
+        var day = start.Date;
+        var stops = store.TravelStops(day, day.AddDays(1), exclude).Where(s => s.Start.Date == day).ToList();
+        return TravelPlanner.Fits(start, duration, buffer, latitude, longitude, stops, ArtistNow(store.GetArtistLocation()), store.Now, current.TravelSpeedKmh, current.TravelMinimumMinutes);
+    }
+    // A reschedule keeps the booking's own pin (pinless older bookings use the minimum travel);
+    // a new booking needs a valid pin. Null means no pin was given.
+    private static (decimal? Lat, decimal? Lng)? TravelPin(Booking? moved, decimal? latitude, decimal? longitude) =>
+        moved != null ? (moved.Latitude, moved.Longitude) : BookingLocation.IsValid(latitude, longitude) ? (latitude, longitude) : null;
+    // Friendly check for the booking page right before submit; saving checks again.
+    public void CheckTravel(DateTime start, int duration, Guid? exclude, decimal? latitude, decimal? longitude)
+    {
+        lock (store.Gate)
+        {
+            var moved = exclude is { } id ? store.FindBooking(id) : null;
+            var pin = TravelPin(moved, latitude, longitude) ?? throw new InvalidOperationException(PinRequired);
+            if (!TravelFits(store, start, duration, moved?.BufferMinutesSnapshot ?? store.Settings.BufferMinutes, pin.Lat, pin.Lng, moved?.Id))
+                throw new InvalidOperationException(TravelPlanner.RefusalMessage);
+        }
+    }
+    // Times for a pin: the existing checks plus the travel rule. Without a pin every time asks for one.
+    public AvailabilityCalendar GetAvailability(DateTime month, int duration, Guid? exclude = null, decimal? latitude = null, decimal? longitude = null, CancellationToken cancellationToken = default) =>
+        BuildAvailability(month, duration, exclude, true, latitude, longitude, cancellationToken);
+    // Mixed-service bookings (Demo only) carry no pin: service and preparation time only.
+    public AvailabilityCalendar GetMixedAvailability(DateTime month, int duration, CancellationToken cancellationToken = default) =>
+        BuildAvailability(month, duration, null, false, null, null, cancellationToken);
+    private AvailabilityCalendar BuildAvailability(DateTime month, int duration, Guid? exclude, bool travel, decimal? latitude, decimal? longitude, CancellationToken cancellationToken)
     {
         lock (store.Gate)
         {
@@ -245,11 +282,18 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             var occupied = store is PublicStudioStore publicStore ? publicStore.OccupiedIntervals(first.AddDays(-1), first.AddMonths(1).AddDays(1), exclude) : null;
             var excluded = booked.FirstOrDefault(b => b.Id == exclude);
             var buffer = excluded?.BufferMinutesSnapshot ?? settings.BufferMinutes;
+            var pin = travel ? TravelPin(excluded, latitude, longitude) : null;
+            // One neighbour read for the whole month (±1 day), grouped by Manila day.
+            var stopsByDay = travel && pin != null
+                ? store.TravelStops(first.AddDays(-1), first.AddMonths(1).AddDays(1), exclude).ToLookup(s => s.Start.Date)
+                : null;
+            var artistNow = stopsByDay != null ? ArtistNow(store.GetArtistLocation()) : null;
             var days = new List<AvailableDate>();
             for (var date = first; date < first.AddMonths(1); date = date.AddDays(1))
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var slots = new List<AvailableTimeSlot>();
+                var dayStops = stopsByDay?[date].ToList();
                 if (date >= now.Date)
                 {
                     var lateEnabled = !store.IsPersistent && settings.LateFeeEnabled;
@@ -258,6 +302,10 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
                     {
                         cancellationToken.ThrowIfCancellationRequested();
                         var issue = SlotIssue(start, duration, now, exclude, settings, booked, blocks, occupied);
+                        if (travel && pin == null) issue = PinRequired;
+                        else if (issue == null && pin is { } here && dayStops != null &&
+                            !TravelPlanner.Fits(start, duration, buffer, here.Lat, here.Lng, dayStops, artistNow, now, settings.TravelSpeedKmh, settings.TravelMinimumMinutes))
+                            issue = UnavailableReason; // never the travel detail
                         slots.Add(new(start.ToString("yyyy-MM-ddTHH:mm"), start.ToString("h:mm tt", System.Globalization.CultureInfo.InvariantCulture), issue == null, issue));
                     }
                 }
@@ -291,6 +339,8 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             var quote = Quote(serviceId, addOnIds, people, package, start);
             if ((expectedTotal.HasValue && expectedTotal != quote.FinalTotal) || (expectedMinimum.HasValue && expectedMinimum != quote.RequiredDownPayment)) throw new InvalidOperationException("The booking price or minimum payment changed. Please review the updated quote before submitting.");
             CheckSlot(start, quote.DurationMinutes);
+            // Same gate as the slot check, so two demo bookings cannot both pass the travel rule.
+            if (!TravelFits(store, start, quote.DurationMinutes, store.Settings.BufferMinutes, latitude, longitude, null)) throw new InvalidOperationException(TravelPlanner.RefusalMessage);
             var user = store.Users.First(x => x.Id == userId);
             var b = new Booking { CustomerId = userId, CustomerName = user.Name, Service = new(service.Id, service.Name, service.Price, service.Minutes), AddOns = selected.GroupBy(x => x.Id).Select(g => new PriceSnapshot(g.Key, g.First().Name, g.First().Price, g.First().Minutes, g.Count())).ToList(), Start = start, BufferMinutesSnapshot = store.Settings.BufferMinutes, Address = address.Trim(), Area = area, Latitude = latitude, Longitude = longitude, TravelFee = 0, EarlyFeeSnapshot = quote.EarlyFee, LateFeeSnapshot = quote.LateFee, TransportationPolicyAcknowledgedAt = store.Now, People = people, Package = package, AppliedPricePerPerson = quote.AppliedPricePerPerson, GroupPrice = quote.GroupPrice, GroupMinimumPeople = quote.GroupMinimumPeople, DownPaymentPercentSnapshot = store.Settings.DownPaymentPercent, RequiredDownPaymentSnapshot = quote.RequiredDownPayment, PaymentDueAt = PaymentWindow.DueAt(store.Now) };
             Money.RequireExactDeposit(deposit, quote.RequiredDownPayment);
@@ -381,17 +431,19 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             Notify(b, "Payment receipt verified for the cancelled appointment. Refund arrangements remain personal.", actor);
         }
     }
-    public void AdminAction(Booking b, string action, Guid actor, string reason, decimal amount, string reference, bool confirmed = false, Guid? paymentId = null, long? reviewRevision = null, string? reviewVersion = null)
+    public void AdminAction(Booking b, string action, Guid actor, string reason, decimal amount, string reference, bool confirmed = false, Guid? paymentId = null, long? reviewRevision = null, string? reviewVersion = null, bool travelOverride = false)
     {
         if (store.IsPersistent && b.MixedPeople.Count > 0) throw new InvalidOperationException("Persistent mixed booking operations are unavailable.");
         if (store.IsPersistent && action == "cancel" && !confirmed) throw new InvalidOperationException("Confirm the cancellation before continuing.");
         if (store.IsPersistent && action == "complete" && !confirmed) throw new InvalidOperationException("Confirm that all makeup services are finished and the balance was received before completing this appointment.");
         if (store.IsPersistent && (action is "verify" or "approve" or "proof"))
             throw new InvalidOperationException("Persistent payment review is unavailable until transaction-scoped authorization is verified.");
-        if (store is IPersistentStudioStore database) { database.ManageBooking(b.Id, action, actor, reason, amount, reference, paymentId, reviewRevision, reviewVersion); return; }
+        if (travelOverride && action != "reschedule") throw new InvalidOperationException("A travel override applies only to a reschedule approval.");
+        if (store is IPersistentStudioStore database) { database.ManageBooking(b.Id, action, actor, reason, amount, reference, paymentId, reviewRevision, reviewVersion, travelOverride); return; }
         lock (store.Gate)
         {
             if (!CanManageBooking(b, actor)) throw new InvalidOperationException("This booking requires an active authorized staff account. Mixed-service management is SuperAdmin-only until granular grants are implemented.");
+            if (travelOverride && !store.Users.Any(u => u.Id == actor && u.IsActive && u.Role == Roles.SuperAdmin)) throw new InvalidOperationException(TravelOverrideRefused);
             reason = (reason ?? "").Trim();
             if (reason.Length > 1000) throw new InvalidOperationException("Use a reason of up to 1,000 characters.");
             switch (action)
@@ -435,8 +487,12 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
                     if (!store.Users.Any(u => u.Id == actor && u.IsActive && u.Role == Roles.SuperAdmin)) throw new InvalidOperationException("Only SuperAdmin can approve a reschedule.");
                     var consent = b.PendingReschedule ?? throw new InvalidOperationException("Customer consent to a current quote is required.");
                     if (b.Status != "Confirmed" || b.RequestedStart != consent.Quote.ProposedStart || consent.CustomerId != b.CustomerId) throw new InvalidOperationException("This request is no longer valid.");
-                    var approvedQuote = ReschedulePrice(b, consent.Quote.ProposedStart, consent.Quote.Id);
+                    var approvedQuote = ReschedulePrice(b, consent.Quote.ProposedStart, consent.Quote.Id, travel: false);
                     if (approvedQuote != consent.Quote) throw new InvalidOperationException("The quote changed. The customer must review and consent again.");
+                    // The rule again at approval, without the moved booking itself; only the SuperAdmin may override.
+                    var travelFits = TravelFits(store, approvedQuote.ProposedStart, approvedQuote.DurationMinutes, approvedQuote.BufferMinutes, b.Latitude, b.Longitude, b.Id);
+                    if (!travelFits && !travelOverride) throw new InvalidOperationException(TravelPlanner.RefusalMessage);
+                    if (!travelFits) { b.TravelOverrideBy = actor; b.TravelOverrideAt = store.Now; reason = (reason + " Travel override: the SuperAdmin is sure the artist can make it.").Trim(); }
                     b.ApprovedReschedules.Add(new(approvedQuote, consent, actor, store.Now));
                     b.Start = approvedQuote.ProposedStart; b.RequestedStart = null; b.PendingReschedule = null; b.RescheduleOffer = null;
                     b.Note = "Your rescheduling request has been approved. If your updated appointment has additional charges or payment differences, please coordinate directly with Glam by Mariya for payment or refund arrangements.";
@@ -516,7 +572,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             if (string.IsNullOrWhiteSpace(address) || address.Length < 8 || address.Length > 500) throw new InvalidOperationException("Enter your complete home-service address (8–500 characters).");
             if (!store.Settings.ServiceAreas.Split(',').Any(x => x.Trim().Equals(area, StringComparison.OrdinalIgnoreCase)) || area is null) throw new InvalidOperationException("The address must be within our service area.");
             var quote = QuoteMixed(people, start);
-            var calendar = GetAvailability(start, quote.DurationMinutes);
+            var calendar = GetMixedAvailability(start, quote.DurationMinutes);
             if (!calendar.Days.SelectMany(d => d.Slots).Any(s => s.Start == start.ToString("yyyy-MM-ddTHH:mm") && s.Available)
                 || start.Ticks % TimeSpan.TicksPerMinute != 0)
                 throw new InvalidOperationException("This makeup start time is no longer available. Choose another available time.");
@@ -543,13 +599,14 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             return booking;
         }
     }
-    private RescheduleQuote ReschedulePrice(Booking b, DateTime start, Guid quoteId)
+    // travel: false only for the approval, which checks travel separately so the SuperAdmin can override it.
+    private RescheduleQuote ReschedulePrice(Booking b, DateTime start, Guid quoteId, bool travel = true)
     {
         // Database mode has no early/late fees, so the quote keeps the same total.
         if (store.IsPersistent && b.MixedPeople.Count > 0) throw new InvalidOperationException("Persistent mixed booking operations are unavailable.");
         if (b.Status != "Confirmed" || b.Start <= store.Now) throw new InvalidOperationException("Only future confirmed appointments can be rescheduled.");
         var duration = (int)(b.End - b.Start).TotalMinutes;
-        var calendar = GetAvailability(start, duration, b.Id);
+        var calendar = travel ? GetAvailability(start, duration, b.Id) : BuildAvailability(start, duration, b.Id, false, null, null, default);
         if (start.Ticks % TimeSpan.TicksPerMinute != 0 || !calendar.Days.SelectMany(d => d.Slots).Any(s => s.Start == start.ToString("yyyy-MM-ddTHH:mm") && s.Available)) throw new InvalidOperationException("Choose an available appointment time.");
         CheckSlot(start, duration, b.Id);
         var early = EarlyFeeAt(start, store.Settings); var late = LateFeeAt(start, duration, store.Settings);

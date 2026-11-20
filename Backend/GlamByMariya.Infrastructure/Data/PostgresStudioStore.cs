@@ -397,7 +397,7 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
         db.Database.ExecuteSqlInterpolated($"UPDATE makeup.payments SET reference={reference.Trim()},proof_asset_id={asset},status='Pending Verification' WHERE id={p.Id}");
         Notify(booking,"Customer updated payment proof for review.");
     });
-    public virtual void ManageBooking(Guid booking,string action,Guid admin,string reason,decimal amount,string reference, Guid? paymentId = null, long? reviewRevision = null, string? reviewVersion = null) => Transaction(admin,()=>
+    public virtual void ManageBooking(Guid booking,string action,Guid admin,string reason,decimal amount,string reference, Guid? paymentId = null, long? reviewRevision = null, string? reviewVersion = null, bool travelOverride = false) => Transaction(admin,()=>
     {
         Admin(admin); var b=LockBooking(booking);
         if (action is "verify" or "approve") CheckPaymentReview(booking, paymentId, reviewRevision, reviewVersion, b.Status == "Confirmed");

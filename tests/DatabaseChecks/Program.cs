@@ -199,7 +199,7 @@ if (Run("--rules"))
     await MoveStart(early.Id, "24 hours 5 minutes");
     NewStore().CancelBooking(early.Id, ana.Id, true);
     var fee = (decimal)(await Scalar($"SELECT cancellation_fee FROM public.reservation_closures WHERE reservation_id=(SELECT id FROM public.reservations WHERE app_id='{early.Id}')"))!;
-    var late = Book(NewStore(), bea.Id, day.AddHours(16), "RULES-005");
+    var late = Book(NewStore(), bea.Id, day.AddHours(16).AddMinutes(15), "RULES-005"); // 16:15: 30 minutes of travel after the 14:00 booking
     await Confirm(late.Id);
     await MoveStart(late.Id, "23 hours 59 minutes");
     var dbRefused = "";
@@ -227,7 +227,7 @@ if (Run("--owner"))
     var artists = (string)(await Scalar("SELECT count(*)||':'||coalesce(string_agg(full_name, ','),'') FROM public.makeup_artists WHERE is_active"))!;
     Check(artists == "1:Maria Santos", $"owner setup creates the one artist with the owner's name ({artists})");
     var calendarStore = NewStore();
-    var calendar = new GlamByMariya.Infrastructure.Services.BookingService(calendarStore, calendarStore, calendarStore, calendarStore, calendarStore).GetAvailability(DateTime.Today.AddMonths(1), 60);
+    var calendar = new GlamByMariya.Infrastructure.Services.BookingService(calendarStore, calendarStore, calendarStore, calendarStore, calendarStore).GetAvailability(DateTime.Today.AddMonths(1), 60, latitude: 14.5547m, longitude: 121.0244m);
     Check(calendar.Days.Any(d => d.Status == "available"), "booking calendar works without Database:ArtistId");
     var again = "";
     try { NewStore().CreateInitialSuperAdmin("Other", "Owner", "other.owner@example.test", "OwnerPass123"); } catch (InvalidOperationException e) { again = e.Message; }
@@ -598,6 +598,56 @@ if (Run("--travel"))
     var others = App().TravelStops(day, day.AddDays(1), morning.Id);
     Check(others.Count == 1 && others[0].Start == day.AddHours(13), "the booking being moved is left out");
     Check(App().TravelStops(day.AddDays(1), day.AddDays(2), null).Count == 0, "another day has no neighbours");
+
+    // Task 3: saving re-runs the travel rule under a per-artist lock. Settings here: 20.5 km/h, minimum 45,
+    // so Makati to Fairview takes 75 minutes; a Makati 10:00 booking (60 min + 45 buffer) needs 13:00 from Fairview.
+    const decimal mkLat = 14.5547m, mkLng = 121.0244m, fvLat = 14.7046m, fvLng = 121.0567m;
+    Check(GlamByMariya.Core.BusinessRules.TravelPlanner.Minutes(mkLat, mkLng, fvLat, fvLng, 20.5m, 45) == 75, "fixture: Makati to Fairview takes 75 minutes at 20.5 km/h");
+    var bea = App().AddCustomerWithPasswordHash("Bea", "Reyes", "bea@example.test", hasher.HashPassword(new(), "BeaPass123"), 30, "Female", "25 Synthetic Street, Quezon City");
+    GlamByMariya.Core.Entities.Booking BookAt(PublicStudioStore s, Guid who, DateTime start, decimal lat, decimal lng, string method = "Xendit") => s.SubmitBooking(who, soft.Id, [], start, "24 Synthetic Street, Quezon City", "Quezon City",
+        quote.RequiredDownPayment, method, $"TRAVEL-SAVE-{++n}", null, true, true, 1, "auto", quote.FinalTotal, quote.RequiredDownPayment, latitude: lat, longitude: lng);
+    var gapDay = day.AddDays(1);
+    var stalePage = App(); _ = stalePage.Settings; // the second customer's page was loaded before the first booking was saved
+    BookAt(App(), customer.Id, gapDay.AddHours(10), mkLat, mkLng);
+    var staleRefusal = await Refused(() => { BookAt(stalePage, bea.Id, gapDay.AddHours(11).AddMinutes(45), fvLat, fvLng); return Task.CompletedTask; });
+    Check(staleRefusal == GlamByMariya.Core.BusinessRules.TravelPlanner.RefusalMessage, $"a second booking for the same gap is refused with the travel message ({staleRefusal})");
+    Check(BookAt(App(), bea.Id, gapDay.AddHours(13), fvLat, fvLng).Start == gapDay.AddHours(13), "13:00 from Fairview still fits after the Makati booking");
+
+    var raceDay = day.AddDays(2);
+    using var travelBarrier = new Barrier(2);
+    var raced = await Task.WhenAll(new[] { (customer.Id, raceDay.AddHours(10), mkLat, mkLng), (bea.Id, raceDay.AddHours(11).AddMinutes(45), fvLat, fvLng) }.Select(x => Task.Run(() =>
+    {
+        var s = App(); _ = s.Settings; travelBarrier.SignalAndWait();
+        try { BookAt(s, x.Item1, x.Item2, x.Item3, x.Item4); return ""; } catch (InvalidOperationException e) { return e.Message; }
+    })));
+    var raceCount = (long)(await Scalar($"SELECT count(*) FROM public.reservations WHERE start_at >= ('{raceDay:yyyy-MM-dd}'::timestamp AT TIME ZONE 'Asia/Manila') AND start_at < ('{raceDay.AddDays(1):yyyy-MM-dd}'::timestamp AT TIME ZONE 'Asia/Manila')"))!;
+    Check(raced.Count(r => r == "") == 1 && raced.Count(r => r == GlamByMariya.Core.BusinessRules.TravelPlanner.RefusalMessage) == 1 && raceCount == 1,
+        $"two customers saving the same gap at once: only one booking is saved ({string.Join(" | ", raced)}; {raceCount})");
+
+    // Reschedule approval re-runs the rule without the moved booking; only the SuperAdmin may override.
+    async Task Confirm(Guid booking) => await Exec($"""
+        BEGIN; SELECT set_config('makeup.actor_id','{owner.Id}',true);
+        UPDATE public.payments SET status='Paid', verification_status='Verified', verified_by='{owner.Id}', verified_at=now()
+         WHERE reservation_id=(SELECT id FROM public.reservations WHERE app_id='{booking}');
+        UPDATE public.reservations SET status='Confirmed' WHERE app_id='{booking}'; COMMIT;
+        """);
+    var staff = App().AddUser("Staff", "Member", "staff@example.test", "StaffPass123", "Admin", 30, "Female", "26 Synthetic Street, Quezon City");
+    var moveDay = day.AddDays(3);
+    var moving = BookAt(App(), customer.Id, moveDay.AddHours(9), mkLat, mkLng, "GCash");
+    await Confirm(moving.Id);
+    App().RequestReschedule(moving.Id, customer.Id, moveDay.AddHours(11));
+    App().ManageBooking(moving.Id, "reschedule", owner.Id, "", 0, "");
+    Check(App().FindBooking(moving.Id)!.Start == moveDay.AddHours(11), "approving 9:00 to 11:00 does not count the booking itself");
+    BookAt(App(), bea.Id, moveDay.AddHours(15), fvLat, fvLng);
+    App().RequestReschedule(moving.Id, customer.Id, moveDay.AddHours(12).AddMinutes(15));
+    var strict = await Refused(() => { App().ManageBooking(moving.Id, "reschedule", owner.Id, "", 0, ""); return Task.CompletedTask; });
+    Check(strict == GlamByMariya.Core.BusinessRules.TravelPlanner.RefusalMessage && App().FindBooking(moving.Id)!.Start == moveDay.AddHours(11),
+        $"approval refuses 12:15 before a 15:00 Fairview booking ({strict})");
+    var byAdmin = await Refused(() => { App().ManageBooking(moving.Id, "reschedule", staff.Id, "", 0, "", travelOverride: true); return Task.CompletedTask; });
+    Check(byAdmin == GlamByMariya.Infrastructure.Services.BookingService.TravelOverrideRefused, $"an Admin cannot override the travel rule ({byAdmin})");
+    App().ManageBooking(moving.Id, "reschedule", owner.Id, "", 0, "", travelOverride: true);
+    var overridden = (string)(await Scalar($"SELECT (start_at AT TIME ZONE 'Asia/Manila')::text||'/'||coalesce(travel_override_by::text,'none')||'/'||(travel_override_at IS NOT NULL) FROM public.reservations WHERE app_id='{moving.Id}'"))!;
+    Check(overridden == $"{moveDay.AddHours(12).AddMinutes(15):yyyy-MM-dd HH:mm:ss}/{owner.Id}/true", $"the SuperAdmin override approves and records who and when ({overridden})");
 
     const string signature = "public.mvc_travel_stops(timestamptz,timestamptz,uuid)";
     var privileges = (string)(await Scalar($"""
