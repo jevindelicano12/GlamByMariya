@@ -476,6 +476,38 @@ if (Run("--website-content"))
     Console.WriteLine($"All {checks - before} website content database checks passed.");
 }
 
+if (Run("--booking-location"))
+{
+    // A booking can carry the customer's exact pin; the database keeps it paired and inside Metro Manila.
+    var before = checks;
+    await ResetPublic();
+    await SqlMigrator.ApplyAsync(source, migrations);
+    PublicStudioStore App() => NewStore(as_: appSource);
+    App().CreateInitialSuperAdmin("Maria", "Santos", "maria@example.test", "OwnerPass123");
+    var hasher = new Microsoft.AspNetCore.Identity.PasswordHasher<GlamByMariya.Core.Entities.AppUser>();
+    var customer = App().AddCustomerWithPasswordHash("Ana", "Cruz", "ana@example.test", hasher.HashPassword(new(), "AnaPass123"), 30, "Female", "24 Synthetic Street, Quezon City");
+    var soft = App().Services.Single(x => x.Name == "Soft Glam");
+    var quote = GlamByMariya.Core.BusinessRules.BookingPricing.Calculate(soft, [], 1, App().Settings.TravelFee, "auto", App().Settings.DownPaymentPercent);
+    var booking = App().SubmitBooking(customer.Id, soft.Id, [], DateTime.Today.AddDays(4).AddHours(10), "24 Synthetic Street, Quezon City", "Quezon City", quote.RequiredDownPayment, "Xendit", "XENDIT-LOC-1", null,
+        true, true, 1, "auto", quote.FinalTotal, quote.RequiredDownPayment);
+    async Task<string> Update(string set)
+    {
+        try { await Exec($"UPDATE public.reservations SET {set} WHERE app_id='{booking.Id}'"); return ""; }
+        catch (PostgresException e) { return e.SqlState ?? e.MessageText; }
+    }
+    async Task<string> Pin() => (string)(await Scalar($"SELECT coalesce(location_lat::text,'null')||'/'||coalesce(location_lng::text,'null') FROM public.mvc_booking_summary WHERE id='{booking.Id}'"))!;
+    Check(await Update("location_lat=14.5547, location_lng=121.0244") == "", "the guard allows setting the pin on an existing booking");
+    Check(await Pin() == "14.554700/121.024400", "the booking summary shows the pin (" + await Pin() + ")");
+    Check(await Update("location_lat=14.6, location_lng=NULL") == "23514", "a latitude without a longitude is refused");
+    Check(await Update("location_lat=15.5, location_lng=121.0244") == "23514", "a pin north of Metro Manila is refused");
+    Check(await Update("location_lat=14.5547, location_lng=121.3") == "23514", "a pin east of Metro Manila is refused");
+    Check(await Update("location_lat=14.20, location_lng=120.85") == "", "the south-west corner of Metro Manila is accepted");
+    Check(await Update("location_lat=NULL, location_lng=NULL") == "" && await Pin() == "null/null", "a booking can have no pin");
+    var recorded = (long)(await Scalar("SELECT count(*) FROM public.schema_migrations"))!;
+    Check(recorded == Directory.GetFiles(migrations, "*.sql").Length, "every migration file is recorded");
+    Console.WriteLine($"All {checks - before} booking location database checks passed.");
+}
+
 sealed class TestEnv : Microsoft.AspNetCore.Hosting.IWebHostEnvironment
 {
     public string ApplicationName { get; set; } = "DatabaseChecks";
