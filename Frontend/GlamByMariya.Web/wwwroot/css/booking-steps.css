@@ -24,6 +24,13 @@
 .travel-note{padding:12px 14px;background:#f3f5ed;border:1px solid #dce5d3;border-radius:6px;color:#65745f;font-size:10px;line-height:1.7}.travel-modal{position:fixed;inset:0;z-index:100;display:grid;place-items:center;padding:20px;background:#24352e99;overflow:auto}.travel-modal[hidden]{display:none}.travel-modal-card{width:min(540px,100%);max-height:calc(100vh - 40px);overflow:auto;padding:30px;border-radius:12px;background:#fffdf8;box-shadow:0 20px 60px #1b2d2540}.travel-modal-card h2{margin-bottom:15px}.travel-modal-card p{font-size:12px;line-height:1.9;margin-bottom:14px}.travel-modal-card .button{border-radius:24px}.travel-policy-check{display:flex;align-items:flex-start;gap:10px;margin:22px 0;font-size:12px;line-height:1.6}.travel-policy-check input{margin-top:4px;flex:0 0 auto}.travel-modal-actions{display:flex;justify-content:flex-end;gap:10px}.travel-modal-actions .button{min-width:145px}
 #booking-form .booking-progress a:focus-visible, #booking-form .booking-step-actions button:focus-visible { outline: 3px solid #91a27d; outline-offset: 3px; }
 #booking-form .booking-step-actions button:disabled { opacity: .65; cursor: wait; }
+#booking-form .booking-location { margin-top: 18px; display: grid; gap: 10px; }
+#booking-form .booking-location h4 { margin: 0; }
+#booking-form .booking-location-tools { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+#booking-form .booking-location-search { display: flex; flex: 1 1 260px; gap: 8px; min-width: 0; }
+#booking-form .booking-location-search input { flex: 1 1 auto; min-width: 0; }
+#booking-form .booking-location-map { height: 320px; width: 100%; border: 1px solid var(--line); border-radius: 8px; z-index: 0; }
+#booking-form .booking-location-status { margin: 0; font-size: 12px; color: var(--muted); }
 @media (max-width: 850px) {
   #booking-form.has-booking-steps[data-current-step="payment"] { grid-template-columns: minmax(0, 1fr); }
   #booking-form.has-booking-steps > .summary { grid-column: 1; }

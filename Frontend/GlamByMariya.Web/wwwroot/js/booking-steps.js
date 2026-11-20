@@ -17,6 +17,8 @@
   const message = form.querySelector('.booking-step-message');
   const start = form.querySelector('[name="start"]');
   const mixed = () => !!form.querySelector('#mixed-mode')?.checked && form.querySelector('[name="bookingType"]:checked')?.value === 'package';
+  // The customer's map pin (booking-location.js) must be set before payment and submit.
+  const notPinned = () => !!form.elements.latitude && !(form.elements.latitude.value && form.elements.longitude.value);
   let current = 0;
   let navigation = 0;
   let checkingNavigation = false;
@@ -57,6 +59,7 @@
       ['Makeup package', value('#summary-name')], ['Number of people', value('#summary-people')],
       ['Add-ons and quantities', value('#summary-addons')], ['Makeup start', start.value.replace('T', ' ')],
       ['Service location', `${form.elements.address.value}, ${form.elements.area.value}`],
+      ['Location', 'Pinned ✓'],
       ['Estimated makeup duration', value('#summary-duration')], ['Makeup finish', value('#summary-finish')],
       ['Early booking surcharge', value('#summary-early-fee')], ['Late booking surcharge', value('#summary-late-fee')], ['Booking total', value('#summary-total')],
       ['Down payment to pay now', `₱${form.elements.deposit.value}`],
@@ -198,6 +201,12 @@
           picker.focus();
           return;
         }
+        if (notPinned()) {
+          setHash(current, true);
+          notify('Pin your exact location inside Metro Manila.');
+          document.querySelector('#booking-location-map')?.scrollIntoView({ block: 'center' });
+          return;
+        }
         const params = slotParams();
         checkingNavigation = true;
         syncNext();
@@ -315,6 +324,13 @@
       show(1);
       setHash(1, true);
       notify('Choose an available date and time before submitting.');
+    } else if (notPinned()) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      ++navigation;
+      show(1);
+      setHash(1, true);
+      notify('Pin your exact location inside Metro Manila.');
     } else if (!confirmed && confirmation?.showModal) {
       event.preventDefault();
       event.stopImmediatePropagation();

@@ -14,6 +14,9 @@ public static class ContentSecurityPolicy
 
     private const string GoogleFontStylesOrigin = "https://fonts.googleapis.com";
     private const string GoogleFontFilesOrigin = "https://fonts.gstatic.com";
+    // The booking form's location map: OpenStreetMap tiles and the landmark search.
+    private const string MapTilesOrigin = "https://tile.openstreetmap.org";
+    private const string MapSearchOrigin = "https://nominatim.openstreetmap.org";
 
     /// <summary>128-bit, base64url-safe per-request nonce.</summary>
     public static string CreateNonce()
@@ -49,7 +52,7 @@ public static class ContentSecurityPolicy
 
     public static string BuildReportOnly(string nonce, IEnumerable<string> imageOrigins)
     {
-        var images = string.Join(' ', new[] { "'self'" }.Concat(imageOrigins));
+        var images = string.Join(' ', new[] { "'self'" }.Concat(imageOrigins).Append(MapTilesOrigin));
         return string.Join("; ",
             "default-src 'self'",
             // Zod 3.23.8 is vendored under wwwroot and needs no third-party origin.
@@ -63,7 +66,7 @@ public static class ContentSecurityPolicy
             "style-src-attr 'none'",
             $"font-src 'self' {GoogleFontFilesOrigin}",
             $"img-src {images}",
-            "connect-src 'self'",
+            $"connect-src 'self' {MapSearchOrigin}",
             // The booking form redirects to Xendit's hosted checkout for the down payment.
             "form-action 'self' https://checkout.xendit.co https://checkout-staging.xendit.co",
             "base-uri 'self'",

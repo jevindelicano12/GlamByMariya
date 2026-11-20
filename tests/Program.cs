@@ -795,6 +795,60 @@ if (args.Contains("--booking-location-only"))
     Check(demo.Bookings.Single(b => b.Id == pinned.Id).Latitude == 14.5547m, "the stored booking keeps its pin");
     var seeded = demo.Bookings.First(b => b.Id != pinned.Id);
     Check(BookingLocation.IsValid(seeded.Latitude, seeded.Longitude), "the demo seed booking has a pin");
+
+    // Task 3: the booking form pins the location and the controller passes it on.
+    var web = Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web");
+    var createView = File.ReadAllText(Path.Combine(web, "Views", "Bookings", "Create.cshtml"));
+    Check(System.Text.RegularExpressions.Regex.IsMatch(createView, "<input type=\"hidden\" name=\"latitude\"") &&
+          System.Text.RegularExpressions.Regex.IsMatch(createView, "<input type=\"hidden\" name=\"longitude\""), "the booking form has hidden latitude and longitude inputs");
+    Check(createView.Contains("~/lib/leaflet/leaflet.js") && createView.Contains("~/lib/leaflet/leaflet.css"), "the booking form loads the local Leaflet copy");
+    Check(createView.Contains("~/js/booking-location.js"), "the booking form loads the location script");
+    Check(!createView.Contains("unpkg.com") && !createView.Contains("cdn.jsdelivr"), "Leaflet is not loaded from a CDN");
+    foreach (var file in new[] { "leaflet.js", "leaflet.css", "LICENSE", Path.Combine("images", "marker-icon.png"), Path.Combine("images", "marker-shadow.png") })
+        Check(File.Exists(Path.Combine(web, "wwwroot", "lib", "leaflet", file)), $"Leaflet {file} is in wwwroot/lib/leaflet");
+    var locationScriptPath = Path.Combine(web, "wwwroot", "js", "booking-location.js");
+    var locationScript = File.Exists(locationScriptPath) ? File.ReadAllText(locationScriptPath) : "";
+    Check(locationScript.Contains("https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ph&q="), "the search uses Nominatim limited to the Philippines");
+    Check(locationScript.Contains("We couldn't get your location. Drag the pin instead."), "a geolocation error tells the customer to drag the pin");
+    Check(locationScript.Contains("No match found; drag the pin instead"), "a search with no result tells the customer to drag the pin");
+    Check(locationScript.Contains("© OpenStreetMap contributors"), "the map shows the OpenStreetMap attribution");
+    Check(locationScript.Contains("1000") && locationScript.Contains("lastSearch"), "searches are limited to one request per second");
+    Check(locationScript.Contains("toFixed(6)"), "the pin is written with six decimals");
+    foreach (var (area, centre) in new[] { ("Quezon City", "14.6760, 121.0437"), ("Makati", "14.5547, 121.0244"), ("Manila", "14.5995, 120.9842"), ("Pasig", "14.5764, 121.0851"), ("Taguig", "14.5176, 121.0509"), ("Mandaluyong", "14.5794, 121.0359") })
+        Check(locationScript.Contains($"'{area}': [{centre}]"), $"{area} has its map centre");
+    foreach (var stepScript in new[] { "booking-steps.js", "booking-steps-phase2.js" })
+    {
+        var text = File.ReadAllText(Path.Combine(web, "wwwroot", "js", stepScript));
+        Check(text.Contains("['Location', 'Pinned ✓']"), $"{stepScript} shows the pinned location in the review");
+        Check(text.Contains("form.elements.latitude.value") && text.Contains("form.elements.longitude.value"), $"{stepScript} blocks submit until the pin is set");
+    }
+    var controllerSource = File.ReadAllText(Path.Combine(web, "Controllers", "BookingsController.cs"));
+    Check(System.Text.RegularExpressions.Regex.Matches(controllerSource, @"workflow\.Create\([^;]*latitude: latitude, longitude: longitude\)").Count == 2,
+        "both booking paths (manual and Xendit) pass the pin to the booking service");
+    var csp = GlamByMariya.Web.Middleware.ContentSecurityPolicy.BuildReportOnly("n", []);
+    Check(csp.Contains("img-src 'self' https://tile.openstreetmap.org") && csp.Contains("connect-src 'self' https://nominatim.openstreetmap.org"), "the content policy allows map tiles and the landmark search");
+
+    var bookingsController = new GlamByMariya.Web.Controllers.BookingsController(demo, flow, null!, null!, null!, null!);
+    var http = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+    http.User = new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim(ClaimTypes.NameIdentifier, customerUser.Id.ToString()), new Claim(ClaimTypes.Role, customerUser.Role) }, "Cookies"));
+    bookingsController.ControllerContext = new ControllerContext { HttpContext = http };
+    bookingsController.TempData = new Microsoft.AspNetCore.Mvc.ViewFeatures.TempDataDictionary(http, new NoTempData());
+    async Task<(IActionResult Result, string? Error)> Post(decimal? lat, decimal? lng)
+    {
+        bookingsController.TempData.Clear();
+        var result = await bookingsController.Create(look.Id, [], start, "24 Synthetic Street", "Quezon City", quote.RequiredDownPayment, "GCash", "LOC-POST", null, true, 1, "auto", true,
+            quote.FinalTotal, quote.RequiredDownPayment, latitude: lat, longitude: lng);
+        return (result, bookingsController.TempData["Error"] as string);
+    }
+    var postCount = demo.Bookings.Count;
+    foreach (var (lat, lng, label) in new (decimal?, decimal?, string)[] { (null, null, "no pin"), (null, 121.0244m, "half a pin"), (14.5547m, 121.4m, "a pin outside Metro Manila") })
+    {
+        var (result, error) = await Post(lat, lng);
+        Check(result is RedirectToActionResult { ActionName: "Create" } && error == BookingLocation.Message, $"posting the form with {label} returns to the form with the pin message");
+    }
+    var (_, pinnedError) = await Post(14.5547m, 121.0244m);
+    Check(pinnedError != BookingLocation.Message && pinnedError == "Upload a payment screenshot to submit your booking.", "a valid pin passes the pin check and the form moves on to the payment checks");
+    Check(demo.Bookings.Count == postCount, "refused form posts create no booking");
     Console.WriteLine($"All {checks} booking location checks passed."); return;
 }
 if (args.Contains("--exact-deposit-only"))

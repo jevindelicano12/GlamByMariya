@@ -478,12 +478,15 @@ document.querySelectorAll('.availability-picker').forEach(picker => {
   // Step navigation only supplies synchronous guards; it must not lock the retry.
   const syncSubmit = () => {
     if (form.classList.contains('is-mixed')) return;
+    // The home-service booking needs the customer's map pin before it can be submitted.
+    const unpinned = form.id === 'booking-form' && !!form.elements.latitude && (!form.elements.latitude.value || !form.elements.longitude.value);
     submit.disabled = submitting || validating || !startInput.value
-      || (form.id === 'booking-form' && form.dataset.priceState !== 'ready');
+      || (form.id === 'booking-form' && form.dataset.priceState !== 'ready') || unpinned;
     if (form.id === 'booking-form') {
       submitStatus.textContent = submitting ? 'Checking or submitting your booking…'
         : validating ? 'Checking your selected time…'
         : !startInput.value ? 'Choose an available date and time before submitting.'
+        : unpinned ? 'Pin your exact location inside Metro Manila.'
         : form.dataset.priceState === 'loading' ? 'Calculating your current price…'
         : form.dataset.priceState !== 'ready' ? document.querySelector('#pricing-status').textContent : '';
     }
@@ -791,6 +794,7 @@ document.querySelectorAll('.availability-picker').forEach(picker => {
      quantityTimer = window.setTimeout(refresh, 350);
    });
   form.addEventListener('booking-price-state-changed', syncSubmit);
+  form.addEventListener('booking-location-changed', syncSubmit);
   form.addEventListener('booking-price-updated', () => { if (startInput.value && !submitting) validateTime(); else syncSubmit(); });
   form.addEventListener('booking-submission-cancel', cancelValidation);
   form.addEventListener('submit', async event => {

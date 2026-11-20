@@ -155,20 +155,22 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
         }
     }
     [HttpPost, RequestSizeLimit(6_000_000)]
-    public async Task<IActionResult> Create(Guid serviceId, Guid[] addOnIds, DateTime start, string address, string area, decimal deposit, string method, string? reference, IFormFile? proof, bool agreed, int people = 1, string package = "auto", bool travelAcknowledged = false, decimal? expectedTotal = null, decimal? expectedMinimum = null)
+    public async Task<IActionResult> Create(Guid serviceId, Guid[] addOnIds, DateTime start, string address, string area, decimal deposit, string method, string? reference, IFormFile? proof, bool agreed, int people = 1, string package = "auto", bool travelAcknowledged = false, decimal? expectedTotal = null, decimal? expectedMinimum = null, decimal? latitude = null, decimal? longitude = null)
     {
         string? path = null;
         try
         {
             if (!ModelState.IsValid) throw new InvalidOperationException("Check the number of people, date and payment amount.");
             if (!expectedTotal.HasValue || !expectedMinimum.HasValue) throw new InvalidOperationException("Review the current price before submitting.");
-            if (UsesXendit) return await CreateWithXendit(serviceId, addOnIds, start, address, area, deposit, agreed, people, package, travelAcknowledged, expectedTotal, expectedMinimum);
+            // Checked before any payment screenshot is saved; BookingService checks the pin again.
+            if (!BookingLocation.IsValid(latitude, longitude)) throw new InvalidOperationException(BookingLocation.Message);
+            if (UsesXendit) return await CreateWithXendit(serviceId, addOnIds, start, address, area, deposit, agreed, people, package, travelAcknowledged, expectedTotal, expectedMinimum, latitude, longitude);
             if (method == "Cash") throw new InvalidOperationException("Deposits must use GCash, Maya or Bank Transfer.");
             if (proof == null || proof.Length == 0) throw new InvalidOperationException("Upload a payment screenshot to submit your booking.");
             // Nullable only because the Xendit form has no reference field; the manual flow still requires one.
             if (string.IsNullOrWhiteSpace(reference)) throw new InvalidOperationException("Enter your payment reference number.");
             path = await SaveProof(proof);
-            workflow.Create(UserId, serviceId, addOnIds, start, address, area, deposit, method, reference, path, agreed, people, package, travelAcknowledged, expectedTotal, expectedMinimum);
+            workflow.Create(UserId, serviceId, addOnIds, start, address, area, deposit, method, reference, path, agreed, people, package, travelAcknowledged, expectedTotal, expectedMinimum, latitude: latitude, longitude: longitude);
             CompleteStaging(path);
             path = null;
             TempData["Success"] = "Your booking is submitted. The artist will verify your deposit and confirm your appointment.";
@@ -191,10 +193,10 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
     // and sends the customer to it. Only the Xendit webhook confirms the booking. If the invoice
     // cannot be created, the unpaid booking is cancelled (free) so the slot is released at once.
     private async Task<IActionResult> CreateWithXendit(Guid serviceId, Guid[] addOnIds, DateTime start, string address, string area, decimal deposit, bool agreed,
-        int people, string package, bool travelAcknowledged, decimal? expectedTotal, decimal? expectedMinimum)
+        int people, string package, bool travelAcknowledged, decimal? expectedTotal, decimal? expectedMinimum, decimal? latitude, decimal? longitude)
     {
         var reference = "XENDIT-" + Guid.NewGuid().ToString("N")[..16].ToUpperInvariant();
-        var booking = workflow.Create(UserId, serviceId, addOnIds, start, address, area, deposit, "Xendit", reference, null, agreed, people, package, travelAcknowledged, expectedTotal, expectedMinimum);
+        var booking = workflow.Create(UserId, serviceId, addOnIds, start, address, area, deposit, "Xendit", reference, null, agreed, people, package, travelAcknowledged, expectedTotal, expectedMinimum, latitude: latitude, longitude: longitude);
         var database = (IPersistentStudioStore)store;
         try
         {
