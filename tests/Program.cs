@@ -457,6 +457,10 @@ if (args.Contains("--website-content-live-only"))
     Check(await SaveMessage(c => c.RemoveImage(draftId, mm4.Images.Revision + 5, mm4.Images.List[0].Id, default), mm4.Files, mm4.Images, mm4.Assets) == "The draft changed. Reload and try again.", "removing with a stale revision shows the draft-changed message");
     var mm5 = Uploads(); mm5.Images.List.Add(new WebsiteImageReference(Guid.NewGuid(), Guid.NewGuid(), "gallery", "x", "", 0, true)); mm5.Images.FailReplace = true;
     Check(await SaveMessage(c => c.RemoveImage(draftId, mm5.Images.Revision, mm5.Images.List[0].Id, default), mm5.Files, mm5.Images, mm5.Assets) is { } removeMsg && !removeMsg.Contains("draft changed"), "removing with another failure does not claim the draft changed");
+    // With live photo editing on, the text editor must not claim photos are unavailable.
+    var textEditorView = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "Views", "WebsiteContent", "_TextEditor.cshtml"));
+    Check(textEditorView.Contains("ViewData[\"DraftImages\"] != null") && textEditorView.Contains("Add or replace photos below, after saving your text.")
+          && textEditorView.Contains("Add and remove gallery photos below."), "the live editor's notices point to the photo cards instead of saying photos are unavailable");
     Console.WriteLine($"All {checks} live website content checks passed."); return;
 }
 if (args.Contains("--package-label-only"))
