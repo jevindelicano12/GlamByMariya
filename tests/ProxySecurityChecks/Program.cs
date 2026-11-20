@@ -9,7 +9,7 @@ using Microsoft.Extensions.Options;
 
 var root = Directory.GetCurrentDirectory();
 var program = await File.ReadAllTextAsync(Path.Combine(root, "Frontend", "GlamByMariya.Web", "Program.cs"));
-var render = await File.ReadAllTextAsync(Path.Combine(root, "render.yaml"));
+var render = await File.ReadAllTextAsync(Path.Combine(root, "deploy", "v2", "render.yaml"));
 var admin = await File.ReadAllTextAsync(Path.Combine(root, "Frontend", "GlamByMariya.Web", "Controllers", "AdminController.cs"));
 var securityHeaders = await File.ReadAllTextAsync(Path.Combine(root, "Frontend", "GlamByMariya.Web", "Middleware", "SecurityHeadersMiddleware.cs"));
 var cookieAuthentication = await File.ReadAllTextAsync(Path.Combine(root, "Frontend", "GlamByMariya.Web", "Security", "StudioCookieAuthentication.cs"));

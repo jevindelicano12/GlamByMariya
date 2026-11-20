@@ -112,7 +112,11 @@ Check(Before(publicElevated, "var error = RegistrationRules.Validate(firstName, 
     "source contract", "public elevated creation shares registration password checks before hashing and insert");
 Check(Before(postgresStore, "PasswordPolicy.ValidateNewPassword(newPassword)", "FindUser(email)", "HashPassword(tmp, newPassword)", "Transaction(existing.Id"),
     "source contract", "legacy repository validates before lookup, hashing, and transaction");
-Check(Before(publicStore, "PasswordPolicy.ValidateNewPassword(newPassword)", "FindUser(email)", "HashPassword(tmp, newPassword)", "Transaction(existing.Id"),
+// Scope to ResetPassword: AddUser earlier in the file also calls FindUser(email).
+var resetStart = publicStore.IndexOf("public override void ResetPassword(", StringComparison.Ordinal);
+var resetEnd = resetStart >= 0 ? publicStore.IndexOf("\n    public ", resetStart + 1, StringComparison.Ordinal) : -1;
+var publicReset = resetStart >= 0 && resetEnd > resetStart ? publicStore[resetStart..resetEnd] : "";
+Check(Before(publicReset, "PasswordPolicy.ValidateNewPassword(newPassword)", "FindUser(email)", "HashPassword(tmp, newPassword)", "Transaction(existing.Id"),
     "source contract", "public repository validates before lookup, hashing, and transaction");
 Check(change.Contains("if (!synchronized)", StringComparison.Ordinal)
     && change.Contains("await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme)", StringComparison.Ordinal)
