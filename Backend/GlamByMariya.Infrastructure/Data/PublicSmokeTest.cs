@@ -89,7 +89,7 @@ public static class PublicSmokeTest
         Directory.CreateDirectory(proofDirectory);
         var syntheticProof = Path.Combine(proofDirectory, Guid.NewGuid() + ".png");
         File.WriteAllBytes(syntheticProof, Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6cWQAAAAASUVORK5CYII="));
-        var b = store.SubmitBooking(customer.Id, soft.Id, [], start, "123 Smoke Street, Test Barangay", "Quezon City", quote.RequiredDownPayment, "GCash", payRef, syntheticProof, true, true, 1, "auto");
+        var b = store.SubmitBooking(customer.Id, soft.Id, [], start, "123 Smoke Street, Test Barangay", "Quezon City", quote.RequiredDownPayment, "GCash", payRef, syntheticProof, true, true, 1, "auto", latitude: 14.5547m, longitude: 121.0244m);
         Check(b.Status == "Pending Payment", "Booking created as Pending Payment");
         Check(store.Payments.Single(p => p.BookingId == b.Id).Reference == payRef, "Deposit recorded with reference");
         store.CorrectPayment(b.Id, customer.Id, payRef + "-C", null);
@@ -100,7 +100,7 @@ public static class PublicSmokeTest
         b = store.Bookings.Single(x => x.Id == b.Id);
         Check(b.Status == "Confirmed" && b.VerifiedPaid == b.RequiredDownPayment, "Admin verification confirms booking");
         Login(customer);
-        Reject(() => store.SubmitBooking(customer.Id, soft.Id, [], start.AddMinutes(30), "123 Smoke Street, Test Barangay", "Quezon City", quote.RequiredDownPayment, "Maya", payRef + "-OVERLAP", null, true, true, 1, "auto"), "Overlapping appointment rejected");
+        Reject(() => store.SubmitBooking(customer.Id, soft.Id, [], start.AddMinutes(30), "123 Smoke Street, Test Barangay", "Quezon City", quote.RequiredDownPayment, "Maya", payRef + "-OVERLAP", null, true, true, 1, "auto", latitude: 14.5547m, longitude: 121.0244m), "Overlapping appointment rejected");
         store.RequestReschedule(b.Id, customer.Id, start.AddDays(7));
         Check(store.Bookings.Single(x => x.Id == b.Id).RequestedStart != null, "Reschedule request keeps original slot");
         Login(admin);

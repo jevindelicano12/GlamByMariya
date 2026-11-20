@@ -316,8 +316,9 @@ public sealed class PublicStudioStore(
         });
     }
 
-    public override Booking SubmitBooking(Guid customer, Guid service, Guid[] extras, DateTime start, string address, string area, decimal deposit, string method, string reference, string? proof, bool agreed, bool travelAcknowledged, int people, string package, decimal? expectedTotal = null, decimal? expectedMinimum = null)
+    public override Booking SubmitBooking(Guid customer, Guid service, Guid[] extras, DateTime start, string address, string area, decimal deposit, string method, string reference, string? proof, bool agreed, bool travelAcknowledged, int people, string package, decimal? expectedTotal = null, decimal? expectedMinimum = null, decimal? latitude = null, decimal? longitude = null)
     {
+        if (!BookingLocation.IsValid(latitude, longitude)) throw new InvalidOperationException(BookingLocation.Message);
         if (!agreed || !travelAcknowledged) throw new InvalidOperationException("Read and accept the Transportation Fee Policy before submitting payment.");
         if (package == "auto" && people != 1) throw new InvalidOperationException("Individual bookings must have exactly one person.");
         BookingService.ValidatePayment(method, reference);
@@ -347,7 +348,7 @@ public sealed class PublicStudioStore(
                     var extrasTotal = selectedExtras.Sum(x => x.Price);
                     var extrasMinutes = selectedExtras.Sum(x => x.Minutes);
                     var bookingRef = NewReference(appId);
-                     pdb.Database.ExecuteSqlInterpolated($"INSERT INTO public.reservations(app_id, app_managed, snapshot_source, reference, customer_id, artist_id, service_id, start_at, location, area_id, booking_type, people, addons_total_snapshot, addons_minutes_snapshot, down_payment_percent_snapshot, required_down_payment_snapshot, policy_accepted_at, policy_version, travel_reminder_acknowledged_at, travel_reminder_version, status) VALUES({appId}, true, 'booking_creation', {bookingRef}, {customerId}, {artistId}, {serviceId}, {utc}, {address.Trim()}, {coverage.Id}, {type}, {people}, {extrasTotal}, {extrasMinutes}, {Settings.DownPaymentPercent}, {quote.RequiredDownPayment}, now(), {Settings.PolicyVersion}, now(), {Settings.TravelReminderVersion}, 'Pending Payment')");
+                     pdb.Database.ExecuteSqlInterpolated($"INSERT INTO public.reservations(app_id, app_managed, snapshot_source, reference, customer_id, artist_id, service_id, start_at, location, area_id, booking_type, people, addons_total_snapshot, addons_minutes_snapshot, down_payment_percent_snapshot, required_down_payment_snapshot, policy_accepted_at, policy_version, travel_reminder_acknowledged_at, travel_reminder_version, status, location_lat, location_lng) VALUES({appId}, true, 'booking_creation', {bookingRef}, {customerId}, {artistId}, {serviceId}, {utc}, {address.Trim()}, {coverage.Id}, {type}, {people}, {extrasTotal}, {extrasMinutes}, {Settings.DownPaymentPercent}, {quote.RequiredDownPayment}, now(), {Settings.PolicyVersion}, now(), {Settings.TravelReminderVersion}, 'Pending Payment', {latitude}, {longitude})");
                     var reservationId = pdb.Database.SqlQueryRaw<long>("SELECT id AS \"Value\" FROM public.reservations WHERE app_id = {0}", appId).Single();
                     foreach (var group in selectedExtras.GroupBy(x => x.Id))
                         if (PreparedPersistentBooking.Enabled) pdb.Database.ExecuteSqlInterpolated($"INSERT INTO public.reservation_addons(reservation_id, addon_id, quantity) VALUES({reservationId}, {group.Key}, {group.Count()})");

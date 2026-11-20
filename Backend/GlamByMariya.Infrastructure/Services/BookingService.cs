@@ -270,15 +270,16 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             return new(now.ToString("yyyy-MM-dd"), first.ToString("yyyy-MM"), duration, buffer, days);
         }
     }
-    public Booking Create(Guid userId, Guid serviceId, Guid[] addOnIds, DateTime start, string address, string area, decimal deposit, string method, string reference, string? proof, bool agreed, int people = 1, string package = "auto", bool travelAcknowledged = false, decimal? expectedTotal = null, decimal? expectedMinimum = null)
+    public Booking Create(Guid userId, Guid serviceId, Guid[] addOnIds, DateTime start, string address, string area, decimal deposit, string method, string reference, string? proof, bool agreed, int people = 1, string package = "auto", bool travelAcknowledged = false, decimal? expectedTotal = null, decimal? expectedMinimum = null, decimal? latitude = null, decimal? longitude = null)
     {
+        if (!BookingLocation.IsValid(latitude, longitude)) throw new InvalidOperationException(BookingLocation.Message);
         if (store is IPersistentStudioStore database)
         {
             if (!expectedTotal.HasValue || !expectedMinimum.HasValue) throw new InvalidOperationException("Review the current price before submitting.");
             if (!PreparedPersistentBooking.Enabled && addOnIds.Distinct().Count() != addOnIds.Length) throw new InvalidOperationException("Add-on quantities are not yet available in persistent storage.");
             // Friendly early check; the database trigger stays the final authority under concurrency.
             CheckSlot(start, Quote(serviceId, addOnIds, people, package).DurationMinutes);
-            return database.SubmitBooking(userId, serviceId, addOnIds, start, address, area, deposit, method, reference, proof, agreed, travelAcknowledged, people, package, expectedTotal, expectedMinimum);
+            return database.SubmitBooking(userId, serviceId, addOnIds, start, address, area, deposit, method, reference, proof, agreed, travelAcknowledged, people, package, expectedTotal, expectedMinimum, latitude, longitude);
         }
         lock (store.Gate)
         {
@@ -291,7 +292,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             if ((expectedTotal.HasValue && expectedTotal != quote.FinalTotal) || (expectedMinimum.HasValue && expectedMinimum != quote.RequiredDownPayment)) throw new InvalidOperationException("The booking price or minimum payment changed. Please review the updated quote before submitting.");
             CheckSlot(start, quote.DurationMinutes);
             var user = store.Users.First(x => x.Id == userId);
-            var b = new Booking { CustomerId = userId, CustomerName = user.Name, Service = new(service.Id, service.Name, service.Price, service.Minutes), AddOns = selected.GroupBy(x => x.Id).Select(g => new PriceSnapshot(g.Key, g.First().Name, g.First().Price, g.First().Minutes, g.Count())).ToList(), Start = start, BufferMinutesSnapshot = store.Settings.BufferMinutes, Address = address.Trim(), Area = area, TravelFee = 0, EarlyFeeSnapshot = quote.EarlyFee, LateFeeSnapshot = quote.LateFee, TransportationPolicyAcknowledgedAt = store.Now, People = people, Package = package, AppliedPricePerPerson = quote.AppliedPricePerPerson, GroupPrice = quote.GroupPrice, GroupMinimumPeople = quote.GroupMinimumPeople, DownPaymentPercentSnapshot = store.Settings.DownPaymentPercent, RequiredDownPaymentSnapshot = quote.RequiredDownPayment, PaymentDueAt = PaymentWindow.DueAt(store.Now) };
+            var b = new Booking { CustomerId = userId, CustomerName = user.Name, Service = new(service.Id, service.Name, service.Price, service.Minutes), AddOns = selected.GroupBy(x => x.Id).Select(g => new PriceSnapshot(g.Key, g.First().Name, g.First().Price, g.First().Minutes, g.Count())).ToList(), Start = start, BufferMinutesSnapshot = store.Settings.BufferMinutes, Address = address.Trim(), Area = area, Latitude = latitude, Longitude = longitude, TravelFee = 0, EarlyFeeSnapshot = quote.EarlyFee, LateFeeSnapshot = quote.LateFee, TransportationPolicyAcknowledgedAt = store.Now, People = people, Package = package, AppliedPricePerPerson = quote.AppliedPricePerPerson, GroupPrice = quote.GroupPrice, GroupMinimumPeople = quote.GroupMinimumPeople, DownPaymentPercentSnapshot = store.Settings.DownPaymentPercent, RequiredDownPaymentSnapshot = quote.RequiredDownPayment, PaymentDueAt = PaymentWindow.DueAt(store.Now) };
             Money.RequireExactDeposit(deposit, quote.RequiredDownPayment);
             if (method == "Cash") throw new InvalidOperationException("Use GCash, Maya or Bank Transfer for your down payment.");
             CheckReference(method, reference);

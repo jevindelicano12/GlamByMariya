@@ -63,7 +63,7 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
                 Start=Local(b.StartsAt),BufferMinutesSnapshot=b.BufferMinutesSnapshot,People=b.People,Package=b.BookingType=="package"?"group":"auto",
                 GroupPrice=b.GroupPriceSnapshot,GroupMinimumPeople=b.GroupMinimumSnapshot,AppliedPricePerPerson=b.AppliedPricePerPerson,
                 DownPaymentPercentSnapshot=b.DownPaymentPercentSnapshot,RequiredDownPaymentSnapshot=b.RequiredDownPaymentSnapshot,
-                Address=b.Address,Area=b.AreaNameSnapshot,TravelFee=b.TravelFeeInformationalSnapshot,TransportationPolicyAcknowledgedAt=b.TransportationPolicyAcknowledgedAt,VerifiedPaid=b.VerifiedPaid,
+                Address=b.Address,Area=b.AreaNameSnapshot,Latitude=b.LocationLat,Longitude=b.LocationLng,TravelFee=b.TravelFeeInformationalSnapshot,TransportationPolicyAcknowledgedAt=b.TransportationPolicyAcknowledgedAt,VerifiedPaid=b.VerifiedPaid,
                 PaymentStatus=b.PaymentStatus,Status=b.Status,Note=b.Note,RequestedStart=b.RequestedStart.HasValue?Local(b.RequestedStart.Value):null,
                 CancellationFee=b.CancellationFee,RefundDue=b.RefundDue,Refunded=b.Refunded,RefundReference=transfers[b.Id].FirstOrDefault()?.TransferReference??"" }).ToList();
     }
@@ -300,8 +300,9 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
             db.Database.ExecuteSqlInterpolated($"UPDATE makeup.app_users SET password_hash={hash}, security_stamp=gen_random_uuid() WHERE id={existing.Id}"));
     }
 
-    public virtual Booking SubmitBooking(Guid customer,Guid service,Guid[] extras,DateTime start,string address,string area,decimal deposit,string method,string reference,string? proof,bool agreed,bool travelAcknowledged,int people,string package,decimal? expectedTotal=null,decimal? expectedMinimum=null)
+    public virtual Booking SubmitBooking(Guid customer,Guid service,Guid[] extras,DateTime start,string address,string area,decimal deposit,string method,string reference,string? proof,bool agreed,bool travelAcknowledged,int people,string package,decimal? expectedTotal=null,decimal? expectedMinimum=null,decimal? latitude=null,decimal? longitude=null)
     {
+        if(!BookingLocation.IsValid(latitude,longitude)) throw new InvalidOperationException(BookingLocation.Message);
         if(!agreed || !travelAcknowledged) throw new InvalidOperationException("Read and accept the Transportation Fee Policy before submitting payment.");
         if(package=="auto" && people!=1) throw new InvalidOperationException("Individual bookings must have exactly one person.");
         BookingService.ValidatePayment(method,reference);

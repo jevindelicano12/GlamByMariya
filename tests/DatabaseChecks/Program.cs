@@ -154,7 +154,7 @@ if (Run("--rules"))
     {
         var quote = GlamByMariya.Core.BusinessRules.BookingPricing.Calculate(soft, [], 1, s.Settings.TravelFee, "auto", s.Settings.DownPaymentPercent);
         return s.SubmitBooking(customer, soft.Id, [], start, "24 Synthetic Street, Quezon City", "Quezon City", quote.RequiredDownPayment, "GCash", reference, null,
-            true, true, 1, "auto", quote.FinalTotal, quote.RequiredDownPayment);
+            true, true, 1, "auto", quote.FinalTotal, quote.RequiredDownPayment, latitude: 14.5547m, longitude: 121.0244m);
     }
     async Task<string> Status(Guid booking) => (string)(await Scalar($"SELECT status FROM public.reservations WHERE app_id='{booking}'"))!;
     async Task Confirm(Guid booking) => await Exec($"""
@@ -278,7 +278,7 @@ if (Run("--app-role"))
     var soft = app.Services.Single(x => x.Name == "Soft Glam");
     var quote = GlamByMariya.Core.BusinessRules.BookingPricing.Calculate(soft, [], 1, app.Settings.TravelFee, "auto", app.Settings.DownPaymentPercent);
     var booking = app.SubmitBooking(customer.Id, soft.Id, [], DateTime.Today.AddDays(3).AddHours(10), "24 Synthetic Street, Quezon City", "Quezon City",
-        quote.RequiredDownPayment, "GCash", "APP-ROLE-1", null, true, true, 1, "auto", quote.FinalTotal, quote.RequiredDownPayment);
+        quote.RequiredDownPayment, "GCash", "APP-ROLE-1", null, true, true, 1, "auto", quote.FinalTotal, quote.RequiredDownPayment, latitude: 14.5547m, longitude: 121.0244m);
     Check(App().FindBooking(booking.Id) != null, "the app login can register a customer and book");
     Check(App().ExpireOverduePayments() == 0, "the app login can run the expiry function");
     App().CancelBooking(booking.Id, customer.Id, true);
@@ -315,7 +315,7 @@ if (Run("--xendit"))
         var s = App();
         var quote = GlamByMariya.Core.BusinessRules.BookingPricing.Calculate(soft, [], 1, s.Settings.TravelFee, "auto", s.Settings.DownPaymentPercent);
         return s.SubmitBooking(customer.Id, soft.Id, [], start, "24 Synthetic Street, Quezon City", "Quezon City", quote.RequiredDownPayment, "Xendit", reference, null,
-            true, true, 1, "auto", quote.FinalTotal, quote.RequiredDownPayment);
+            true, true, 1, "auto", quote.FinalTotal, quote.RequiredDownPayment, latitude: 14.5547m, longitude: 121.0244m);
     }
     async Task<string> Status(Guid booking) => (string)(await Scalar($"SELECT status FROM public.reservations WHERE app_id='{booking}'"))!;
     var day = DateTime.Today.AddDays(4);
@@ -366,7 +366,7 @@ if (Run("--staff-actions"))
         var s = App(); n++;
         var quote = GlamByMariya.Core.BusinessRules.BookingPricing.Calculate(soft, [], 1, s.Settings.TravelFee, "auto", s.Settings.DownPaymentPercent);
         var b = s.SubmitBooking(customer.Id, soft.Id, [], start, "24 Synthetic Street, Quezon City", "Quezon City", quote.RequiredDownPayment, "Xendit", $"XENDIT-STAFF-{n}", null,
-            true, true, 1, "auto", quote.FinalTotal, quote.RequiredDownPayment);
+            true, true, 1, "auto", quote.FinalTotal, quote.RequiredDownPayment, latitude: 14.5547m, longitude: 121.0244m);
         App().AttachInvoice(b.Id, $"inv_staff_{n}", $"https://checkout-staging.xendit.co/web/inv_staff_{n}");
         App().XenditPaid($"inv_staff_{n}", b.RequiredDownPayment, $"inv_staff_{n}:PAID");
         return b;
@@ -489,7 +489,27 @@ if (Run("--booking-location"))
     var soft = App().Services.Single(x => x.Name == "Soft Glam");
     var quote = GlamByMariya.Core.BusinessRules.BookingPricing.Calculate(soft, [], 1, App().Settings.TravelFee, "auto", App().Settings.DownPaymentPercent);
     var booking = App().SubmitBooking(customer.Id, soft.Id, [], DateTime.Today.AddDays(4).AddHours(10), "24 Synthetic Street, Quezon City", "Quezon City", quote.RequiredDownPayment, "Xendit", "XENDIT-LOC-1", null,
-        true, true, 1, "auto", quote.FinalTotal, quote.RequiredDownPayment);
+        true, true, 1, "auto", quote.FinalTotal, quote.RequiredDownPayment, latitude: 14.5547m, longitude: 121.0244m);
+    var readBack = App().FindBooking(booking.Id)!;
+    Check(readBack.Latitude == 14.5547m && readBack.Longitude == 121.0244m, "a booking submitted with a pin reads back its pin");
+    Check(await Refused(() => Task.FromResult(App().SubmitBooking(customer.Id, soft.Id, [], DateTime.Today.AddDays(5).AddHours(10), "24 Synthetic Street, Quezon City", "Quezon City", quote.RequiredDownPayment, "Xendit", "XENDIT-LOC-2", null,
+        true, true, 1, "auto", quote.FinalTotal, quote.RequiredDownPayment))) == "Pin your exact location inside Metro Manila.", "the store refuses a booking without a pin");
+    async Task<string> InsertWithoutPin()
+    {
+        try
+        {
+            await Exec($"""
+                INSERT INTO public.reservations(app_id, app_managed, snapshot_source, reference, customer_id, artist_id, service_id, start_at, location, area_id, booking_type, people,
+                  addons_total_snapshot, addons_minutes_snapshot, policy_accepted_at, policy_version, travel_reminder_acknowledged_at, travel_reminder_version, status)
+                SELECT gen_random_uuid(), true, 'booking_creation', 'LOC-NOPIN', r.customer_id, r.artist_id, r.service_id, r.start_at + interval '3 days', '24 Synthetic Street, Quezon City', r.area_id, 'individual', 1,
+                  0, 0, now(), r.policy_version, now(), r.travel_reminder_version, 'Pending Payment'
+                FROM public.reservations r WHERE r.app_id='{booking.Id}'
+                """);
+            return "";
+        }
+        catch (PostgresException e) { return e.MessageText; }
+    }
+    Check(await InsertWithoutPin() == "Pin your exact location inside Metro Manila.", "the database refuses a new app booking without a pin");
     async Task<string> Update(string set)
     {
         try { await Exec($"UPDATE public.reservations SET {set} WHERE app_id='{booking.Id}'"); return ""; }
@@ -503,6 +523,8 @@ if (Run("--booking-location"))
     Check(await Update("location_lat=14.5547, location_lng=121.3") == "23514", "a pin east of Metro Manila is refused");
     Check(await Update("location_lat=14.20, location_lng=120.85") == "", "the south-west corner of Metro Manila is accepted");
     Check(await Update("location_lat=NULL, location_lng=NULL") == "" && await Pin() == "null/null", "a booking can have no pin");
+    var legacy = App().FindBooking(booking.Id)!;
+    Check(legacy.Latitude == null && legacy.Longitude == null, "an older booking without a pin still loads");
     var recorded = (long)(await Scalar("SELECT count(*) FROM public.schema_migrations"))!;
     Check(recorded == Directory.GetFiles(migrations, "*.sql").Length, "every migration file is recorded");
     Console.WriteLine($"All {checks - before} booking location database checks passed.");

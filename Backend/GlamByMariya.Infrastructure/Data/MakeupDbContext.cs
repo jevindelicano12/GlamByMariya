@@ -23,6 +23,7 @@ public class MakeupDbContext : DbContext
         model.Entity<AssetRow>().ToTable("media_assets");
         model.Entity<ImageRow>().ToTable("catalog_images");
         model.Entity<BookingRow>().ToView("booking_financial_summary");
+        model.Entity<BookingRow>().Ignore(x => x.LocationLat).Ignore(x => x.LocationLng);
         model.Entity<BookingAddonRow>().ToTable("booking_addons");
         model.Entity<PaymentRow>().ToTable("payments");
         model.Entity<NotificationRow>().ToTable("notifications");
@@ -102,6 +103,8 @@ public class BookingRow
     public string Note { get; set; } = ""; public decimal VerifiedPaid { get; set; }
     public string PaymentStatus { get; set; } = ""; public DateTime? RequestedStart { get; set; }
     public decimal CancellationFee { get; set; } public decimal RefundDue { get; set; } public decimal Refunded { get; set; }
+    // Only the public schema's mvc_booking_summary carries the pin (0013); the makeup schema ignores it.
+    public decimal? LocationLat { get; set; } public decimal? LocationLng { get; set; }
 }
 public class BookingAddonRow { public Guid Id { get; set; } public Guid BookingId { get; set; } public Guid AddonId { get; set; } public string NameSnapshot { get; set; } = ""; public decimal PriceSnapshot { get; set; } public int MinutesSnapshot { get; set; } }
 public class PaymentRow

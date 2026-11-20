@@ -756,6 +756,47 @@ if (args.Contains("--persistent-reschedule-only"))
     Check(!source.Contains("public void Reschedule("), "the unused Reschedule method is gone");
     Console.WriteLine($"All {checks} persistent reschedule checks passed."); return;
 }
+if (args.Contains("--booking-location-only"))
+{
+    Check(BookingLocation.IsValid(14.5547m, 121.0244m), "a pin in Makati is inside Metro Manila");
+    Check(!BookingLocation.IsValid(14.5547m, null) && !BookingLocation.IsValid(null, 121.0244m) && !BookingLocation.IsValid(null, null), "a missing latitude or longitude is not a pin");
+    Check(!BookingLocation.IsValid(15.5m, 121m), "a pin north of Metro Manila is refused");
+    Check(!BookingLocation.IsValid(14.5547m, 121.3m) && !BookingLocation.IsValid(14.19m, 121m) && !BookingLocation.IsValid(14.5m, 120.84m), "pins outside the box on other sides are refused");
+    Check(BookingLocation.IsValid(14.20m, 120.85m) && BookingLocation.IsValid(14.95m, 121.25m), "the box corners are inclusive");
+    const string expectedUrl = "https://www.google.com/maps/dir/?api=1&destination=14.554700,121.024400";
+    Check(BookingLocation.GoogleMapsUrl(14.5547m, 121.0244m) == expectedUrl, "the Google Maps link uses six decimals");
+    var savedCulture = System.Globalization.CultureInfo.CurrentCulture;
+    try
+    {
+        foreach (var name in new[] { "fil-PH", "de-DE" })
+        {
+            System.Globalization.CultureInfo.CurrentCulture = new(name);
+            Check(BookingLocation.GoogleMapsUrl(14.5547m, 121.0244m) == expectedUrl, $"the Google Maps link ignores the {name} culture");
+        }
+    }
+    finally { System.Globalization.CultureInfo.CurrentCulture = savedCulture; }
+
+    var demo = new DemoStore(presentationAccounts: true); var flow = new BookingService(demo, demo, demo, demo, demo);
+    var customerUser = demo.Users.First(u => u.Role == Roles.Customer);
+    var look = demo.Services.First(); var start = DateTime.Today.AddDays(29).AddHours(8);
+    var quote = flow.Quote(look.Id, [], 1, "auto", start);
+    Booking Submit(string reference, decimal? lat, decimal? lng) => flow.Create(customerUser.Id, look.Id, [], start, "24 Synthetic Street", "Quezon City", quote.RequiredDownPayment, "GCash",
+        reference, "synthetic-proof.png", true, 1, "auto", true, quote.FinalTotal, quote.RequiredDownPayment, latitude: lat, longitude: lng);
+    var count = demo.Bookings.Count;
+    foreach (var (lat, lng, label) in new (decimal?, decimal?, string)[] { (null, null, "no pin"), (14.5547m, null, "half a pin"), (15.5m, 121m, "a pin outside Metro Manila") })
+    {
+        string message = "";
+        try { Submit("LOC-REF-" + label.Length, lat, lng); } catch (InvalidOperationException e) { message = e.Message; }
+        Check(message == BookingLocation.Message, $"a booking with {label} is refused with the pin message");
+    }
+    Check(demo.Bookings.Count == count, "refused pins create no booking");
+    var pinned = Submit("LOC-REF-OK", 14.5547m, 121.0244m);
+    Check(pinned.Latitude == 14.5547m && pinned.Longitude == 121.0244m, "a booking keeps its pin");
+    Check(demo.Bookings.Single(b => b.Id == pinned.Id).Latitude == 14.5547m, "the stored booking keeps its pin");
+    var seeded = demo.Bookings.First(b => b.Id != pinned.Id);
+    Check(BookingLocation.IsValid(seeded.Latitude, seeded.Longitude), "the demo seed booking has a pin");
+    Console.WriteLine($"All {checks} booking location checks passed."); return;
+}
 if (args.Contains("--exact-deposit-only"))
 {
     var demo = new DemoStore(presentationAccounts: true); var flow = new BookingService(demo, demo, demo, demo, demo);
@@ -765,7 +806,7 @@ if (args.Contains("--exact-deposit-only"))
     Check(quote.RequiredDownPayment < quote.FinalTotal, "test service has a balance after the down payment");
     var n = 0;
     Booking Submit(decimal amount) => flow.Create(customerUser.Id, look.Id, [], start, "24 Synthetic Street", "Quezon City", amount, "GCash",
-        $"EXACT-REF-{++n}", "synthetic-proof.png", true, 1, "auto", true, quote.FinalTotal, quote.RequiredDownPayment);
+        $"EXACT-REF-{++n}", "synthetic-proof.png", true, 1, "auto", true, quote.FinalTotal, quote.RequiredDownPayment, latitude: 14.5547m, longitude: 121.0244m);
     var before = demo.Bookings.Count;
     Reject(() => Submit(quote.RequiredDownPayment + 1), "a higher custom amount is rejected");
     Reject(() => Submit(quote.FinalTotal), "full payment is rejected online");
@@ -791,7 +832,7 @@ if (args.Contains("--payment-window-only"))
     var look = demo.Services.First(); var start = DateTime.Today.AddDays(29).AddHours(8);
     var quote = flow.Quote(look.Id, [], 1, "auto", start);
     var booking = flow.Create(customerUser.Id, look.Id, [], start, "24 Synthetic Street", "Quezon City", quote.RequiredDownPayment, "GCash",
-        "WINDOW-REF-1", "synthetic-proof.png", true, 1, "auto", true, quote.FinalTotal, quote.RequiredDownPayment);
+        "WINDOW-REF-1", "synthetic-proof.png", true, 1, "auto", true, quote.FinalTotal, quote.RequiredDownPayment, latitude: 14.5547m, longitude: 121.0244m);
     Check(booking.PaymentDueAt is { } due && Math.Abs((due - demo.Now - PaymentWindow.Length).TotalSeconds) < 5, "new booking gets a payment deadline 30 minutes from now");
     Check(flow.HoldsReservation(booking), "booking inside its payment window holds the slot");
     Reject(() => flow.CheckSlot(start, quote.DurationMinutes), "another customer cannot take a slot that is still inside its payment window");
@@ -998,15 +1039,15 @@ if (args.Contains("--persistent-quote-only"))
     proxy.TestServices = store.Services;
     var persistentFlow = new BookingService(persistent, persistent, persistent, persistent, persistent);
     var persistentStart = DateTime.Today.AddDays(2).AddHours(10);
-    Reject(() => persistentFlow.Create(customer.Id, service.Id, [], persistentStart, "Test address", "Quezon City", 1, "GCash", "REF", null, true, travelAcknowledged: true), "persistent submission requires a reviewed quote");
+    Reject(() => persistentFlow.Create(customer.Id, service.Id, [], persistentStart, "Test address", "Quezon City", 1, "GCash", "REF", null, true, travelAcknowledged: true, latitude: 14.5547m, longitude: 121.0244m), "persistent submission requires a reviewed quote");
     Check(proxy.Arguments == null, "missing quote never reaches persistent repository");
     var taken = new Booking { CustomerId = Guid.NewGuid(), Status = "Confirmed", Start = persistentStart, Service = new(service.Id, service.Name, service.Price, service.Minutes), BufferMinutesSnapshot = 45 };
     proxy.TestBookings.Add(taken);
-    Reject(() => persistentFlow.Create(customer.Id, service.Id, [], persistentStart, "Test address", "Quezon City", 1, "GCash", "REF", null, true, travelAcknowledged: true, expectedTotal: quote.FinalTotal, expectedMinimum: quote.RequiredDownPayment),
+    Reject(() => persistentFlow.Create(customer.Id, service.Id, [], persistentStart, "Test address", "Quezon City", 1, "GCash", "REF", null, true, travelAcknowledged: true, expectedTotal: quote.FinalTotal, expectedMinimum: quote.RequiredDownPayment, latitude: 14.5547m, longitude: 121.0244m),
         "persistent submission for an already reserved time is rejected before the database insert");
     Check(proxy.Arguments == null, "overlapping submission never reaches persistent repository");
     proxy.TestBookings.Remove(taken);
-    persistentFlow.Create(customer.Id, service.Id, [], persistentStart, "Test address", "Quezon City", 1, "GCash", "REF", null, true, travelAcknowledged: true, expectedTotal: quote.FinalTotal, expectedMinimum: quote.RequiredDownPayment);
+    persistentFlow.Create(customer.Id, service.Id, [], persistentStart, "Test address", "Quezon City", 1, "GCash", "REF", null, true, travelAcknowledged: true, expectedTotal: quote.FinalTotal, expectedMinimum: quote.RequiredDownPayment, latitude: 14.5547m, longitude: 121.0244m);
     Check(proxy.Arguments != null && (decimal?)proxy.Arguments[14] == quote.FinalTotal && (decimal?)proxy.Arguments[15] == quote.RequiredDownPayment, "persistent workflow forwards both reviewed amounts to repository");
     BookingService.ValidateExpectedQuote(quote, quote.FinalTotal, quote.RequiredDownPayment);
     Check(true, "matching reviewed total and minimum accepted");
@@ -1136,7 +1177,7 @@ if (args.Contains("--boundary-regression-only"))
     var look = demo.Services.First(); var start = DateTime.Today.AddDays(28).AddHours(8);
     var quote = flow.Quote(look.Id, [], 1, "auto", start);
     Booking Submit(DateTime at, string address = "Synthetic service address", decimal? amount = null, string method = "GCash", string reference = "BOUNDARY-1", bool agreed = true, bool travel = true, decimal? total = null) =>
-        flow.Create(boundaryCustomer.Id, look.Id, [], at, address, "Quezon City", amount ?? quote.RequiredDownPayment, method, reference, null, agreed, 1, "auto", travel, total ?? quote.FinalTotal, quote.RequiredDownPayment);
+        flow.Create(boundaryCustomer.Id, look.Id, [], at, address, "Quezon City", amount ?? quote.RequiredDownPayment, method, reference, null, agreed, 1, "auto", travel, total ?? quote.FinalTotal, quote.RequiredDownPayment, latitude: 14.5547m, longitude: 121.0244m);
     var initialBookings = demo.Bookings.Count; var initialPayments = demo.Payments.Count;
     foreach (var (label, action) in new (string, Action)[] {
         ("short address", () => Submit(start, address: "short")),
@@ -1235,7 +1276,7 @@ if (args.Contains("--staff-cancellation-completion-only"))
     Reject(() => flow.AdminAction(initial, "cancel", owner.Id, "again", 0, "", true), "duplicate cancellation rejected");
     Reject(() => flow.AdminAction(initial, "complete", owner.Id, "", 0, "", true), "cancelled booking cannot be completed");
     var item = demo.Services.First(); var day = DateTime.Today.AddDays(30).AddHours(8); var quote = flow.Quote(item.Id, [], 1, "auto", day);
-    Booking CreateStaffFixture(int shift) => flow.Create(user.Id, item.Id, [], day.AddDays(shift), "Synthetic service address", "Quezon City", quote.RequiredDownPayment, "GCash", "STAFF-ACTION-" + shift, "proof.png", true, 1, "auto", true, quote.FinalTotal, quote.RequiredDownPayment);
+    Booking CreateStaffFixture(int shift) => flow.Create(user.Id, item.Id, [], day.AddDays(shift), "Synthetic service address", "Quezon City", quote.RequiredDownPayment, "GCash", "STAFF-ACTION-" + shift, "proof.png", true, 1, "auto", true, quote.FinalTotal, quote.RequiredDownPayment, latitude: 14.5547m, longitude: 121.0244m);
     var confirmedBooking = CreateStaffFixture(0); flow.AdminAction(confirmedBooking, "verify", owner.Id, "", 0, ""); var verifiedPayment = demo.Payments.Single(p => p.BookingId == confirmedBooking.Id); var staffVerifiedAt = verifiedPayment.VerifiedAt;
     Reject(() => flow.AdminAction(confirmedBooking, "complete", owner.Id, "", 0, "", true), "future appointment cannot be completed");
     flow.AdminAction(confirmedBooking, "cancel", owner.Id, "Synthetic confirmed cancellation", 0, "", true);
@@ -1261,7 +1302,7 @@ if (args.Contains("--staff-cancellation-completion-only"))
         var start = DateTime.Today.AddDays(25).AddHours(8);
         var quoted = testFlow.Quote(serviceItem.Id, [], 1, "auto", start);
         // Online payment is always the exact down payment; "full" adds the balance collected afterwards.
-        var appointment = testFlow.Create(client.Id, serviceItem.Id, [], start, "Synthetic service address", "Quezon City", quoted.RequiredDownPayment, "GCash", "FINANCE-" + scenario, "synthetic-proof.png", true, 1, "auto", true, quoted.FinalTotal, quoted.RequiredDownPayment);
+        var appointment = testFlow.Create(client.Id, serviceItem.Id, [], start, "Synthetic service address", "Quezon City", quoted.RequiredDownPayment, "GCash", "FINANCE-" + scenario, "synthetic-proof.png", true, 1, "auto", true, quoted.FinalTotal, quoted.RequiredDownPayment, latitude: 14.5547m, longitude: 121.0244m);
         var deposit = local.Payments.Single(p => p.BookingId == appointment.Id);
         Reject(() => testFlow.AdminAction(appointment, "verify", client.Id, "", 0, ""), $"{scenario}: Customer cannot verify payment");
         Check(!deposit.Verified && testFlow.Paid(appointment) == 0, $"{scenario}: unverified claim is not collected");
@@ -1301,7 +1342,7 @@ if (args.Contains("--reschedule-policy-only"))
     var user = demo.Users.First(u => u.Role == Roles.Customer); var owner = demo.Users.First(u => u.Role == Roles.SuperAdmin); var staff = demo.Users.First(u => u.Role == Roles.Admin);
     var day = DateTime.Today.AddDays(30); demo.Settings.EarlyFeeEnabled = true; demo.Settings.EarlyStartHour = 5; demo.Settings.EarlyFee = 200;
     var policyService = demo.Services.First(); var initial = flow.Quote(policyService.Id, [], 1, "auto", day.AddHours(8));
-    var booking = flow.Create(user.Id, policyService.Id, [], day.AddHours(8), "Synthetic address", "Quezon City", initial.RequiredDownPayment, "GCash", "RESCHEDULE-POLICY-1", "synthetic.png", true, 1, "auto", true, initial.FinalTotal, initial.RequiredDownPayment);
+    var booking = flow.Create(user.Id, policyService.Id, [], day.AddHours(8), "Synthetic address", "Quezon City", initial.RequiredDownPayment, "GCash", "RESCHEDULE-POLICY-1", "synthetic.png", true, 1, "auto", true, initial.FinalTotal, initial.RequiredDownPayment, latitude: 14.5547m, longitude: 121.0244m);
     flow.AdminAction(booking, "verify", owner.Id, "", 0, ""); var paid = flow.Paid(booking); var policyPaymentCount = demo.Payments.Count;
     var offer = flow.OfferReschedule(booking, user.Id, day.AddDays(1).AddHours(5));
     Check(offer.CurrentTotal == initial.FinalTotal && offer.ProposedTotal == initial.FinalTotal + 200 && booking.Start == day.AddHours(8), "offer shows current and revised total without moving reservation");
@@ -1501,7 +1542,7 @@ if (args.Contains("--late-fees-only"))
     flow.CheckSlot(day.AddHours(14), endsAtClose.DurationMinutes);
     Check(endsAtClose.LateFee == 0, "a buffer extending past regular closing alone does not incur the late fee");
     var groupStart = day.AddDays(2).AddHours(14).AddMinutes(1);
-    var lateGroupBooking = flow.Create(user.Id, item.Id, [], groupStart, "Synthetic address", "Quezon City", crossesClose.RequiredDownPayment, "GCash", "LATE-GROUP-SNAPSHOT", null, true, 4, "group", true, crossesClose.FinalTotal, crossesClose.RequiredDownPayment);
+    var lateGroupBooking = flow.Create(user.Id, item.Id, [], groupStart, "Synthetic address", "Quezon City", crossesClose.RequiredDownPayment, "GCash", "LATE-GROUP-SNAPSHOT", null, true, 4, "group", true, crossesClose.FinalTotal, crossesClose.RequiredDownPayment, latitude: 14.5547m, longitude: 121.0244m);
     Check(lateGroupBooking.LateFeeSnapshot == 275 && lateGroupBooking.Total == crossesClose.FinalTotal, "duration-based fee is preserved in the booking snapshot");
     flow.AdminAction(lateGroupBooking, "verify", reviewer.Id, "", 0, "");
     var lateGroupOffer = flow.OfferReschedule(lateGroupBooking, user.Id, day.AddDays(3).AddHours(13));
@@ -1520,7 +1561,7 @@ if (args.Contains("--late-fees-only"))
     var earlyLong = flow.Quote(item.Id, [], 14, "group", day.AddHours(5));
     Check(earlyLong.EarlyFee == 100 && earlyLong.LateFee == 0, "early-start fee takes priority even when a package ends after regular closing");
     using var barrier = new Barrier(2);
-    var attempts = Enumerable.Range(0, 2).Select(i => Task.Run(() => { barrier.SignalAndWait(); try { return flow.Create(user.Id, item.Id, [], day.AddHours(19).AddMinutes(i * 15), "Synthetic address", "Quezon City", late.RequiredDownPayment, "GCash", "LATE-RACE-" + i, null, true, 1, "auto", true, late.FinalTotal, late.RequiredDownPayment); } catch (InvalidOperationException) { return null; } })).ToArray();
+    var attempts = Enumerable.Range(0, 2).Select(i => Task.Run(() => { barrier.SignalAndWait(); try { return flow.Create(user.Id, item.Id, [], day.AddHours(19).AddMinutes(i * 15), "Synthetic address", "Quezon City", late.RequiredDownPayment, "GCash", "LATE-RACE-" + i, null, true, 1, "auto", true, late.FinalTotal, late.RequiredDownPayment, latitude: 14.5547m, longitude: 121.0244m); } catch (InvalidOperationException) { return null; } })).ToArray();
     Task.WaitAll(attempts);
     var winners = attempts.Select(t => t.Result).OfType<Booking>().ToArray();
     Check(winners.Length == 1 && winners[0].LateFeeSnapshot == 275, "overlapping late reservations have one winner with a fee snapshot");
@@ -1549,8 +1590,8 @@ if (args.Contains("--fees-only"))
     Check(flow.Quote(item1.Id, [], 1, "auto", start.AddMinutes(-1)).EarlyFee == 0 && normal.EarlyFee == 0, "early interval includes earliest start and excludes opening");
     flow.CheckSlot(start, quote.DurationMinutes);
     Reject(() => flow.CheckSlot(start.AddMinutes(-15), quote.DurationMinutes), "starts before early boundary unavailable");
-    Reject(() => flow.Create(user.Id, item1.Id, [], start, "Synthetic address", "Quezon City", quote.RequiredDownPayment, "GCash", "FEE-STALE", null, true, 1, "auto", true, normal.FinalTotal), "stale quote rejected before reservation");
-    var booking = flow.Create(user.Id, item1.Id, [], start, "Synthetic address", "Quezon City", quote.RequiredDownPayment, "GCash", "FEE-OK", null, true, 1, "auto", true, quote.FinalTotal);
+    Reject(() => flow.Create(user.Id, item1.Id, [], start, "Synthetic address", "Quezon City", quote.RequiredDownPayment, "GCash", "FEE-STALE", null, true, 1, "auto", true, normal.FinalTotal, latitude: 14.5547m, longitude: 121.0244m), "stale quote rejected before reservation");
+    var booking = flow.Create(user.Id, item1.Id, [], start, "Synthetic address", "Quezon City", quote.RequiredDownPayment, "GCash", "FEE-OK", null, true, 1, "auto", true, quote.FinalTotal, latitude: 14.5547m, longitude: 121.0244m);
     demo.Settings.EarlyFee = 500; demo.Settings.EarlyFeeEnabled = false;
     Check(booking.EarlyFeeSnapshot == 321 && booking.Total == quote.FinalTotal, "booking retains historical fee and total");
     flow.AdminAction(booking, "verify", reviewer.Id, "", 0, "");
@@ -1600,7 +1641,7 @@ if (args.Contains("--reservation-only"))
     var look = demo.Services[0];
     var when = DateTime.Today.AddDays(20).AddHours(10);
     var quote = flow.Quote(look.Id, []);
-    Booking Submit(DateTime start, string reference, decimal? amount = null) => flow.Create(user.Id, look.Id, [], start, "Synthetic address", "Quezon City", amount ?? quote.RequiredDownPayment, "GCash", reference, null, true, 1, "auto", true);
+    Booking Submit(DateTime start, string reference, decimal? amount = null) => flow.Create(user.Id, look.Id, [], start, "Synthetic address", "Quezon City", amount ?? quote.RequiredDownPayment, "GCash", reference, null, true, 1, "auto", true, latitude: 14.5547m, longitude: 121.0244m);
     using var barrier = new Barrier(2);
     var attempts = Enumerable.Range(0, 2).Select(i => Task.Run(() => { barrier.SignalAndWait(); try { return Submit(when.AddMinutes(i * 15), "SYNTHETIC-RACE-" + i); } catch (InvalidOperationException) { return null; } })).ToArray();
     Task.WaitAll(attempts);
@@ -1641,7 +1682,7 @@ if (args.Contains("--reservation-only"))
     var extra = demo.AddOns[0];
     var groupQuote = flow.Quote(look.Id, [extra.Id, extra.Id], 4, "group");
     var groupStart = destination.AddDays(3).Date.AddHours(8);
-    var groupReservation = flow.Create(user.Id, look.Id, [extra.Id, extra.Id], groupStart, "Synthetic address", "Quezon City", groupQuote.RequiredDownPayment, "GCash", "SYNTHETIC-GROUP", null, true, 4, "group", true);
+    var groupReservation = flow.Create(user.Id, look.Id, [extra.Id, extra.Id], groupStart, "Synthetic address", "Quezon City", groupQuote.RequiredDownPayment, "GCash", "SYNTHETIC-GROUP", null, true, 4, "group", true, latitude: 14.5547m, longitude: 121.0244m);
     Check((groupReservation.End - groupReservation.Start).TotalMinutes == look.Minutes * 4 + extra.Minutes * 2, "group reservation uses service and quantity-based add-on duration");
     Reject(() => flow.CheckSlot(groupReservation.End.AddMinutes(1), 60), "group reservation also blocks its preparation buffer");
     Console.WriteLine($"All {checks} synthetic reservation checks passed.");
@@ -1671,7 +1712,7 @@ foreach (var (role, oldEmail, newEmail) in new[] { ("Customer", "removed-custome
     var quote = bookingService.Quote(look.Id, [extra.Id], 4, "group");
     var before = demo.Now;
     var created = bookingService.Create(user.Id, look.Id, [extra.Id], start, "78I Isolated Demo Street", "Quezon City",
-        quote.RequiredDownPayment, "GCash", "LOCAL-78I-ACK", null, true, 4, "group", true);
+        quote.RequiredDownPayment, "GCash", "LOCAL-78I-ACK", null, true, 4, "group", true, latitude: 14.5547m, longitude: 121.0244m);
     var after = demo.Now;
     Check(created.TransportationPolicyAcknowledgedAt.HasValue, "Demo stores accepted transportation-policy timestamp");
     Check(created.TransportationPolicyAcknowledgedAt >= before && created.TransportationPolicyAcknowledgedAt <= after,
@@ -1697,7 +1738,7 @@ foreach (var (role, oldEmail, newEmail) in new[] { ("Customer", "removed-custome
     var paymentsBeforeRejection = System.Text.Json.JsonSerializer.Serialize(demo.Payments);
     foreach (var consent in new[] { (Agreed: true, Travel: false), (Agreed: false, Travel: true), (Agreed: false, Travel: false) })
         Reject(() => bookingService.Create(user.Id, look.Id, [], start.AddDays(1), "78I Isolated Demo Street", "Quezon City",
-            bookingService.Quote(look.Id, []).RequiredDownPayment, "GCash", "LOCAL-78I-REJECT", null, consent.Agreed, 1, "auto", consent.Travel),
+            bookingService.Quote(look.Id, []).RequiredDownPayment, "GCash", "LOCAL-78I-REJECT", null, consent.Agreed, 1, "auto", consent.Travel, latitude: 14.5547m, longitude: 121.0244m),
             $"Missing required consent is rejected (booking={consent.Agreed}, transportation={consent.Travel})");
     Check(System.Text.Json.JsonSerializer.Serialize(demo.Bookings) == bookingsBeforeRejection
         && System.Text.Json.JsonSerializer.Serialize(demo.Payments) == paymentsBeforeRejection
@@ -1713,12 +1754,12 @@ if (args.Contains("--transportation-only"))
     Check(quote.ExtrasTotal == extra.Price * 2 && quote.DurationMinutes == look.Minutes * 4 + extra.Minutes * 2, "quantity pricing and duration use two add-ons");
     Reject(() => serviceCheck.Quote(look.Id, [extra.Id, extra.Id], 1, "auto"), "add-on quantity cannot exceed party size");
     demo.Settings.OpenHour = 0; demo.Settings.CloseHour = 23; demo.Settings.BufferMinutes = 0;
-    var booking = serviceCheck.Create(person.Id, look.Id, [extra.Id, extra.Id], DateTime.Today.AddDays(10), "Synthetic address", "Quezon City", quote.RequiredDownPayment, "GCash", "SYNTHETIC-QUANTITY", null, true, 4, "group", true);
+    var booking = serviceCheck.Create(person.Id, look.Id, [extra.Id, extra.Id], DateTime.Today.AddDays(10), "Synthetic address", "Quezon City", quote.RequiredDownPayment, "GCash", "SYNTHETIC-QUANTITY", null, true, 4, "group", true, latitude: 14.5547m, longitude: 121.0244m);
     Check(booking.Total == quote.FinalTotal && booking.End == booking.Start.AddMinutes(quote.DurationMinutes) && booking.AddOns.Single().Quantity == 2, "booking snapshots quantity and duration");
     Check(serviceCheck.Paid(booking) == 0 && demo.Payments.Single(p => p.BookingId == booking.Id).Amount == quote.RequiredDownPayment, "exact down payment claim remains unverified");
-    Reject(() => serviceCheck.Create(person.Id, look.Id, [], DateTime.Today.AddDays(11), "Synthetic address", "Quezon City", 0, "GCash", "SYNTHETIC-LOW", null, true, 1, "auto", true), "below-minimum claim rejected");
+    Reject(() => serviceCheck.Create(person.Id, look.Id, [], DateTime.Today.AddDays(11), "Synthetic address", "Quezon City", 0, "GCash", "SYNTHETIC-LOW", null, true, 1, "auto", true, latitude: 14.5547m, longitude: 121.0244m), "below-minimum claim rejected");
     var individual = serviceCheck.Quote(look.Id, []);
-    Reject(() => serviceCheck.Create(person.Id, look.Id, [], DateTime.Today.AddDays(11), "Synthetic address", "Quezon City", individual.FinalTotal + 1, "GCash", "SYNTHETIC-HIGH", null, true, 1, "auto", true), "above-total claim rejected");
+    Reject(() => serviceCheck.Create(person.Id, look.Id, [], DateTime.Today.AddDays(11), "Synthetic address", "Quezon City", individual.FinalTotal + 1, "GCash", "SYNTHETIC-HIGH", null, true, 1, "auto", true, latitude: 14.5547m, longitude: 121.0244m), "above-total claim rejected");
     serviceCheck.AdminAction(booking, "verify", demo.Users.First(u => u.Role == "Admin").Id, "", 0, "");
     Check(serviceCheck.Paid(booking) == quote.RequiredDownPayment && booking.Status == "Confirmed", "explicit review verifies the exact down payment");
     Console.WriteLine($"All {checks} focused Demo transportation checks passed.");
@@ -1760,10 +1801,10 @@ parsedConnection = new NpgsqlConnectionStringBuilder(DatabaseConfiguration.Conne
 Check(parsedConnection.Host == "aws-0-region.pooler.supabase.com" && parsedConnection.Port == 5432
     && parsedConnection.SslMode == SslMode.VerifyFull,
     "tcp:// prefix in a key/value Host normalizes without changing port or TLS verification");
-Booking Create(DateTime time, decimal? deposit = null, string area = "Quezon City") => workflow.Create(customer.Id, service.Id, [], time, "24 Sample Street", area, deposit ?? workflow.Quote(service.Id, []).RequiredDownPayment, "GCash", "TEST-" + Guid.NewGuid(), null, true, 1, "auto", true);
+Booking Create(DateTime time, decimal? deposit = null, string area = "Quezon City") => workflow.Create(customer.Id, service.Id, [], time, "24 Sample Street", area, deposit ?? workflow.Quote(service.Id, []).RequiredDownPayment, "GCash", "TEST-" + Guid.NewGuid(), null, true, 1, "auto", true, latitude: 14.5547m, longitude: 121.0244m);
 var time = DateTime.Today.AddDays(5).AddHours(10);
 Reject(() => Create(time, 299), "Down payment below 50% rejected");
-Reject(() => workflow.Create(customer.Id, service.Id, [], time, "24 Sample Street", "Quezon City", workflow.Quote(service.Id, []).RequiredDownPayment, "GCash", "NO-TRANSPORT-POLICY", null, true, 1, "auto", false), "Transportation policy acknowledgment is required");
+Reject(() => workflow.Create(customer.Id, service.Id, [], time, "24 Sample Street", "Quezon City", workflow.Quote(service.Id, []).RequiredDownPayment, "GCash", "NO-TRANSPORT-POLICY", null, true, 1, "auto", false, latitude: 14.5547m, longitude: 121.0244m), "Transportation policy acknowledgment is required");
 Reject(() => Create(time, 99999), "Overpayments rejected: exact half required");
 Reject(() => Create(time, area: "Outside area"), "Unsupported service area rejected");
 Reject(() => Create(time.Date.AddHours(17)), "Session plus travel buffer must fit within hours");
@@ -1911,12 +1952,12 @@ var pCustomer = paymentStore.Users.First(u => u.Role == "Customer");
 var pAdmin = paymentStore.Users.First(u => u.Role == "Admin");
 var pOwner = paymentStore.Users.First(u => u.Role == "SuperAdmin");
 var pStart = DateTime.Today.AddDays(20).AddHours(8);
-Booking GroupBooking(string reference, decimal deposit = 2625) => paymentWorkflow.Create(pCustomer.Id, pService.Id, [], pStart, "24 Sample Street", "Quezon City", deposit, "Maya", reference, null, true, 10, "group", true);
+Booking GroupBooking(string reference, decimal deposit = 2625) => paymentWorkflow.Create(pCustomer.Id, pService.Id, [], pStart, "24 Sample Street", "Quezon City", deposit, "Maya", reference, null, true, 10, "group", true, latitude: 14.5547m, longitude: 121.0244m);
 Reject(() => GroupBooking("UNDERPAYMENT", 2624.99m), "One-cent down payment shortfall rejected");
 Reject(() => GroupBooking("OVERPAYMENT", 5250.01m), "Payment above the booking total is rejected");
 var groupBooking = GroupBooking("GROUP-PAYMENT");
 Check(groupBooking.Total == 5250 && groupBooking.RequiredDownPayment == 2625 && groupBooking.GroupDiscount == 750, "Discounted prices and down payment saved as booking snapshots");
-Reject(() => paymentWorkflow.Create(pCustomer.Id, pService.Id, [], pStart.AddDays(1), "24 Sample Street", "Quezon City", 2625, "Maya", " group-payment ", null, true, 10, "group", true), "Duplicate payment references are blocked regardless of whitespace/case");
+Reject(() => paymentWorkflow.Create(pCustomer.Id, pService.Id, [], pStart.AddDays(1), "24 Sample Street", "Quezon City", 2625, "Maya", " group-payment ", null, true, 10, "group", true, latitude: 14.5547m, longitude: 121.0244m), "Duplicate payment references are blocked regardless of whitespace/case");
 pService.Price = 900; pService.GroupPrice = 700; paymentStore.Settings.TravelFee = 500;
 Check(groupBooking.Total == 5250 && groupBooking.RequiredDownPayment == 2625, "Editing catalog rates and travel fees does not change booked group prices");
 paymentWorkflow.AdminAction(groupBooking, "verify", pAdmin.Id, "", 0, "");
@@ -1938,7 +1979,7 @@ Check(tampered.Status == "Pending Payment" && tampered.VerifiedPaid == 0, "Faile
 paymentStore.Settings.DownPaymentPercent = 40;
 var quote40 = paymentWorkflow.Quote(pService.Id, [], 10, "group");
 Check(quote40.RequiredDownPayment == 2800 && quote40.RemainingBalance == 4200, "40% policy recalculates new quotations (â‚±2,800 down on â‚±7,000)");
-var booking40 = paymentWorkflow.Create(pCustomer.Id, pService.Id, [], pStart.AddDays(5), "24 Sample Street", "Quezon City", quote40.RequiredDownPayment, "Maya", "POLICY-40", null, true, 10, "group", true);
+var booking40 = paymentWorkflow.Create(pCustomer.Id, pService.Id, [], pStart.AddDays(5), "24 Sample Street", "Quezon City", quote40.RequiredDownPayment, "Maya", "POLICY-40", null, true, 10, "group", true, latitude: 14.5547m, longitude: 121.0244m);
 Check(booking40.RequiredDownPayment == 2800 && booking40.DownPaymentPercentSnapshot == 40 && booking40.RemainingBalance == 7000, "New booking snapshots the 40% policy");
 Check(groupBooking.RequiredDownPayment == 2625 && groupBooking.DownPaymentPercentSnapshot == 50, "Changing the policy does not alter existing booking snapshots");
 paymentStore.Settings.DownPaymentPercent = 50;

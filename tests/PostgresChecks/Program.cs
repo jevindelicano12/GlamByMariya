@@ -96,9 +96,9 @@ try
     var lash=store.AddOns.Single(x=>x.Name=="Lash application");
     var time=store.Now.Date.AddDays(7).AddHours(8);
     Login(customer);
-    Reject(()=>store.SubmitBooking(customer.Id,soft.Id,[],time,"24 Test Street","Quezon City",300,"GCash","NO-CONSENT",null,true,false,1,"auto"),"Database booking requires explicit travel-reminder acknowledgment");
+    Reject(()=>store.SubmitBooking(customer.Id,soft.Id,[],time,"24 Test Street","Quezon City",300,"GCash","NO-CONSENT",null,true,false,1,"auto", latitude: 14.5547m, longitude: 121.0244m),"Database booking requires explicit travel-reminder acknowledgment");
     var firstProof=SyntheticProof(1);
-    var b=store.SubmitBooking(customer.Id,soft.Id,[lash.Id],time,"24 Test Street","Quezon City",1175,"GCash","GROUP-001",firstProof,true,true,4,"group");
+    var b=store.SubmitBooking(customer.Id,soft.Id,[lash.Id],time,"24 Test Street","Quezon City",1175,"GCash","GROUP-001",firstProof,true,true,4,"group", latitude: 14.5547m, longitude: 121.0244m);
     Check(b.Total==2350 && b.RequiredDownPayment==1175 && b.End==time.AddMinutes(255),"Database-backed group booking preserves correct prices and duration");
     Check(store.Payments.Single().Reference=="GROUP-001" && !store.Payments.Single().Verified,"Manual deposit remains pending until admin verification");
     var oldReview=store.ReviewPayments(b.Id).Single();
@@ -179,8 +179,8 @@ try
     Login(admin);
     var full=store.Services.Single(x=>x.Name=="Glamour Makeup");
     Login(customer);
-    var first=store.SubmitBooking(customer.Id,full.Id,[],time.AddDays(20),"24 Test Street","Quezon City",375,"Maya","RACE-001",SyntheticProof(3),true,true,1,"auto");
-    var second=store.SubmitBooking(customer.Id,full.Id,[],time.AddDays(20),"24 Test Street","Quezon City",375,"Maya","RACE-002",SyntheticProof(4),true,true,1,"auto");
+    var first=store.SubmitBooking(customer.Id,full.Id,[],time.AddDays(20),"24 Test Street","Quezon City",375,"Maya","RACE-001",SyntheticProof(3),true,true,1,"auto", latitude: 14.5547m, longitude: 121.0244m);
+    var second=store.SubmitBooking(customer.Id,full.Id,[],time.AddDays(20),"24 Test Street","Quezon City",375,"Maya","RACE-002",SyntheticProof(4),true,true,1,"auto", latitude: 14.5547m, longitude: 121.0244m);
     Login(admin);
     var firstReview=store.ReviewPayments(first.Id).Single();
     var secondReview=store.ReviewPayments(second.Id).Single();
@@ -197,7 +197,7 @@ try
     var racePayments=store.Payments.Where(x=>x.BookingId==first.Id || x.BookingId==second.Id).ToList();
     Check(racePayments.Count(x=>x.Verified)==1,"Losing concurrent confirmation does not partially verify its payment");
     Login(customer);
-    var reviewRace=store.SubmitBooking(customer.Id,full.Id,[],time.AddDays(28),"24 Test Street","Quezon City",375,"Maya","REVIEW-RACE",SyntheticProof(5),true,true,1,"auto");
+    var reviewRace=store.SubmitBooking(customer.Id,full.Id,[],time.AddDays(28),"24 Test Street","Quezon City",375,"Maya","REVIEW-RACE",SyntheticProof(5),true,true,1,"auto", latitude: 14.5547m, longitude: 121.0244m);
     Login(admin);
     var raceReview=store.ReviewPayments(reviewRace.Id).Single();
     var replacement=SyntheticProof(6);

@@ -57,6 +57,9 @@ public class Booking
     public DateTime End => Start.AddMinutes(MixedPeople.Count > 0 ? MixedPeople.Sum(x => x.DurationMinutes) : Service.Minutes * People + AddOns.Sum(x => x.Minutes * x.Quantity));
     public string Address { get; set; } = "";
     public string Area { get; set; } = "";
+    // The customer's exact map pin (Metro Manila); older bookings have none.
+    public decimal? Latitude { get; set; }
+    public decimal? Longitude { get; set; }
     public decimal TravelFee { get; set; }
     public decimal EarlyFeeSnapshot { get; set; }
     public decimal LateFeeSnapshot { get; set; }

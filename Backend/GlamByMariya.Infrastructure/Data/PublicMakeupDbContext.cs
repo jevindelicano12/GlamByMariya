@@ -28,6 +28,9 @@ public sealed class PublicMakeupDbContext(DbContextOptions<PublicMakeupDbContext
                 property.SetColumnName(System.Text.RegularExpressions.Regex.Replace(property.Name,"([a-z0-9])([A-Z])","$1_$2").ToLowerInvariant());
                 if(property.ClrType==typeof(decimal) || property.ClrType==typeof(decimal?)) { property.SetPrecision(14); property.SetScale(2); }
             }
+        // The booking pin is numeric(9,6) (0013), not money.
+        model.Entity<BookingRow>().Property(x=>x.LocationLat).HasPrecision(9,6);
+        model.Entity<BookingRow>().Property(x=>x.LocationLng).HasPrecision(9,6);
     }
 }
 public sealed class PublicArtistRow { public long Id { get; set; } public Guid AppId { get; set; } public string FullName { get; set; }=""; public bool IsActive { get; set; } }
