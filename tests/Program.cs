@@ -5,7 +5,6 @@ using Microsoft.Extensions.Configuration;
 using Npgsql;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
-using TravelStop = GlamByMariya.Core.Entities.TravelStop; // the offline planner's stop; the travel rule's stop is spelled out where used
 
 var store = new DemoStore(presentationAccounts: true);
 var workflow = new BookingService(store, store, store, store, store);
@@ -1702,7 +1701,7 @@ if (args.Contains("--fees-only"))
         "a fee change from rescheduling is shown in a quote that needs customer consent; nothing changes yet");
     Console.WriteLine($"All {checks} Demo fee checks passed."); return;
 }
-if (args.Contains("--travel-only"))
+if (args.Contains("--travel-rule-only"))
 {
     // The travel rule: pure functions, all times Manila-local.
     const decimal mkLat = 14.5547m, mkLng = 121.0244m, fvLat = 14.7046m, fvLng = 121.0567m;
@@ -1715,8 +1714,8 @@ if (args.Contains("--travel-only"))
 
     var day = new DateTime(2030, 3, 4);
     DateTime At(int h, int m = 0) => day.AddHours(h).AddMinutes(m);
-    GlamByMariya.Core.BusinessRules.TravelStop Stop(int h, int endH) => new(At(h), At(endH), 45, mkLat, mkLng);
-    bool Fit(DateTime s, params GlamByMariya.Core.BusinessRules.TravelStop[] stops) =>
+    TravelAppointment Stop(int h, int endH) => new(At(h), At(endH), 45, mkLat, mkLng);
+    bool Fit(DateTime s, params TravelAppointment[] stops) =>
         TravelPlanner.Fits(s, 60, 45, fvLat, fvLng, stops, null, At(0), 15m, 30);
     var morning = Stop(7, 8);
     Check(!Fit(At(10), morning), "10:00 is too soon after a Makati stop that ends at 8:00");
@@ -1730,7 +1729,10 @@ if (args.Contains("--travel-only"))
     Check(!Today(At(9, 15)) && Today(At(9, 30)), "today the artist's current position needs the minimum travel");
     Check(TravelPlanner.Fits(At(9), 60, 45, fvLat, fvLng, [], novaliches, At(9).AddDays(-1), 15m, 30), "on a later day the artist's current position is ignored");
     Check(TravelPlanner.Fits(At(9, 15), 60, 45, fvLat, fvLng, [], null, At(9), 15m, 30), "today without a known position does not block");
-
+    Console.WriteLine($"All {checks} travel rule checks passed."); return;
+}
+if (args.Contains("--travel-only"))
+{
     var routes = new Dictionary<(string, string), TimeSpan> {
         [("SYNTHETIC:BASE", "SYNTHETIC:A")] = TimeSpan.FromHours(2),
         [("SYNTHETIC:A", "SYNTHETIC:B")] = TimeSpan.FromHours(2)

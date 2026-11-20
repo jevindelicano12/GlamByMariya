@@ -1,7 +1,7 @@
 namespace GlamByMariya.Core.BusinessRules;
 
 // One appointment the artist already holds on a day (Asia/Manila local times).
-public sealed record TravelStop(DateTime Start, DateTime End, int BufferMinutes, decimal? Latitude, decimal? Longitude);
+public sealed record TravelAppointment(DateTime Start, DateTime End, int BufferMinutes, decimal? Latitude, decimal? Longitude);
 
 // The travel rule: can the artist get from the stop before to a new pin, and on to the stop after?
 // Pure and deterministic; no I/O.
@@ -29,7 +29,7 @@ public static class TravelPlanner
 
     // Overlaps are not this rule's job: the existing overlap check rejects them.
     public static bool Fits(DateTime start, int durationMinutes, int bufferMinutes, decimal lat, decimal lng,
-        IReadOnlyList<TravelStop> sameDayStops, (decimal? Lat, decimal? Lng)? artistNow, DateTime now,
+        IReadOnlyList<TravelAppointment> sameDayStops, (decimal? Lat, decimal? Lng)? artistNow, DateTime now,
         decimal speedKmh, int minimumMinutes)
     {
         var end = start.AddMinutes(durationMinutes);
