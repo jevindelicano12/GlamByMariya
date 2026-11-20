@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using GlamByMariya.Infrastructure.Services;
 using GlamByMariya.Core.Entities;
 using GlamByMariya.Infrastructure.Data;
+using GlamByMariya.Infrastructure.Integrations;
 using System.Security.Claims;
 
 namespace GlamByMariya.Web.Controllers;
@@ -190,8 +191,15 @@ public sealed class WebsiteContentController : Controller
         var service = ContentService;
         if (service == null) return StatusCode(503, "Website preview is not available.");
         var draft = await service.Preview(User, cancellationToken);
-        if (HttpContext.RequestServices.GetService<IWebsiteContentRepository>() is DemoFileWebsiteContentRepository local) ViewData["DemoDraftImages"] = local.Images(true);
-        return draft == null ? NotFound() : View(draft);
+        if (draft == null) return NotFound();
+        if (HttpContext.RequestServices.GetService<IWebsiteContentRepository>() is DemoFileWebsiteContentRepository local) ViewData["PreviewImages"] = local.Images(true);
+        else if (HttpContext.RequestServices.GetService<WebsiteImageService>() is { } images)
+        {
+            // Live site: show the draft's photos too; a failed read only hides them from the preview.
+            try { ViewData["PreviewImages"] = await images.DraftImages(User, draft.Id, cancellationToken); }
+            catch (Exception e) when (e is not OperationCanceledException) { ViewData["PreviewImages"] = null; }
+        }
+        return View(draft);
     }
 
     [HttpPost, ValidateAntiForgeryToken]

@@ -472,6 +472,11 @@ if (args.Contains("--website-content-live-only"))
     var textEditorView = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "Views", "WebsiteContent", "_TextEditor.cshtml"));
     Check(textEditorView.Contains("ViewData[\"DraftImages\"] != null") && textEditorView.Contains("Add or replace photos below, after saving your text.")
           && textEditorView.Contains("Add and remove gallery photos below."), "the live editor's notices point to the photo cards instead of saying photos are unavailable");
+    // The draft preview shows the draft's photos on the live site too, not only in the demo.
+    var previewController = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "Controllers", "WebsiteContentController.cs"));
+    var previewView = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "Views", "WebsiteContent", "Preview.cshtml"));
+    Check(previewController.Contains("ViewData[\"PreviewImages\"] = await images.DraftImages(User, draft.Id, cancellationToken)") && previewView.Contains("ViewData[\"PreviewImages\"]")
+          && previewView.Contains("\"gallery\" => \"Gallery photo\""), "the live draft preview shows hero, portrait and gallery photos");
     Console.WriteLine($"All {checks} live website content checks passed."); return;
 }
 if (args.Contains("--package-label-only"))
