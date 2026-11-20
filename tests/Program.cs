@@ -849,6 +849,27 @@ if (args.Contains("--booking-location-only"))
     var (_, pinnedError) = await Post(14.5547m, 121.0244m);
     Check(pinnedError != BookingLocation.Message && pinnedError == "Upload a payment screenshot to submit your booking.", "a valid pin passes the pin check and the form moves on to the payment checks");
     Check(demo.Bookings.Count == postCount, "refused form posts create no booking");
+
+    // Task 4: the details pages show the pin read-only.
+    var partialPath = Path.Combine(web, "Views", "Shared", "_BookingLocationMap.cshtml");
+    var partialText = File.Exists(partialPath) ? File.ReadAllText(partialPath) : "";
+    Check(partialText.Contains("@model Booking") && partialText.Contains("No pinned location"), "the map partial shows No pinned location without a pin");
+    Check(partialText.Contains("data-lat=\"@") && partialText.Contains("data-lng=\"@") && partialText.Contains("CultureInfo.InvariantCulture") && partialText.Contains("\"F6\""), "the map partial writes the pin in invariant culture with six decimals");
+    Check(partialText.Contains("BookingLocation.GoogleMapsUrl") && partialText.Contains("Open in Google Maps") && partialText.Contains("target=\"_blank\"") && partialText.Contains("rel=\"noopener\""), "the map partial links to Google Maps safely");
+    Check(partialText.Contains("~/js/booking-location-view.js") && partialText.Contains("~/lib/leaflet/leaflet.js") && partialText.Contains("~/lib/leaflet/leaflet.css"), "the map partial loads the local Leaflet and view script");
+    var noPinBranch = partialText.Contains("else") ? partialText[partialText.LastIndexOf("else", StringComparison.Ordinal)..] : "";
+    Check(noPinBranch.Contains("No pinned location") && !noPinBranch.Contains("data-lat"), "the no-pin branch renders no map element");
+    foreach (var detailsView in new[] { Path.Combine("Admin", "Details.cshtml"), Path.Combine("Bookings", "Details.cshtml") })
+    {
+        var text = File.ReadAllText(Path.Combine(web, "Views", detailsView));
+        var addressAt = text.IndexOf("Customer Service Address", StringComparison.Ordinal);
+        var partialAt = text.IndexOf("_BookingLocationMap", StringComparison.Ordinal);
+        Check(addressAt >= 0 && partialAt > addressAt, $"{detailsView} renders the map partial after the address");
+    }
+    var viewScriptPath = Path.Combine(web, "wwwroot", "js", "booking-location-view.js");
+    var viewScript = File.Exists(viewScriptPath) ? File.ReadAllText(viewScriptPath) : "";
+    Check(viewScript.Contains("© OpenStreetMap contributors") && viewScript.Contains("https://tile.openstreetmap.org/{z}/{x}/{y}.png"), "the read-only map shows the tiles and attribution");
+    Check(viewScript.Contains("draggable: false") && viewScript.Contains("dragging: false") && !viewScript.Contains("map.on('click'"), "the read-only map cannot move the pin");
     Console.WriteLine($"All {checks} booking location checks passed."); return;
 }
 if (args.Contains("--exact-deposit-only"))

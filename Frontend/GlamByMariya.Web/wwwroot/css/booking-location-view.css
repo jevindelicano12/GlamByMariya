@@ -1,0 +1,2 @@
+.booking-location-view-body { display: grid; gap: 8px; min-width: 0; flex: 1 1 280px; }
+.booking-location-view-map { height: 220px; width: 100%; border: 1px solid var(--line); border-radius: 8px; z-index: 0; }

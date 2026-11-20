@@ -1,0 +1,14 @@
+@model Booking
+@using System.Globalization
+@if (Model.Latitude is { } lat && Model.Longitude is { } lng)
+{
+    <link rel="stylesheet" href="~/lib/leaflet/leaflet.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/css/booking-location-view.css" asp-append-version="true" />
+    <div class="detail-row booking-location-view"><span>Pinned location</span><div class="booking-location-view-body"><div class="booking-location-view-map" data-booking-location-view data-lat="@lat.ToString("F6", CultureInfo.InvariantCulture)" data-lng="@lng.ToString("F6", CultureInfo.InvariantCulture)" role="img" aria-label="Map showing the customer's pinned service location"></div><a href="@BookingLocation.GoogleMapsUrl(lat, lng)" target="_blank" rel="noopener">Open in Google Maps</a></div></div>
+    <script src="~/lib/leaflet/leaflet.js" asp-append-version="true"></script>
+    <script src="~/js/booking-location-view.js" asp-append-version="true"></script>
+}
+else
+{
+    <div class="detail-row"><span>Pinned location</span><strong>No pinned location</strong></div>
+}
