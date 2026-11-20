@@ -19,7 +19,7 @@ public sealed class AvatarStorageService(IHttpClientFactory factory, IConfigurat
 
     public bool IsConfigured => Provider is "B2" or "Supabase";
 
-    private string BaseUrl => (config["Supabase:Url"] ?? "").TrimEnd('/');
+    private string BaseUrl => (config["Supabase:Url"] ?? "").Trim().TrimEnd('/');
     private const string Bucket = "profile-avatars";
 
     private static (byte[] Bytes, string Extension, string Mime) ReadImage(IFormFile? file)
@@ -97,7 +97,7 @@ public sealed class AvatarStorageService(IHttpClientFactory factory, IConfigurat
         var client = factory.CreateClient();
         client.BaseAddress = new Uri(BaseUrl + "/storage/v1/");
         client.Timeout = TimeSpan.FromSeconds(30);
-        var key = config["SupabaseStorage:ServiceKey"]!;
+        var key = config["SupabaseStorage:ServiceKey"]!.Trim();
         client.DefaultRequestHeaders.Add("apikey", key);
         if (!key.StartsWith("sb_secret_", StringComparison.Ordinal)) client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", key);
         return client;

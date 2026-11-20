@@ -326,6 +326,24 @@ if (args.Contains("--catalog-settings-only"))
     Check(demo.Settings.OpenHour == 12 && closed.TempData["Error"] == null, "cancelled bookings do not block an hours change");
     Console.WriteLine($"All {checks} catalog and settings checks passed."); return;
 }
+if (args.Contains("--storage-key-only"))
+{
+    // A storage key pasted with a trailing new line (or spaces) still works.
+    var seen = new List<string>();
+    var storageConfig = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+    {
+        ["FileStorage:Provider"] = "Supabase", ["Supabase:Url"] = " https://example.supabase.co/\n", ["SupabaseStorage:ServiceKey"] = "sb_secret_example\r\n",
+    }).Build();
+    var factory = new RecordingHttpFactory(seen);
+    var files = new GlamByMariya.Infrastructure.Integrations.SupabaseAppFileStore(factory, storageConfig, Microsoft.Extensions.Logging.Abstractions.NullLogger<GlamByMariya.Infrastructure.Integrations.SupabaseAppFileStore>.Instance);
+    var saveError = "";
+    try { files.Save("CatalogImages/test.jpg", [1, 2, 3]); } catch (Exception e) { saveError = e.GetType().Name + ": " + e.Message; }
+    Check(saveError == "" && seen.Count == 1 && seen[0] == "https://example.supabase.co/storage/v1/object/app-files/CatalogImages/test.jpg apikey=sb_secret_example auth=",
+        "a file upload trims a pasted storage key and URL" + (saveError == "" ? "" : " (" + saveError + ")") + (seen.Count > 0 ? " [" + seen[0] + "]" : ""));
+    var avatarSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Backend", "GlamByMariya.Infrastructure", "Integrations", "AvatarStorageService.cs"));
+    Check(avatarSource.Contains("config[\"SupabaseStorage:ServiceKey\"]!.Trim()") && avatarSource.Contains("(config[\"Supabase:Url\"] ?? \"\").Trim().TrimEnd('/')"), "profile picture uploads trim the storage key and URL too");
+    Console.WriteLine($"All {checks} storage key checks passed."); return;
+}
 if (args.Contains("--package-label-only"))
 {
     // Step 9a: the "Package" label only when the group rate was actually applied.
@@ -2034,4 +2052,17 @@ public sealed class NoTempData : Microsoft.AspNetCore.Mvc.ViewFeatures.ITempData
 {
     public IDictionary<string, object> LoadTempData(Microsoft.AspNetCore.Http.HttpContext context) => new Dictionary<string, object>();
     public void SaveTempData(Microsoft.AspNetCore.Http.HttpContext context, IDictionary<string, object> values) { }
+}
+
+sealed class RecordingHttpFactory(List<string> seen) : IHttpClientFactory
+{
+    public HttpClient CreateClient(string name) => new(new Recorder(seen));
+    sealed class Recorder(List<string> seen) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            seen.Add($"{request.RequestUri} apikey={string.Join(",", request.Headers.TryGetValues("apikey", out var k) ? k : [])} auth={request.Headers.Authorization}");
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK));
+        }
+    }
 }
