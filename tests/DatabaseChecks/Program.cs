@@ -416,6 +416,39 @@ if (Run("--staff-actions"))
     Console.WriteLine($"All {checks - before} staff action database checks passed.");
 }
 
+if (Run("--website-content"))
+{
+    // Website text drafts and publishing, run as the app login through the real repository.
+    var before = checks;
+    await ResetPublic();
+    await SqlMigrator.ApplyAsync(source, migrations);
+    var owner = NewStore(as_: appSource).CreateInitialSuperAdmin("Maria", "Santos", "maria@example.test", "OwnerPass123");
+    var repo = new GlamByMariya.Infrastructure.Data.PostgresWebsiteContentRepository(appSource);
+    var first = await repo.CreateDraft(owner.Id, default);
+    Check(first.Revision == 1 && first.Status == "draft", "a new draft starts at revision 1");
+    Check((await repo.CreateDraft(owner.Id, default)).Id == first.Id, "creating a draft again returns the existing draft");
+    var text = new GlamByMariya.Core.BusinessRules.WebsiteTextInput("Glam at home", "Makeup that comes to you", "Meet Mariya", "Bio", "Home service", "Quezon City", "Call me",
+        [new("Instagram", "https://instagram.com/glam")], [new("Do you travel?", "Yes, within Metro Manila.")]);
+    var saved = await repo.SaveDraft(owner.Id, first.Id, first.Revision, text, default);
+    var read = await repo.ReadDraft(default);
+    Check(saved.Revision == 2 && read!.Text.HeroHeadline == "Glam at home" && read.Text.AboutHeading == "Meet Mariya"
+        && read.Text.Links!.Single().Label == "Instagram" && read.Text.Faqs!.Single().Question == "Do you travel?", "a saved draft reads back its text, link and FAQ");
+    var stale = "";
+    try { await repo.SaveDraft(owner.Id, first.Id, 1, text, default); } catch (InvalidOperationException e) { stale = e.Message; }
+    Check(stale != "", "saving with an old revision is refused");
+    await repo.Publish(owner.Id, first.Id, saved.Revision, default);
+    Check((await repo.ReadPublished(default))!.Text.AboutHeading == "Meet Mariya" && await repo.ReadDraft(default) == null, "publishing makes the draft the live version");
+    var next = await repo.CreateDraft(owner.Id, default);
+    Check(next.Id != first.Id && next.Text.AboutHeading == "Meet Mariya" && next.Text.Links!.Count == 1 && next.Text.Faqs!.Count == 1,
+        "a new draft copies the published text, links and FAQs");
+    var duplicate = "";
+    try { await Exec("INSERT INTO public.website_content_versions(id,status) VALUES(gen_random_uuid(),'draft')"); } catch (PostgresException e) { duplicate = e.SqlState ?? ""; }
+    Check(duplicate == "23505", "a second draft row is refused by the database");
+    var recorded = (long)(await Scalar("SELECT count(*) FROM public.schema_migrations"))!;
+    Check(recorded == Directory.GetFiles(migrations, "*.sql").Length, "every migration file is recorded");
+    Console.WriteLine($"All {checks - before} website content database checks passed.");
+}
+
 sealed class TestEnv : Microsoft.AspNetCore.Hosting.IWebHostEnvironment
 {
     public string ApplicationName { get; set; } = "DatabaseChecks";
