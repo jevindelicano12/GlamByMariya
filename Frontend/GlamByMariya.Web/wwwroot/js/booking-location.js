@@ -18,6 +18,12 @@
   const bounds = { minLat: 14.20, maxLat: 14.95, minLng: 120.85, maxLng: 121.25 };
   const outsideMessage = 'Pin your exact location inside Metro Manila.';
   const geolocationMessage = "We couldn't get your location. Drag the pin instead.";
+  // Say why the browser gave no location: blocked for this site, device location off, or too slow.
+  const geolocationError = error => error?.code === 1
+    ? "Location is blocked for this site in your browser. Allow location in the browser's site settings and try again, or drag the pin."
+    : error?.code === 2
+      ? "Your device couldn't find its location. Turn on location services on your device and try again, or drag the pin."
+      : error?.code === 3 ? "Finding your location took too long. Try again, or drag the pin." : geolocationMessage;
   const noMatchMessage = 'No match found; drag the pin instead';
   const busyMessage = 'Search is busy right now. Try again in a moment, or drag the pin.';
 
@@ -81,9 +87,9 @@
       const { latitude: lat, longitude: lng } = position.coords;
       map.setView([lat, lng], 17);
       setPin(lat, lng, 'Pinned at your current location. Drag the pin if you need to adjust it.');
-    }, () => {
+    }, error => {
       currentButton.disabled = false;
-      say(geolocationMessage);
+      say(geolocationError(error));
     }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 });
   });
 

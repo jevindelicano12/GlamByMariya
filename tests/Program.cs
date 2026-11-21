@@ -912,6 +912,14 @@ if (args.Contains("--booking-location-only"))
     var locationScript = File.Exists(locationScriptPath) ? File.ReadAllText(locationScriptPath) : "";
     Check(locationScript.Contains("https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ph&q="), "the search uses Nominatim limited to the Philippines");
     Check(locationScript.Contains("We couldn't get your location. Drag the pin instead."), "a geolocation error tells the customer to drag the pin");
+    var artistScriptPath = Path.Combine(Path.GetDirectoryName(locationScriptPath)!, "artist-location.js");
+    var artistScript = File.Exists(artistScriptPath) ? File.ReadAllText(artistScriptPath) : "";
+    foreach (var (script, who) in new[] { (locationScript, "customer"), (artistScript, "artist") })
+    {
+        Check(script.Contains("say(geolocationError(error))") && script.Contains("error?.code === 1") && script.Contains("Location is blocked for this site in your browser."),
+            $"the {who} map says when the browser blocks location for this site");
+        Check(script.Contains("error?.code === 2") && script.Contains("Turn on location services on your device"), $"the {who} map says when the device location is off");
+    }
     Check(locationScript.Contains("No match found; drag the pin instead"), "a search with no result tells the customer to drag the pin");
     Check(locationScript.Contains("© OpenStreetMap contributors"), "the map shows the OpenStreetMap attribution");
     Check(locationScript.Contains("1000") && locationScript.Contains("lastSearch"), "searches are limited to one request per second");

@@ -9,6 +9,12 @@
   const metroManila = [14.5995, 120.9842];
   const outsideMessage = "Pin the artist's location inside Metro Manila.";
   const geolocationMessage = "We couldn't get your location. Drag the pin instead.";
+  // Say why the browser gave no location: blocked for this site, device location off, or too slow.
+  const geolocationError = error => error?.code === 1
+    ? "Location is blocked for this site in your browser. Allow location in the browser's site settings and try again, or drag the pin."
+    : error?.code === 2
+      ? "Your device couldn't find its location. Turn on location services on your device and try again, or drag the pin."
+      : error?.code === 3 ? "Finding your location took too long. Try again, or drag the pin." : geolocationMessage;
   const inside = (lat, lng) => lat >= bounds.minLat && lat <= bounds.maxLat && lng >= bounds.minLng && lng <= bounds.maxLng;
   const read = (a, b) => { const lat = parseFloat(root.dataset[a]); const lng = parseFloat(root.dataset[b]); return Number.isFinite(lat) && Number.isFinite(lng) ? [lat, lng] : null; };
   const home = read('homeLat', 'homeLng');
@@ -57,6 +63,6 @@
       const { latitude, longitude } = position.coords;
       map.setView([latitude, longitude], 16);
       setPin(latitude, longitude);
-    }, () => { geoButton.disabled = false; say(geolocationMessage); }, { enableHighAccuracy: true, timeout: 10000 });
+    }, error => { geoButton.disabled = false; say(geolocationError(error)); }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 });
   });
 })();
