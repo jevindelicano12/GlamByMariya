@@ -72,7 +72,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
                 var slot = calendar.Days.SelectMany(day => day.Slots).FirstOrDefault(candidate => candidate.Start == request.Start);
                 if (slot == null || !slot.Available) return Json(new { available = false, message = slot?.Reason ?? "This time is outside the available booking slots." });
                 workflow.CheckSlot(start, quote.DurationMinutes);
-                return Json(new { available = true, quote, bufferMinutes = calendar.BufferMinutes, message = "Availability is based on makeup duration, preparation time and existing appointments. Times include travel from the artist's other appointments that day." });
+                return Json(new { available = true, quote, bufferMinutes = calendar.BufferMinutes, message = "Availability is based on makeup duration, preparation time and existing appointments. Travel feasibility has not yet been verified." });
             }
             catch (InvalidOperationException e) { return BadRequest(new { error = e.Message }); }
             catch (OperationCanceledException) when (HttpContext.RequestAborted.IsCancellationRequested) { return new EmptyResult(); }
@@ -309,7 +309,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
             {
                 if (!ModelState.IsValid) throw new InvalidOperationException("Choose a valid appointment time.");
                 var quote = workflow.OfferReschedule(b, UserId, start);
-                return View("RescheduleReview", quote);
+                ViewBag.MixedBooking = b.MixedPeople.Count > 0; return View("RescheduleReview", quote);
             }
             catch (InvalidOperationException e) { TempData["Error"] = e.Message; }
             return RedirectToAction("Details", new { id });

@@ -1887,13 +1887,23 @@ if (args.Contains("--travel-form-only"))
     Check(Web("wwwroot", "js", "booking-location.js").Contains("booking-location-changed"), "the pin map announces booking-location-changed");
     Check(site.Contains("'booking-location-changed'") && site.Contains("refresh("), "the calendar reloads availability when the pin changes");
     var controller = Web("Controllers", "BookingsController.cs");
-    Check(controller.Split("Times include travel from the artist's other appointments that day.").Length - 1 >= 3, "the slot validation messages use the new travel copy");
+    Check(controller.Split("Times include travel from the artist's other appointments that day.").Length - 1 == 2, "the single-booking slot validation messages use the new travel copy");
+    var mixedValidate = controller[controller.IndexOf("MixedValidateSlot", StringComparison.Ordinal)..];
+    mixedValidate = mixedValidate[..mixedValidate.IndexOf("[HttpGet", StringComparison.Ordinal)];
+    Check(mixedValidate.Contains("Travel feasibility has not yet been verified.") && !mixedValidate.Contains("Times include travel"), "the mixed slot message keeps its accurate wording (mixed bookings are not travel-checked)");
+    var mixedBlock = create[create.IndexOf("id=\"mixed-calendar\"", StringComparison.Ordinal)..];
+    mixedBlock = mixedBlock[..mixedBlock.IndexOf("</section>", StringComparison.Ordinal)];
+    Check(mixedBlock.Contains("Travel feasibility has not yet been verified.") && !mixedBlock.Contains("Times include travel"), "the mixed calendar block keeps its accurate wording");
+    Check(Web("Views", "Bookings", "Details.cshtml").Contains("Travel feasibility has not been verified.") && !Web("Views", "Bookings", "Details.cshtml").Contains("Times include travel"), "booking details keep the old wording in the mixed payment-claim block");
+    Check(Web("Views", "Bookings", "Confirmation.cshtml").Contains("Travel feasibility has not been verified; transportation is separate.") && !Web("Views", "Bookings", "Confirmation.cshtml").Contains("Times include travel"), "the mixed confirmation keeps the old wording");
+    var reschedule = Web("Views", "Bookings", "RescheduleReview.cshtml");
+    Check(reschedule.Contains("ViewBag.MixedBooking == true ? \"Travel feasibility has not been verified.\" : \"Times include travel from the artist's other appointments that day.\""), "the reschedule review shows the travel copy only for single bookings");
     var copyFiles = Directory.GetFiles(Path.Combine(webRoot, "Views", "Bookings"), "*.cshtml")
         .Concat(Directory.GetFiles(Path.Combine(webRoot, "Views", "Shared"), "*.cshtml"))
         .Concat(Directory.GetFiles(Path.Combine(webRoot, "wwwroot", "js"), "*.js"))
         .Append(Path.Combine(webRoot, "Controllers", "BookingsController.cs"));
     foreach (var file in copyFiles)
-        Check(!System.Text.RegularExpressions.Regex.IsMatch(File.ReadAllText(file), "travel (time )?(is|has) not (been )?(estimated|included|verified)|travel not estimated|travel time to your location is not included|travel feasibility (is|has) not|travel is not estimated", System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+        Check(!System.Text.RegularExpressions.Regex.IsMatch(File.ReadAllText(file), "travel (time )?(is|has) not (been )?(estimated|included|verified)|travel not estimated|travel time to your location is not included|travel is not estimated", System.Text.RegularExpressions.RegexOptions.IgnoreCase),
             $"{Path.GetFileName(file)} no longer says travel is not estimated");
     Console.WriteLine($"All {checks} travel form checks passed."); return;
 }
