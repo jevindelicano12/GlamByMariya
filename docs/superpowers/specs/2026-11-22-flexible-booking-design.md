@@ -120,6 +120,11 @@ paid in 15 minutes, the temporary hold on the time/date is released.**
   it is no longer free (the admin then declines or offers another time).
 - **Early and after-hours limits are whatever the owner/admin sets** in Settings; the system
   imposes no fixed hours.
+- **Once the admin accepts an early request, its whole time is blocked at once** for every other
+  booking, regular ones included. Example: an accepted early request from 4:00 AM to 1:00 PM
+  blocks 4:00 AM–1:00 PM (plus its preparation buffer), so no regular booking can take 8:00 AM–
+  1:00 PM that day. The block starts at acceptance (status Pending Payment); if the customer then
+  does not pay within 15 minutes it is released, and once paid it stays (Confirmed).
 
 ## Builder calls (marked; correct if wrong)
 
