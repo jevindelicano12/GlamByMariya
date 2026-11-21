@@ -646,7 +646,7 @@ document.querySelectorAll('.availability-picker').forEach(picker => {
       number.textContent = Number(day.date.slice(-2));
       const indicator = document.createElement('small');
        const waiting = firstLoad && snapshot.durationMinutes === 0 && status !== 'past';
-       indicator.textContent = day.availableCount > 0 ? `${day.availableCount} request slots` : status === 'full' ? 'Fully booked' : status === 'past' ? 'Date has passed' : waiting ? 'Loading…' : 'No slots';
+       indicator.textContent = day.availableCount > 0 ? `${day.availableCount} ${day.availableCount === 1 ? 'time' : 'times'} available` : status === 'full' ? 'Fully booked' : status === 'past' ? 'Date has passed' : waiting ? 'Loading…' : 'No slots';
       button.append(number, indicator);
       const reason = day.date >= today && !day.availableCount
         ? snapshot.durationMinutes === 0 ? 'Live availability is unavailable; use Refresh to retry.' : day.slots.length === 0 ? 'The session and preparation buffer do not fit within booking hours.' : 'No times fit around booking hours, reservations or blocked time.'
