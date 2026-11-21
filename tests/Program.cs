@@ -374,6 +374,27 @@ if (args.Contains("--travel-admin-only"))
     var backHomePost = AdminAs(adminOwner.Id, Roles.SuperAdmin);
     backHomePost.SetArtistCurrent(null, null, backHome: true);
     Check(adminDemo.GetArtistLocation() is { CurrentLat: null, CurrentUpdatedAt: null, HomeLat: 14.6760m }, "Back to home base clears only the current location");
+    Check(backHomePost.TempData["Success"] as string == "The artist is back at home base.", "with a home base saved, the owner is told the artist is back home");
+    {
+        // No home base yet: the button reads "Clear current location" and the owner is told to set a home base.
+        var noHomeDemo = new DemoStore(presentationAccounts: true);
+        var noHomeOwner = noHomeDemo.Users.Single(u => u.Role == Roles.SuperAdmin);
+        AdminController NoHomeAs()
+        {
+            var http = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+            http.User = new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim(ClaimTypes.NameIdentifier, noHomeOwner.Id.ToString()), new Claim(ClaimTypes.Role, Roles.SuperAdmin) }, "Cookies"));
+            var controller = new AdminController(noHomeDemo, new BookingService(noHomeDemo, noHomeDemo, noHomeDemo, noHomeDemo, noHomeDemo), null!, new MemoryInvitationService(TimeProvider.System), null!)
+            { ControllerContext = new ControllerContext { HttpContext = http } };
+            controller.TempData = new Microsoft.AspNetCore.Mvc.ViewFeatures.TempDataDictionary(http, new NoTempData());
+            return controller;
+        }
+        Check(noHomeDemo.GetArtistLocation().HomeLat == null, "a fresh demo starts with no home base");
+        NoHomeAs().SetArtistCurrent(14.5547m, 121.0244m);
+        var clear = NoHomeAs();
+        clear.SetArtistCurrent(null, null, backHome: true);
+        Check(noHomeDemo.GetArtistLocation() is { CurrentLat: null, HomeLat: null } && clear.TempData["Success"] as string == AdminController.NoHomeBaseMessage,
+            "without a home base, clearing the current location says no home base is saved yet");
+    }
     var adminStaff = AdminAs(adminDemo.Users.First(u => u.Role == Roles.Admin).Id, Roles.Admin);
     adminStaff.SetArtistCurrent(14.5547m, 121.0244m);
     Check(adminDemo.GetArtistLocation().CurrentLat == 14.5547m, "an Admin can also save the artist's location");
@@ -420,6 +441,8 @@ if (args.Contains("--travel-admin-only"))
     Check(detailsView.Contains("Travel warning."), "the reschedule approval shows the travel warning");
     var settingsView = AdminView("Views", "Admin", "Settings.cshtml");
     var locationView = AdminView("Views", "Admin", "_ArtistLocation.cshtml");
+    Check(locationView.Contains("location.HomeLat.HasValue ? \"Back to home base\" : \"Clear current location\""), "the card says \"Clear current location\" when no home base is saved");
+    Check(locationView.Contains("No current location either, so the first booking of the day uses the minimum travel time."), "with no pins at all, the card says the minimum travel time is used");
     var settingsAction = AdminView("Controllers", "AdminController.cs");
     Check(locationView.Contains("Artist location is unavailable right now.") && settingsAction.Contains("catch (Exception) { ViewBag.ArtistLocation = null; }"), "a misconfigured artist only blanks the location card, not the Settings page");
     Check(settingsView.Contains("name=\"travelSpeedKmh\"") && settingsView.Contains("name=\"travelMinimumMinutes\"") && settingsView.Contains("<partial name=\"_ArtistLocation\" />"), "the settings page has the travel fields and the artist location card");

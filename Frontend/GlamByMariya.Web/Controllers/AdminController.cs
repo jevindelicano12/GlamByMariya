@@ -382,6 +382,7 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
     }
     }
     public const string TravelSpeedMessage = "Travel speed must be between 5 and 60 km/h.";
+    public const string NoHomeBaseMessage = "Current location cleared. No home base is saved yet: place the pin on the artist's home and press \"Set as home base\".";
     public const string TravelMinimumMessage = "Minimum travel must be between 0 and 180 minutes.";
     // The owner saves where the artist is based (home) or is right now (current); backHome clears the current pin.
     [HttpPost, ValidateAntiForgeryToken, Authorize(Roles = "Admin,SuperAdmin")]
@@ -406,7 +407,13 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
         {
             try
             {
-                if (backHome) { store.SetArtistCurrent(null, null); store.RecordAudit(UserId, "Moved the artist back to home base."); TempData["Success"] = "The artist is back at home base."; }
+                if (backHome)
+                {
+                    var homeSaved = store.GetArtistLocation().HomeLat.HasValue;
+                    store.SetArtistCurrent(null, null);
+                    store.RecordAudit(UserId, homeSaved ? "Moved the artist back to home base." : "Cleared the artist's current location (no home base saved).");
+                    TempData["Success"] = homeSaved ? "The artist is back at home base." : NoHomeBaseMessage;
+                }
                 else
                 {
                     if (latitude is not { } lat || longitude is not { } lng) throw new InvalidOperationException(BookingLocation.ArtistMessage);

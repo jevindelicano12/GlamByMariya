@@ -20,7 +20,7 @@
     <p>Used to estimate travel to your first booking of the day. Search a place, drag the pin or click the map, then save it as your home base or as where you are right now. Pins must be inside Metro Manila.</p>
     <p class="artist-location-state" data-artist-location-state>
         @(location.HomeLat.HasValue ? "Home base is set." : "Home base is not set yet.")
-        @if (location.CurrentLat.HasValue && location.CurrentUpdatedAt.HasValue) { <text> Current location set @AdminTravelLines.Ago(location.CurrentUpdatedAt, now).</text> } else { <text> No current location; the artist is assumed to be at home base.</text> }
+        @if (location.CurrentLat.HasValue && location.CurrentUpdatedAt.HasValue) { <text> Current location set @AdminTravelLines.Ago(location.CurrentUpdatedAt, now).</text> } else if (location.HomeLat.HasValue) { <text> No current location; the artist is assumed to be at home base.</text> } else { <text> No current location either, so the first booking of the day uses the minimum travel time.</text> }
     </p>
     <div class="artist-location-search" role="search">
         <input type="search" aria-label="Search a place or address" placeholder="Search a place or address, e.g. Novaliches" autocomplete="off" maxlength="200" data-artist-location-query />
@@ -32,7 +32,8 @@
         <button type="button" class="button secondary" data-artist-location-geolocate>Use my current location</button>
         <form asp-action="SetArtistCurrent" method="post" data-artist-location-form><input type="hidden" name="latitude" /><input type="hidden" name="longitude" /><button class="button">Save as current location</button></form>
         <form asp-action="SetArtistHome" method="post" data-artist-location-form><input type="hidden" name="latitude" /><input type="hidden" name="longitude" /><button class="button secondary">Set as home base</button></form>
-        @if (location.CurrentLat.HasValue) { <form asp-action="SetArtistCurrent" method="post"><input type="hidden" name="backHome" value="true" /><button class="button secondary">Back to home base</button></form> }
+        @* "Back to home base" only makes sense once a home base is saved; without one it just clears the current pin. *@
+        @if (location.CurrentLat.HasValue) { <form asp-action="SetArtistCurrent" method="post"><input type="hidden" name="backHome" value="true" /><button class="button secondary">@(location.HomeLat.HasValue ? "Back to home base" : "Clear current location")</button></form> }
     </div>
 </section>
 <script src="~/lib/leaflet/leaflet.js" asp-append-version="true"></script>
