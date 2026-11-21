@@ -10,7 +10,7 @@
             <label for="verification-code">Verification code</label>
             <input id="verification-code" class="otp-input" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autocomplete="one-time-code" placeholder="000000" aria-describedby="code-help" />
             <small id="code-help">Codes and verification requests expire. Use the latest code you received.</small>
-            <button class="button" type="submit">Verify email & continue <span>↗</span></button>
+            <button class="button" type="submit">Verify email & continue</button>
         </form>
         <div class="verification-resend"><p>Didn't receive your code? Check spam, or wait 60 seconds and try again.</p>
             <form asp-action="Resend" method="post"><input type="hidden" name="email" value="@ViewBag.Email" /><input type="hidden" name="returnUrl" value="@ViewBag.ReturnUrl" /><button class="button secondary" type="submit">Resend code</button></form>

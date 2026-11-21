@@ -16,7 +16,7 @@
         @if (Model.User.Role == "Customer") { <div class="form-grid"><label>Suffix<input value="@(string.IsNullOrEmpty(Model.User.Suffix) ? "Not provided" : Model.User.Suffix)" readonly /></label><label>Birthday<input value="@(Model.User.Birthday?.ToString("MMMM d, yyyy") ?? "Not provided")" readonly /></label></div> }
         <div class="form-grid">@if (Model.User.Role == "Customer" && Model.User.Birthday.HasValue) { <input type="hidden" name="age" value="@Model.User.Age" /> } else { <label>Age<input name="age" type="number" min="@(Model.User.Role == "Customer" ? "0" : "13")" max="@(Model.User.Role == "Customer" ? "9999" : "120")" value="@Model.User.Age" required /></label> }<label>Gender<select name="gender"><option value="">Prefer not to say</option>@foreach (var gender in GlamByMariya.Core.BusinessRules.RegistrationRules.Genders) { <option value="@gender" selected="@(gender == Model.User.Gender)">@gender</option> }</select></label></div>
         <label>Address<textarea name="address" rows="3" minlength="8" maxlength="500" required autocomplete="street-address">@Model.User.Address</textarea></label>
-        <button class="button" type="submit">Save profile <span>↗</span></button>
+        <button class="button" type="submit">Save profile</button>
     </form>
 </section>
 <section class="panel settings-card" aria-labelledby="email-title">
@@ -26,7 +26,7 @@
     else {
         <p>Confirm ownership with a six-digit code. Check your inbox and spam folder.</p>
         <form asp-action="SendEmailVerification" method="post"><button class="button secondary" type="submit">Send verification code</button></form>
-        <form asp-action="ConfirmEmail" method="post" class="stack"><label>Verification code<input class="otp-input" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required placeholder="000000" /></label><button class="button" type="submit">Verify email <span>↗</span></button></form>
+        <form asp-action="ConfirmEmail" method="post" class="stack"><label>Verification code<input class="otp-input" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required placeholder="000000" /></label><button class="button" type="submit">Verify email</button></form>
         <small>Codes expire after 15 minutes. Wait 60 seconds before resending.</small>
     }
 </section>
@@ -37,7 +37,7 @@
         <label>New password<input name="newPassword" type="password" required minlength="8" maxlength="128" autocomplete="new-password" /></label>
         <label>Confirm new password<input name="confirmPassword" type="password" required minlength="8" maxlength="128" autocomplete="new-password" /></label>
         <small>Changing your password signs you out. Other sessions expire when they next access the app.</small>
-        <button class="button" type="submit">Update password <span>↗</span></button>
+        <button class="button" type="submit">Update password</button>
     </form>
     <a class="account-link" asp-action="ForgotPassword">Forgot your current password?</a>
 </section>
@@ -46,7 +46,7 @@
     <form asp-action="SaveNotifications" method="post" class="stack">
         <label class="preference-toggle"><input name="notificationsEnabled" type="checkbox" value="true" checked="@Model.Preferences.NotificationsEnabled" /><span><strong>In-app booking notifications</strong><small>Show booking updates, payment reviews and reschedule messages.</small></span></label>
         <p>Security emails and verification codes are always sent when requested. Email booking reminders are not currently available.</p>
-        <button class="button" type="submit">Save preferences <span>↗</span></button>
+        <button class="button" type="submit">Save preferences</button>
     </form>
     <div class="settings-divider"></div><h3>Your session</h3><p>Signed in as @Model.User.Name.</p>
     <form asp-controller="Account" asp-action="Logout" method="post"><button class="button secondary" type="submit">Sign out</button></form>

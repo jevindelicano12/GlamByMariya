@@ -17,7 +17,7 @@
 @if (!Model.Any()) { <p>No appointments this month.</p> }
 @foreach (var group in Model.GroupBy(b => b.Start.Day)) {
     <div id="day-@group.Key"><h3>@month.AddDays(group.Key - 1).ToString("dddd, MMMM d")</h3>
-    @foreach (var b in group) { <a asp-action="Details" asp-route-id="@b.Id" class="calendar-item"><div><strong>@b.CustomerName · @b.Service.Name</strong><p>@b.Start.ToString("h:mm tt") – @b.End.ToString("h:mm tt") · @b.Area</p><span class="badge">@b.Status</span></div><span>↗</span></a> }
+    @foreach (var b in group) { <a asp-action="Details" asp-route-id="@b.Id" class="calendar-item"><div><strong>@b.CustomerName · @b.Service.Name</strong><p>@b.Start.ToString("h:mm tt") – @b.End.ToString("h:mm tt") · @b.Area</p><span class="badge">@b.Status</span></div><span aria-hidden="true">→</span></a> }
     </div>
 }
 </section>

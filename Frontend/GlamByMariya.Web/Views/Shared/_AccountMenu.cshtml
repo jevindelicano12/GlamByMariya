@@ -13,7 +13,7 @@
     </summary>
     <div class="account-menu-panel">
         <div class="account-menu-heading"><strong>@name</strong><small>@User.FindFirstValue(ClaimTypes.Email)</small></div>
-        <a asp-controller="Account" asp-action="Settings" asp-fragment="profile-title">My profile <span>↗</span></a>
+        <a asp-controller="Account" asp-action="Settings" asp-fragment="profile-title">My profile</a>
         <a asp-controller="Account" asp-action="Settings" asp-fragment="email-title">Email verification</a>
         <a asp-controller="Account" asp-action="Settings" asp-fragment="password-title">Password & security</a>
         <form asp-controller="Account" asp-action="SaveNotifications" method="post" class="account-menu-preferences">
