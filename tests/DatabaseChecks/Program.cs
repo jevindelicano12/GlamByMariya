@@ -692,6 +692,73 @@ if (Run("--travel"))
     Console.WriteLine($"All {checks - before} travel database checks passed.");
 }
 
+if (Run("--flexible"))
+{
+    // Phase 6: early-request hours, package limits, the Awaiting Approval status and its transitions.
+    var before = checks;
+    await ResetPublic();
+    await SqlMigrator.ApplyAsync(source, migrations);
+    PublicStudioStore App() => NewStore(as_: appSource);
+    var owner = App().CreateInitialSuperAdmin("Maria", "Santos", "maria@example.test", "OwnerPass123");
+    var hasher = new Microsoft.AspNetCore.Identity.PasswordHasher<GlamByMariya.Core.Entities.AppUser>();
+    var customer = App().AddCustomerWithPasswordHash("Ana", "Cruz", "ana@example.test", hasher.HashPassword(new(), "AnaPass123"), 30, "Female", "24 Synthetic Street, Quezon City");
+    async Task<string> State(string sql)
+    {
+        try { await Exec(sql); return ""; } catch (PostgresException e) { return e.SqlState + " " + e.MessageText; }
+    }
+
+    var fresh = App().Settings;
+    Check(fresh.EarlyRequestStartHour == null && fresh.AfterHoursEndHour == null, "a fresh database has no early or latest hour (opening hours apply)");
+    Check(App().Services.Single(x => x.Name == "Bridal Makeup").MaxPerPackage == 1 && App().Services.Single(x => x.Name == "Soft Glam").MaxPerPackage == null,
+        "Bridal Makeup is limited to 1 per package; Soft Glam has no limit");
+    Check((await State("UPDATE public.business_settings SET early_request_start_hour=9 WHERE id=1")).StartsWith("23514"), "an early start after opening is refused");
+    Check((await State("UPDATE public.business_settings SET after_hours_end_hour=17 WHERE id=1")).StartsWith("23514"), "a latest end before closing is refused");
+    var editor = App(); var edited = editor.Settings; edited.EarlyRequestStartHour = 4; edited.AfterHoursEndHour = 22;
+    editor.SaveSettings(edited, owner.Id);
+    Check(App().Settings.EarlyRequestStartHour == 4 && App().Settings.AfterHoursEndHour == 22, "saving the business settings keeps the early and latest hours");
+
+    var soft = App().Services.Single(x => x.Name == "Soft Glam");
+    var quote = GlamByMariya.Core.BusinessRules.BookingPricing.Calculate(soft, [], 1, App().Settings.TravelFee, "auto", App().Settings.DownPaymentPercent);
+    var day = DateTime.Today.AddDays(5);
+    var n = 0;
+    GlamByMariya.Core.Entities.Booking Book(double hour) => App().SubmitBooking(customer.Id, soft.Id, [], day.AddHours(hour), "24 Synthetic Street, Quezon City", "Quezon City",
+        quote.RequiredDownPayment, "Xendit", $"XENDIT-FLEX-{++n}", null, true, true, 1, "auto", quote.FinalTotal, quote.RequiredDownPayment, latitude: 14.5547m, longitude: 121.0244m);
+    // Test setup only: turn a booking into an untouched early request (the store learns to insert these in Task 3).
+    async Task MakeRequest(Guid booking, string createdAgo = "0 minutes") => await Exec($"""
+        SET session_replication_role = replica;
+        UPDATE public.reservations SET status='Awaiting Approval', is_early_request=true, payment_expires_at=NULL, created_at=now()-interval '{createdAgo}' WHERE app_id='{booking}';
+        SET session_replication_role = origin;
+        """);
+    async Task<string> Status(Guid booking) => (string)(await Scalar($"SELECT status FROM public.reservations WHERE app_id='{booking}'"))!;
+
+    var request = Book(5);
+    await MakeRequest(request.Id);
+    Check(App().FindBooking(request.Id) is { IsEarlyRequest: true, Status: "Awaiting Approval" }, "an early request reads back as Awaiting Approval");
+    var regular = Book(5.5);
+    Check(await Status(regular.Id) == "Pending Payment", "a request holds no time: another booking can take an overlapping early time");
+    var approveTaken = await State($"BEGIN; SELECT set_config('makeup.actor_id','{owner.Id}',true); UPDATE public.reservations SET status='Pending Payment' WHERE app_id='{request.Id}'; COMMIT;");
+    Check(approveTaken.Contains("overlaps a reserved appointment") && await Status(request.Id) == "Awaiting Approval", $"approving a request whose time was taken is refused ({approveTaken})");
+
+    var second = Book(9);
+    await MakeRequest(second.Id);
+    Check(await State($"BEGIN; SELECT set_config('makeup.actor_id','{owner.Id}',true); UPDATE public.reservations SET status='Pending Payment' WHERE app_id='{second.Id}'; COMMIT;") == "",
+        "approving a free request moves it to Pending Payment");
+    var minutes = Convert.ToDouble(await Scalar($"SELECT extract(epoch FROM payment_expires_at-now())/60 FROM public.reservations WHERE app_id='{second.Id}'"));
+    Check(minutes is > 14 and <= 15.1, $"approval starts the 15-minute payment hold ({minutes:F1} min)");
+    var blocked = "";
+    try { Book(9); } catch (InvalidOperationException e) { blocked = e.Message; }
+    Check(blocked.Contains("overlaps"), "an approved request blocks its time for other bookings");
+
+    var stale = Book(13);
+    await MakeRequest(stale.Id, "8 days");
+    await Exec("SELECT public.mvc_expire_overdue()");
+    Check(await Status(stale.Id) == "Rejected" && (string)(await Scalar($"SELECT notes FROM public.reservations WHERE app_id='{stale.Id}'"))! == "The artist could not confirm this early time.",
+        "a request unanswered for 7 days is closed as Rejected");
+    var flags = await Scalar($"SELECT is_early_request::text||'/'||after_hours::text FROM public.mvc_booking_summary WHERE id='{second.Id}'");
+    Check((string)flags! == "true/false", $"the booking summary shows the request and after-hours flags ({flags})");
+    Console.WriteLine($"All {checks - before} flexible booking database checks passed.");
+}
+
 sealed class TestEnv : Microsoft.AspNetCore.Hosting.IWebHostEnvironment
 {
     public string ApplicationName { get; set; } = "DatabaseChecks";

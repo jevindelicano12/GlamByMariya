@@ -23,7 +23,8 @@ public class MakeupDbContext : DbContext
         model.Entity<AssetRow>().ToTable("media_assets");
         model.Entity<ImageRow>().ToTable("catalog_images");
         model.Entity<BookingRow>().ToView("booking_financial_summary");
-        model.Entity<BookingRow>().Ignore(x => x.LocationLat).Ignore(x => x.LocationLng);
+        model.Entity<BookingRow>().Ignore(x => x.LocationLat).Ignore(x => x.LocationLng).Ignore(x => x.IsEarlyRequest).Ignore(x => x.AfterHours);
+        model.Entity<ServiceRow>().Ignore(x => x.MaxPerPackage);
         model.Entity<BookingAddonRow>().ToTable("booking_addons");
         model.Entity<PaymentRow>().ToTable("payments");
         model.Entity<NotificationRow>().ToTable("notifications");
@@ -61,6 +62,8 @@ public class ServiceRow
     public string Name { get; set; } = ""; public string Description { get; set; } = "";
     public decimal Price { get; set; } public int Minutes { get; set; }
     public decimal? GroupPrice { get; set; } public short GroupMinimumPeople { get; set; }
+    // Public schema only (0020): most per package booking; the legacy makeup schema ignores it.
+    public int? MaxPerPackage { get; set; }
     public string VisualWord { get; set; } = ""; public bool IsActive { get; set; } public bool IsArchived { get; set; }
 }
 public class AddonRow
@@ -105,6 +108,8 @@ public class BookingRow
     public decimal CancellationFee { get; set; } public decimal RefundDue { get; set; } public decimal Refunded { get; set; }
     // Only the public schema's mvc_booking_summary carries the pin (0013); the makeup schema ignores it.
     public decimal? LocationLat { get; set; } public decimal? LocationLng { get; set; }
+    // Public schema only (0020): early request and after-hours flags.
+    public bool IsEarlyRequest { get; set; } public bool AfterHours { get; set; }
 }
 public class BookingAddonRow { public Guid Id { get; set; } public Guid BookingId { get; set; } public Guid AddonId { get; set; } public string NameSnapshot { get; set; } = ""; public decimal PriceSnapshot { get; set; } public int MinutesSnapshot { get; set; } }
 public class PaymentRow

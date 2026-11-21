@@ -38,7 +38,7 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
     public List<CatalogItem> Services => (from s in db.Set<ServiceRow>().AsNoTracking()
         join c in db.Set<CategoryRow>() on s.CategoryId equals c.Id
         select new CatalogItem { Id=s.Id,Name=s.Name,Description=s.Description,Price=s.Price,Minutes=s.Minutes,
-            GroupPrice=s.GroupPrice,GroupMinimumPeople=s.GroupMinimumPeople,Category=c.Name,VisualWord=s.VisualWord,Active=s.IsActive,Archived=s.IsArchived }).ToList();
+            GroupPrice=s.GroupPrice,GroupMinimumPeople=s.GroupMinimumPeople,Category=c.Name,VisualWord=s.VisualWord,Active=s.IsActive,Archived=s.IsArchived,MaxPerPackage=s.MaxPerPackage }).ToList();
     public List<CatalogItem> AddOns => (from s in db.Set<AddonRow>().AsNoTracking()
         join c in db.Set<CategoryRow>() on s.CategoryId equals c.Id
         select new CatalogItem { Id=s.Id,Name=s.Name,Description=s.Description,Price=s.Price,Minutes=s.Minutes,
@@ -86,7 +86,7 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
                 Start=Local(b.StartsAt),BufferMinutesSnapshot=b.BufferMinutesSnapshot,People=b.People,Package=b.BookingType=="package"?"group":"auto",
                 GroupPrice=b.GroupPriceSnapshot,GroupMinimumPeople=b.GroupMinimumSnapshot,AppliedPricePerPerson=b.AppliedPricePerPerson,
                 DownPaymentPercentSnapshot=b.DownPaymentPercentSnapshot,RequiredDownPaymentSnapshot=b.RequiredDownPaymentSnapshot,
-                Address=b.Address,Area=b.AreaNameSnapshot,Latitude=b.LocationLat,Longitude=b.LocationLng,TravelFee=b.TravelFeeInformationalSnapshot,TransportationPolicyAcknowledgedAt=b.TransportationPolicyAcknowledgedAt,VerifiedPaid=b.VerifiedPaid,
+                Address=b.Address,Area=b.AreaNameSnapshot,IsEarlyRequest=b.IsEarlyRequest,AfterHours=b.AfterHours,Latitude=b.LocationLat,Longitude=b.LocationLng,TravelFee=b.TravelFeeInformationalSnapshot,TransportationPolicyAcknowledgedAt=b.TransportationPolicyAcknowledgedAt,VerifiedPaid=b.VerifiedPaid,
                 PaymentStatus=b.PaymentStatus,Status=b.Status,Note=b.Note,RequestedStart=b.RequestedStart.HasValue?Local(b.RequestedStart.Value):null,
                 CancellationFee=b.CancellationFee,RefundDue=b.RefundDue,Refunded=b.Refunded,RefundReference=transfers[b.Id].FirstOrDefault()?.TransferReference??"" }).ToList();
     }

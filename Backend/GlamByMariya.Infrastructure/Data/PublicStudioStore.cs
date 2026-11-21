@@ -82,7 +82,17 @@ public sealed class PublicStudioStore(
             """SELECT travel_speed_kmh AS "Speed", travel_min_minutes AS "Minimum" FROM public.business_settings WHERE id=1""").AsEnumerable().Single();
         value.TravelSpeedKmh = travel.Speed;
         value.TravelMinimumMinutes = travel.Minimum;
+        // Flexible booking hours (0020); null means opening/closing hour.
+        var hours = pdb.Database.SqlQueryRaw<FlexibleHoursRow>(
+            """SELECT early_request_start_hour AS "Early", after_hours_end_hour AS "Latest" FROM public.business_settings WHERE id=1""").AsEnumerable().Single();
+        value.EarlyRequestStartHour = hours.Early;
+        value.AfterHoursEndHour = hours.Latest;
         return value;
+    }
+    private sealed class FlexibleHoursRow
+    {
+        public int? Early { get; set; }
+        public int? Latest { get; set; }
     }
     private sealed class TravelSettingsRow
     {
@@ -328,6 +338,8 @@ public sealed class PublicStudioStore(
             var exists = pdb.Database.SqlQueryRaw<long>("SELECT count(*)::bigint AS \"Value\" FROM public.services WHERE app_id = {0}", item.Id).Single() > 0;
             if (!exists) pdb.Database.ExecuteSqlInterpolated($"INSERT INTO public.services(app_id, category_id, name, description, price, duration_minutes, group_price, group_minimum_people, visual_word, is_active, is_archived) VALUES({item.Id}, {categoryId}, {item.Name}, {item.Description}, {item.Price}, {item.Minutes}, {item.GroupPrice}, {item.GroupMinimumPeople}, {item.VisualWord}, {item.Active}, {item.Archived})");
             else pdb.Database.ExecuteSqlInterpolated($"UPDATE public.services SET category_id={categoryId}, name={item.Name}, description={item.Description}, price={item.Price}, duration_minutes={item.Minutes}, group_price={item.GroupPrice}, group_minimum_people={item.GroupMinimumPeople}, visual_word={item.VisualWord}, is_active={item.Active}, is_archived={item.Archived} WHERE app_id={item.Id}");
+            // Package limit (0020): null = no limit.
+            pdb.Database.ExecuteSqlInterpolated($"UPDATE public.services SET max_per_package={item.MaxPerPackage} WHERE app_id={item.Id}");
         }
         else if (kind == "addon")
         {
@@ -364,7 +376,7 @@ public sealed class PublicStudioStore(
         Admin(actor);
         var names = value.ServiceAreas.Split(',').Select(x => x.Trim()).Where(x => x.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         if (names.Length == 0 || names.Any(x => x.Length > 100)) throw new InvalidOperationException("Provide service area names of at most 100 characters.");
-        pdb.Database.ExecuteSqlInterpolated($"UPDATE public.business_settings SET time_zone={value.TimeZone}, open_hour={value.OpenHour}, close_hour={value.CloseHour}, buffer_minutes={value.BufferMinutes}, down_payment_percent={value.DownPaymentPercent}, travel_fee_informational={value.TravelFee}, payment_instructions={value.PaymentInstructions}, travel_speed_kmh={value.TravelSpeedKmh}, travel_min_minutes={value.TravelMinimumMinutes} WHERE id=1");
+        pdb.Database.ExecuteSqlInterpolated($"UPDATE public.business_settings SET time_zone={value.TimeZone}, open_hour={value.OpenHour}, close_hour={value.CloseHour}, buffer_minutes={value.BufferMinutes}, down_payment_percent={value.DownPaymentPercent}, travel_fee_informational={value.TravelFee}, payment_instructions={value.PaymentInstructions}, travel_speed_kmh={value.TravelSpeedKmh}, travel_min_minutes={value.TravelMinimumMinutes}, early_request_start_hour={value.EarlyRequestStartHour}, after_hours_end_hour={value.AfterHoursEndHour} WHERE id=1");
         pdb.Database.ExecuteSqlRaw("UPDATE public.service_areas SET is_active=false");
         foreach (var name in names)
             pdb.Database.ExecuteSqlInterpolated($"INSERT INTO public.service_areas(name) VALUES({name}) ON CONFLICT DO NOTHING");
