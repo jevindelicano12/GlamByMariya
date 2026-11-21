@@ -11,6 +11,14 @@ Secrets go only into your own terminal or the Render dashboard, never into chat 
 3. Create the owner account (also the only makeup artist), with the app login's password:
    `.\tools\supabase-command.ps1 -Command --database-create-superadmin -Login glam_v2_backend`
 
+### Updating an existing database (new migrations)
+Render deploys automatically when `main` changes, so **apply new migrations before merging** the code that needs them:
+`.\tools\supabase-command.ps1 -Command --database-migrate -Login postgres`
+Running it twice is safe. Migration `0013_travel_time.sql` (map pin and travel time between appointments) is safe to apply while the
+previous code is still live: the old code ignores the new columns, and bookings without a pin keep the old scheduling rule.
+After merging, check the travel numbers in **Business Settings → Travel time between appointments** (average speed, road factor,
+safety margin, fallback for old bookings without a pin, service-area centre and radius).
+
 ## 2. Values you collect
 | Render key | Where to get it |
 |---|---|
