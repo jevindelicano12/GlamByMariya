@@ -187,7 +187,7 @@ if (Run("--rules"))
         var s = NewStore(); barrier.SignalAndWait();
         try { Book(s, customer, day.AddHours(14), $"RACE-00{i}"); return ""; } catch (InvalidOperationException e) { return e.Message; }
     })));
-    var raced = (long)(await Scalar($"SELECT count(*) FROM public.reservations WHERE start_at=(SELECT start_at FROM public.reservations WHERE reference LIKE 'LM-%' ORDER BY id DESC LIMIT 1)"))!;
+    var raced = (long)(await Scalar($"SELECT count(*) FROM public.reservations WHERE start_at=(SELECT start_at FROM public.reservations WHERE reference LIKE 'GBM-%' ORDER BY id DESC LIMIT 1)"))!;
     Check(results.Count(r => r == "") == 1 && results.Count(r => r == overlap) == 1 && raced == 1, "two customers booking at the same moment: one wins");
 
     NewStore().CancelBooking(second.Id, bea.Id, true);
