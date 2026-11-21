@@ -1731,7 +1731,7 @@ Check(keyStoreSql.Contains("ENABLE ROW LEVEL SECURITY", StringComparison.Ordinal
 Check(keyStoreSql.Contains("data_protection_keys", StringComparison.OrdinalIgnoreCase)
     && !keyStoreSql.Contains("FORCE ROW LEVEL SECURITY", StringComparison.OrdinalIgnoreCase),
     "Data Protection table is dedicated to the server-owned database role");
-Check(File.Exists(Path.Combine("Backend", "GlamByMariya.Infrastructure", "Migrations", "Public", "20261017130000_DataProtectionKeys.cs")),
+Check(Directory.GetFiles(Path.Combine("database", "migrations"), "*.sql").Any(f => File.ReadAllText(f).Contains("data_protection_keys", StringComparison.OrdinalIgnoreCase)),
     "Data Protection persistence migration is present and additive");
 var connectionConfig = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
 {
