@@ -37,8 +37,8 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
     private void RequireFitsInDay(string serviceName, int people, int durationMinutes)
     {
         var settings = store.Settings;
-        var opening = !store.IsPersistent && settings.EarlyFeeEnabled ? settings.EarlyStartHour : settings.OpenHour;
-        var closing = !store.IsPersistent && settings.LateFeeEnabled ? settings.LateEndHour : settings.CloseHour;
+        var opening = FirstHour(settings);
+        var closing = LastHour(settings);
         var longest = (closing - opening) * 60 - settings.BufferMinutes;
         if (durationMinutes <= longest) return;
         var perPerson = Math.Max(1, durationMinutes / Math.Max(1, people));
@@ -47,6 +47,20 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             ? $"{people} people need {Hours(durationMinutes)} of makeup, which is longer than the artist's day ({opening}:00–{closing}:00, plus a {settings.BufferMinutes}-minute preparation buffer). Book up to {most} people for {serviceName}, or split your group into two bookings."
             : $"This session needs {Hours(durationMinutes)}, which is longer than the artist's day ({opening}:00–{closing}:00, plus a {settings.BufferMinutes}-minute preparation buffer). Remove some extras or contact the artist.");
     }
+
+    public const string EarlyRequestStatus = "Awaiting Approval";
+    public const string EarlyRequestSentMessage = "Early booking request sent. The artist will confirm this time before you pay.";
+
+    // The bookable day: the admin's early-request start and latest end (Phase 6), widened by the
+    // demo-only early/late fee windows when those are on.
+    private int FirstHour(BusinessSettings s) =>
+        Math.Min(BookingWindow.EarliestHour(s), !store.IsPersistent && s.EarlyFeeEnabled ? s.EarlyStartHour : s.OpenHour);
+    private int LastHour(BusinessSettings s) =>
+        Math.Max(BookingWindow.LatestHour(s), !store.IsPersistent && s.LateFeeEnabled ? s.LateEndHour : s.CloseHour);
+    // Before opening is an early request, except inside the demo's paid early-fee window.
+    private SlotKind KindFor(DateTime start, BusinessSettings s) =>
+        BookingWindow.KindOf(start, s) == SlotKind.Early && !(!store.IsPersistent && s.EarlyFeeEnabled && start.TimeOfDay >= TimeSpan.FromHours(s.EarlyStartHour))
+            ? SlotKind.Early : SlotKind.Regular;
 
     private static string Hours(int minutes) =>
         minutes % 60 == 0 ? $"{minutes / 60} hours" : $"{minutes / 60} h {minutes % 60} min";
@@ -228,10 +242,9 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
         if (start.Date == DateTime.MaxValue.Date || start > DateTime.MaxValue.AddMinutes(-duration - buffer)) return "Choose a valid appointment date.";
         var end = start.AddMinutes(duration);
         var reservedEnd = end.AddMinutes(buffer);
-        var opening = !store.IsPersistent && settings.EarlyFeeEnabled ? settings.EarlyStartHour : settings.OpenHour;
+        var opening = FirstHour(settings);
         var existing = (cachedBookings ?? bookings.Bookings).FirstOrDefault(b => b.Id == exclude);
-        var lateEnabled = !store.IsPersistent && settings.LateFeeEnabled;
-        var closing = lateEnabled ? settings.LateEndHour : settings.CloseHour;
+        var closing = LastHour(settings);
         var endLimit = start.Date.AddHours(closing);
         if ((existing == null || existing.Start != start) && (start < start.Date.AddHours(opening) || reservedEnd > endLimit)) return $"Choose a time after {opening}:00 that allows your session and {buffer}-minute preparation buffer to finish by {closing}:00.";
         if ((cachedBlocks ?? store.Blocks).Any(b => start < b.To && reservedEnd > b.From)) return "The artist is unavailable during this time. Please choose another slot.";
@@ -327,9 +340,8 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
                 var dayStops = stopsByDay?[date].ToList();
                 if (date >= now.Date)
                 {
-                    var lateEnabled = !store.IsPersistent && settings.LateFeeEnabled;
-                    var last = date.AddHours(lateEnabled ? settings.LateEndHour : settings.CloseHour).AddMinutes(-duration - buffer);
-                    for (var start = date.AddHours(!store.IsPersistent && settings.EarlyFeeEnabled ? settings.EarlyStartHour : settings.OpenHour); start <= last; start = start.AddMinutes(15))
+                    var last = date.AddHours(LastHour(settings)).AddMinutes(-duration - buffer);
+                    for (var start = date.AddHours(FirstHour(settings)); start <= last; start = start.AddMinutes(15))
                     {
                         cancellationToken.ThrowIfCancellationRequested();
                         var issue = SlotIssue(start, duration, now, exclude, settings, booked, blocks, occupied);
@@ -337,7 +349,8 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
                         else if (issue == null && pin is { } here && dayStops != null &&
                             !TravelPlanner.Fits(start, duration, buffer, here.Lat, here.Lng, dayStops, ArtistLocationAt(start, now, finishedToday, location!), now, settings.TravelSpeedKmh, settings.TravelMinimumMinutes))
                             issue = UnavailableReason; // never the travel detail
-                        slots.Add(new(start.ToString("yyyy-MM-ddTHH:mm"), start.ToString("h:mm tt", System.Globalization.CultureInfo.InvariantCulture), issue == null, issue));
+                        slots.Add(new(start.ToString("yyyy-MM-ddTHH:mm"), start.ToString("h:mm tt", System.Globalization.CultureInfo.InvariantCulture), issue == null, issue,
+                            KindFor(start, settings) == SlotKind.Early ? "early" : "regular", BookingWindow.IsAfterHours(start, duration, settings)));
                     }
                 }
                 var available = slots.Count(s => s.Available);
@@ -378,9 +391,13 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             Money.RequireExactDeposit(deposit, quote.RequiredDownPayment);
             if (method == "Cash") throw new InvalidOperationException("Use GCash, Maya or Bank Transfer for your down payment.");
             CheckReference(method, reference);
+            // Phase 6: a time before opening is an early request (no hold, no deadline until the artist
+            // approves); a session ending after closing is flagged after-hours (fee agreed offline).
+            b.AfterHours = BookingWindow.IsAfterHours(start, quote.DurationMinutes, store.Settings);
+            if (KindFor(start, store.Settings) == SlotKind.Early) { b.IsEarlyRequest = true; b.Status = EarlyRequestStatus; b.PaymentDueAt = null; }
             bookings.Bookings.Add(b);
             payments.Payments.Add(new() { BookingId = b.Id, Amount = deposit, Method = method, Reference = reference.Trim(), ProofPath = proof });
-            Notify(b, "Booking submitted. Your payment and appointment are awaiting review.", userId);
+            Notify(b, b.IsEarlyRequest ? EarlyRequestSentMessage : "Booking submitted. Your payment and appointment are awaiting review.", userId);
             return b;
         }
     }

@@ -198,6 +198,12 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
         var reference = "XENDIT-" + Guid.NewGuid().ToString("N")[..16].ToUpperInvariant();
         var booking = workflow.Create(UserId, serviceId, addOnIds, start, address, area, deposit, "Xendit", reference, null, agreed, people, package, travelAcknowledged, expectedTotal, expectedMinimum, latitude: latitude, longitude: longitude);
         var database = (IPersistentStudioStore)store;
+        // An early request is paid only after the artist approves it: no invoice yet.
+        if (booking.IsEarlyRequest)
+        {
+            TempData["Success"] = BookingService.EarlyRequestSentMessage;
+            return RedirectToAction("Confirmation", new { id = booking.Id });
+        }
         try
         {
             var email = User.FindFirstValue(ClaimTypes.Email) ?? "";

@@ -732,12 +732,13 @@ if (Run("--flexible"))
     async Task<string> Status(Guid booking) => (string)(await Scalar($"SELECT status FROM public.reservations WHERE app_id='{booking}'"))!;
 
     var request = Book(5);
-    await MakeRequest(request.Id);
     Check(App().FindBooking(request.Id) is { IsEarlyRequest: true, Status: "Awaiting Approval" }, "an early request reads back as Awaiting Approval");
-    var regular = Book(5.5);
-    Check(await Status(regular.Id) == "Pending Payment", "a request holds no time: another booking can take an overlapping early time");
-    var approveTaken = await State($"BEGIN; SELECT set_config('makeup.actor_id','{owner.Id}',true); UPDATE public.reservations SET status='Pending Payment' WHERE app_id='{request.Id}'; COMMIT;");
-    Check(approveTaken.Contains("overlaps a reserved appointment") && await Status(request.Id) == "Awaiting Approval", $"approving a request whose time was taken is refused ({approveTaken})");
+    var rival = Book(5.5);
+    Check(await Status(rival.Id) == "Awaiting Approval", "a request holds no time: another customer can request an overlapping early time");
+    Check(await State($"BEGIN; SELECT set_config('makeup.actor_id','{owner.Id}',true); UPDATE public.reservations SET status='Pending Payment' WHERE app_id='{request.Id}'; COMMIT;") == "",
+        "the first request is approved");
+    var approveTaken = await State($"BEGIN; SELECT set_config('makeup.actor_id','{owner.Id}',true); UPDATE public.reservations SET status='Pending Payment' WHERE app_id='{rival.Id}'; COMMIT;");
+    Check(approveTaken.Contains("overlaps a reserved appointment") && await Status(rival.Id) == "Awaiting Approval", $"approving a request whose time was taken is refused ({approveTaken})");
 
     var second = Book(9);
     await MakeRequest(second.Id);
@@ -754,6 +755,11 @@ if (Run("--flexible"))
     await Exec("SELECT public.mvc_expire_overdue()");
     Check(await Status(stale.Id) == "Rejected" && (string)(await Scalar($"SELECT notes FROM public.reservations WHERE app_id='{stale.Id}'"))! == "The artist could not confirm this early time.",
         "a request unanswered for 7 days is closed as Rejected");
+    var storeRequest = Book(4.5);
+    Check(storeRequest is { Status: "Awaiting Approval", IsEarlyRequest: true } && await Scalar($"SELECT payment_expires_at FROM public.reservations WHERE app_id='{storeRequest.Id}'") is DBNull,
+        "the store books a time before opening as an early request with no payment deadline");
+    var evening = Book(17.5);
+    Check(evening is { Status: "Pending Payment", AfterHours: true, IsEarlyRequest: false }, "the store flags a session ending after closing as after-hours");
     var flags = await Scalar($"SELECT is_early_request::text||'/'||after_hours::text FROM public.mvc_booking_summary WHERE id='{second.Id}'");
     Check((string)flags! == "true/false", $"the booking summary shows the request and after-hours flags ({flags})");
     Console.WriteLine($"All {checks - before} flexible booking database checks passed.");

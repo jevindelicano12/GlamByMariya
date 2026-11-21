@@ -1903,6 +1903,44 @@ if (args.Contains("--flexible-rules-only"))
     Check(PackageRules.Check([soft]) == "Choose between 2 and 20 people.", "a package needs at least 2 people");
     Console.WriteLine($"All {checks} flexible rule checks passed."); return;
 }
+if (args.Contains("--flexible-booking-only"))
+{
+    // Phase 6, Task 3: early / regular / after-hours times and single bookings on the demo store.
+    var demo = new DemoStore(presentationAccounts: true);
+    var s = demo.Settings; s.OpenHour = 8; s.CloseHour = 18; s.BufferMinutes = 45; s.EarlyFeeEnabled = false; s.LateFeeEnabled = false;
+    var flow = new BookingService(demo, demo, demo, demo, demo);
+    var flexCustomer = demo.Users.First(u => u.Role == Roles.Customer);
+    var soft = demo.Services.First(x => x.Name == "Soft Glam");
+    var bridal = demo.Services.First(x => x.Name == "Bridal Makeup");
+    var month = DateTime.Today.AddMonths(1); var flexMonth = new DateTime(month.Year, month.Month, 1);
+    var day = flexMonth.AddDays(9);
+    List<AvailableTimeSlot> Slots(int minutes) => flow.GetAvailability(flexMonth, minutes, latitude: 14.5547m, longitude: 121.0244m).Days.Single(d => d.Date == day.ToString("yyyy-MM-dd")).Slots;
+
+    var plain = Slots(60);
+    Check(plain.First().Start.EndsWith("T08:00") && plain.Last().Start.EndsWith("T16:15") && plain.All(x => x.Kind == "regular" && !x.AfterHours),
+        "with no early or latest hour set, the times are exactly today's 8:00 to 4:15 PM");
+    s.EarlyRequestStartHour = 4; s.AfterHoursEndHour = 22;
+    var wide = Slots(60);
+    Check(wide.Single(x => x.Start.EndsWith("T04:00")).Kind == "early" && wide.Single(x => x.Start.EndsWith("T08:00")).Kind == "regular", "times before opening are early booking times");
+    Check(wide.Single(x => x.Start.EndsWith("T17:30")).AfterHours && !wide.Single(x => x.Start.EndsWith("T17:00")).AfterHours, "a session ending after closing is marked after-hours");
+    Check(wide.Last().Start.EndsWith("T20:15"), "the last start leaves the session and buffer inside the latest hour (10 PM)");
+
+    var softQuote = flow.Quote(soft.Id, [], 1, "auto", day.AddHours(5));
+    Booking Book(DateTime start, CatalogItem service, string reference)
+    {
+        var q = flow.Quote(service.Id, [], 1, "auto", start);
+        return flow.Create(flexCustomer.Id, service.Id, [], start, "24 Synthetic Street", "Quezon City", q.RequiredDownPayment, "GCash", reference, "synthetic-proof.png", true, 1, "auto", true, q.FinalTotal, q.RequiredDownPayment, latitude: 14.5547m, longitude: 121.0244m);
+    }
+    var request = Book(day.AddHours(5), soft, "FLEX-EARLY-1");
+    Check(request is { Status: "Awaiting Approval", IsEarlyRequest: true, PaymentDueAt: null }, "a booking at an early time is an early request with no payment deadline");
+    flow.CheckSlot(day.AddHours(5), 60);
+    Check(true, "an early request holds no time (the same time is still bookable)");
+    var late = Book(day.AddHours(17), bridal, "FLEX-LATE-1");
+    Check(late is { AfterHours: true, Status: "Pending Payment" } && late.Total == flow.Quote(bridal.Id, [], 1, "auto", day.AddHours(17)).FinalTotal,
+        "a regular booking ending after closing is after-hours and its total has no after-hours fee");
+    Check(flow.Quote(soft.Id, [], 10, "group").DurationMinutes == 600, "ten Soft Glam people fit once the latest hour is 10 PM");
+    Console.WriteLine($"All {checks} flexible booking checks passed."); return;
+}
 if (args.Contains("--travel-rule-only"))
 {
     // The travel rule: pure functions, all times Manila-local.
