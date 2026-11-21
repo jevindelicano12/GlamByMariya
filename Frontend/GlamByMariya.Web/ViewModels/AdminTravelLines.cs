@@ -27,11 +27,13 @@ public static class AdminTravelLines
         return pinless ? $"≈ {minutes} min (no pin)" : $"≈ {minutes} min travel";
     }
 
+    private static string Unit(int n, string word) => $"{n} {word}{(n == 1 ? "" : "s")} ago";
+
     public static string Ago(DateTime? updatedAt, DateTime now)
     {
         if (updatedAt is not { } at) return "";
         var span = now - at;
         if (span < TimeSpan.Zero) span = TimeSpan.Zero;
-        return span.TotalMinutes < 1 ? "just now" : span.TotalHours < 1 ? $"{(int)span.TotalMinutes} min ago" : span.TotalDays < 1 ? $"{(int)span.TotalHours} h ago" : $"{(int)span.TotalDays} d ago";
+        return span.TotalMinutes < 1 ? "just now" : span.TotalHours < 1 ? Unit((int)span.TotalMinutes, "minute") : span.TotalDays < 1 ? Unit((int)span.TotalHours, "hour") : Unit((int)span.TotalDays, "day");
     }
 }

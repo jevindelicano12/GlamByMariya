@@ -1,9 +1,17 @@
 @using System.Globalization
 @using GlamByMariya.Core.Entities
 @{
-    var location = (ArtistLocation)ViewBag.ArtistLocation;
-    var now = (DateTime)ViewBag.ArtistNow;
+    var location = ViewBag.ArtistLocation as ArtistLocation;
+    var now = (DateTime?)ViewBag.ArtistNow ?? DateTime.MinValue;
     string F(decimal? v) => v?.ToString("F6", CultureInfo.InvariantCulture) ?? "";
+}
+@if (location is null)
+{
+    <section class="panel stack artist-location" id="artist-location" data-artist-location-unavailable>
+        <h3>Artist location</h3>
+        <p role="status">Artist location is unavailable right now.</p>
+    </section>
+    return;
 }
 <link rel="stylesheet" href="~/lib/leaflet/leaflet.css" asp-append-version="true" />
 <link rel="stylesheet" href="~/css/artist-location.css" asp-append-version="true" />

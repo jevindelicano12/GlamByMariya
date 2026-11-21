@@ -134,11 +134,11 @@ public class DemoStore : IStudioStore
         if ((lat, lng) is not (null, null) && !BookingLocation.IsValid(lat, lng)) throw new InvalidOperationException(BookingLocation.ArtistMessage);
         lock (Gate) artistLocation = artistLocation with { CurrentLat = lat, CurrentLng = lng, CurrentUpdatedAt = lat is null ? null : Now };
     }
-    // Same hold rule as BookingService.HoldsReservation and the database's mvc_travel_stops.
+    // Pending Payment inside its window, Confirmed and InProgress, as the database's mvc_travel_stops.
     public IReadOnlyList<TravelAppointment> TravelStops(DateTime from, DateTime until, Guid? exclude)
     {
         lock (Gate)
-            return Bookings.Where(b => b.Id != exclude && (b.Status == "Confirmed" || (b.Status == "Pending Payment" && !PaymentWindow.IsExpired(b, Now))))
+            return Bookings.Where(b => b.Id != exclude && (b.Status is "Confirmed" or "InProgress" || (b.Status == "Pending Payment" && !PaymentWindow.IsExpired(b, Now))))
                 .Select(b => new TravelAppointment(b.Start, b.End, b.BufferMinutesSnapshot ?? Settings.BufferMinutes, b.Latitude, b.Longitude))
                 .Where(s => s.Start < until && s.End.AddMinutes(s.BufferMinutes) > from)
                 .OrderBy(s => s.Start).ToList();

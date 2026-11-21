@@ -42,9 +42,13 @@ public static class TravelPlanner
             var travel = Minutes(previous.Latitude, previous.Longitude, lat, lng, speedKmh, minimumMinutes);
             if (previous.End.AddMinutes(previous.BufferMinutes + travel) > start) return false;
         }
-        else if (start.Date == now.Date && artistNow is { } here)
+
+        // Today the artist cannot leave before now, wherever the last stop was: now plus the trip from
+        // the previous stop (or, with none, from where the artist is) must still reach the start.
+        if (start.Date == now.Date)
         {
-            if (now.AddMinutes(Minutes(here.Lat, here.Lng, lat, lng, speedKmh, minimumMinutes)) > start) return false;
+            (decimal? Lat, decimal? Lng)? origin = previous is not null ? (previous.Latitude, previous.Longitude) : artistNow;
+            if (origin is { } from && now.AddMinutes(Minutes(from.Lat, from.Lng, lat, lng, speedKmh, minimumMinutes)) > start) return false;
         }
 
         if (next is not null)

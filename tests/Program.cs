@@ -328,7 +328,7 @@ if (args.Contains("--catalog-settings-only"))
 }
 if (args.Contains("--travel-admin-only"))
 {
-    // Task 5: the owner's travel settings, artist location actions, travel travelLines and override warning.
+    // Task 5: the owner's travel settings, artist location actions, travel lines and override warning.
     var adminDemo = new DemoStore(presentationAccounts: true);
     var adminOwner = adminDemo.Users.Single(u => u.Role == Roles.SuperAdmin);
     AdminController AdminAs(Guid userId, string role)
@@ -364,13 +364,13 @@ if (args.Contains("--travel-admin-only"))
     Check(adminDemo.GetArtistLocation() is { CurrentLat: 14.5547m, CurrentUpdatedAt: not null }, "the owner saves the current location");
     var outsidePost = AdminAs(adminOwner.Id, Roles.SuperAdmin);
     outsidePost.SetArtistCurrent(15.5m, 121.0437m);
-    Check(outsidePost.TempData["Error"] as string == BookingLocation.ArtistMessage && adminDemo.GetArtistLocation().CurrentLat == 14.5547m, "a current location outsidePost Metro Manila is refused and the old one stays");
+    Check(outsidePost.TempData["Error"] as string == BookingLocation.ArtistMessage && adminDemo.GetArtistLocation().CurrentLat == 14.5547m, "a current location outside Metro Manila is refused and the old one stays");
     var outsideHome = AdminAs(adminOwner.Id, Roles.SuperAdmin);
     outsideHome.SetArtistHome(10m, 121m);
-    Check(outsideHome.TempData["Error"] != null && adminDemo.GetArtistLocation().HomeLat == 14.6760m, "a home base outsidePost Metro Manila is refused");
+    Check(outsideHome.TempData["Error"] != null && adminDemo.GetArtistLocation().HomeLat == 14.6760m, "a home base outside Metro Manila is refused");
     var blankPost = AdminAs(adminOwner.Id, Roles.SuperAdmin);
     blankPost.SetArtistCurrent(null, null);
-    Check(blankPost.TempData["Error"] != null && adminDemo.GetArtistLocation().CurrentLat == 14.5547m, "a blankPost post does not clear the current location");
+    Check(blankPost.TempData["Error"] != null && adminDemo.GetArtistLocation().CurrentLat == 14.5547m, "a blank post does not clear the current location");
     var backHomePost = AdminAs(adminOwner.Id, Roles.SuperAdmin);
     backHomePost.SetArtistCurrent(null, null, backHome: true);
     Check(adminDemo.GetArtistLocation() is { CurrentLat: null, CurrentUpdatedAt: null, HomeLat: 14.6760m }, "Back to home base clears only the current location");
@@ -390,7 +390,7 @@ if (args.Contains("--travel-admin-only"))
             && method.GetCustomAttributes(typeof(Microsoft.AspNetCore.Authorization.AuthorizeAttribute), true).Cast<Microsoft.AspNetCore.Authorization.AuthorizeAttribute>().All(a => a.Roles == "Admin,SuperAdmin"), $"{action} is POST-only, antiforgery-protected and limited to Admin and SuperAdmin");
     }
 
-    // Travel travelLines
+    // Travel lines
     var lineSettings = new BusinessSettings { TravelSpeedKmh = 15m, TravelMinimumMinutes = 30 };
     Booking LineBooking(int hour, decimal? lat, decimal? lng) => new() { Start = new DateTime(2030, 1, 7, hour, 0, 0), Latitude = lat, Longitude = lng, Service = new(Guid.NewGuid(), "Look", 100m, 60) };
     var lineA = LineBooking(9, 14.5547m, 121.0244m); var lineB = LineBooking(13, 14.7046m, 121.0567m); var lineC = LineBooking(16, null, null);
@@ -399,7 +399,8 @@ if (args.Contains("--travel-admin-only"))
     Check(travelLines[lineC.Id] == "≈ 30 min (no pin)", "a booking without a pin shows the minimum and (no pin)");
     lineSettings.TravelSpeedKmh = 60m;
     Check(GlamByMariya.Web.ViewModels.AdminTravelLines.For(new[] { lineA, lineB }, lineSettings)[lineB.Id] == "≈ 30 min travel", "the travel line follows the current speed");
-    Check(GlamByMariya.Web.ViewModels.AdminTravelLines.Ago(adminDemo.Now.AddMinutes(-5), adminDemo.Now) == "5 min ago" && GlamByMariya.Web.ViewModels.AdminTravelLines.Ago(adminDemo.Now.AddHours(-3), adminDemo.Now) == "3 h ago", "the current-location age reads in minutes and hours");
+    Check(GlamByMariya.Web.ViewModels.AdminTravelLines.Ago(adminDemo.Now.AddMinutes(-5), adminDemo.Now) == "5 minutes ago" && GlamByMariya.Web.ViewModels.AdminTravelLines.Ago(adminDemo.Now.AddHours(-3), adminDemo.Now) == "3 hours ago", "the current-location age reads in minutes and hours");
+    Check(GlamByMariya.Web.ViewModels.AdminTravelLines.Ago(adminDemo.Now.AddMinutes(-1), adminDemo.Now) == "1 minute ago" && GlamByMariya.Web.ViewModels.AdminTravelLines.Ago(adminDemo.Now.AddHours(-1), adminDemo.Now) == "1 hour ago" && GlamByMariya.Web.ViewModels.AdminTravelLines.Ago(adminDemo.Now.AddDays(-1), adminDemo.Now) == "1 day ago" && GlamByMariya.Web.ViewModels.AdminTravelLines.Ago(adminDemo.Now.AddDays(-3), adminDemo.Now) == "3 days ago" && GlamByMariya.Web.ViewModels.AdminTravelLines.Ago(adminDemo.Now.AddSeconds(-20), adminDemo.Now) == "just now", "the age uses full words with singular and plural");
 
     // View sources
     var adminWeb = Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web");
@@ -418,8 +419,10 @@ if (args.Contains("--travel-admin-only"))
     Check(overrideAt > 0 && superAdminAt > 0 && elseAt > overrideAt && !detailsView[superAdminAt..overrideAt].Contains("else {") && detailsView.Contains("name=\"travelOverride\""), "the override checkbox sits only inside the SuperAdmin approval form");
     Check(detailsView.Contains("Travel warning."), "the reschedule approval shows the travel warning");
     var settingsView = AdminView("Views", "Admin", "Settings.cshtml");
-    Check(settingsView.Contains("name=\"travelSpeedKmh\"") && settingsView.Contains("name=\"travelMinimumMinutes\"") && settingsView.Contains("<partial name=\"_ArtistLocation\" />"), "the settings page has the travel fields and the artist location card");
     var locationView = AdminView("Views", "Admin", "_ArtistLocation.cshtml");
+    var settingsAction = AdminView("Controllers", "AdminController.cs");
+    Check(locationView.Contains("Artist location is unavailable right now.") && settingsAction.Contains("catch (Exception) { ViewBag.ArtistLocation = null; }"), "a misconfigured artist only blanks the location card, not the Settings page");
+    Check(settingsView.Contains("name=\"travelSpeedKmh\"") && settingsView.Contains("name=\"travelMinimumMinutes\"") && settingsView.Contains("<partial name=\"_ArtistLocation\" />"), "the settings page has the travel fields and the artist location card");
     foreach (var label in new[] { "Use my current location", "Save as current location", "Set as home base", "Back to home base", "Current location set" })
         Check(locationView.Contains(label), $"the artist location card offers \"{label}\"");
     Check(File.Exists(Path.Combine(adminWeb, "wwwroot", "js", "artist-location.js")), "the artist location map script exists");
@@ -1828,6 +1831,11 @@ if (args.Contains("--travel-rule-only"))
     Check(!Today(At(9, 15)) && Today(At(9, 30)), "today the artist's current position needs the minimum travel");
     Check(TravelPlanner.Fits(At(9), 60, 45, fvLat, fvLng, [], novaliches, At(9).AddDays(-1), 15m, 30), "on a later day the artist's current position is ignored");
     Check(TravelPlanner.Fits(At(9, 15), 60, 45, fvLat, fvLng, [], null, At(9), 15m, 30), "today without a known position does not block");
+    // Today: an earlier stop that already ended does not let the artist teleport; now still counts.
+    bool Late(DateTime s) => TravelPlanner.Fits(s, 60, 45, fvLat, fvLng, [morning], novaliches, At(13), 15m, 30);
+    Check(!Late(At(13, 15)) && !Late(At(14, 15)) && Late(At(14, 30)), "today a stop that ended at 8:00 in Makati still needs now plus 90 minutes: 13:15 refused, 14:30 accepted");
+    Check(TravelPlanner.Fits(At(9, 15), 60, 45, fvLat, fvLng, [new TravelAppointment(At(7), At(8), 45, null, null)], null, At(0), 15m, 30)
+        && !TravelPlanner.Fits(At(9), 60, 45, fvLat, fvLng, [new TravelAppointment(At(7), At(8), 45, null, null)], null, At(0), 15m, 30), "a previous stop without a pin uses the minimum travel time in Fits");
 
     // The demo store keeps the same travel settings, artist pins and neighbour list as the database.
     var travelDemo = new DemoStore(presentationAccounts: true);
@@ -1852,6 +1860,10 @@ if (args.Contains("--travel-rule-only"))
         "a demo neighbour carries its times, buffer and pin");
     var demoOthers = travelDemo.TravelStops(seedDay, seedDay.AddDays(1), seed.Id);
     Check(demoOthers.Count == 1 && demoOthers[0].Start == laterStop.Start, "the demo store leaves out the booking being moved");
+    var inProgressStop = new Booking { CustomerId = seed.CustomerId, CustomerName = seed.CustomerName, Service = seed.Service, Start = seedDay.AddHours(18), BufferMinutesSnapshot = 45, Address = seed.Address, Area = seed.Area, Latitude = fvLat, Longitude = fvLng, Status = "InProgress" };
+    travelDemo.Bookings.Add(inProgressStop);
+    Check(travelDemo.TravelStops(seedDay, seedDay.AddDays(1), null).Any(s => s.Start == inProgressStop.Start), "an InProgress demo booking counts as a neighbour like the database function");
+    travelDemo.Bookings.Remove(inProgressStop);
     Check(travelDemo.TravelStops(seedDay.AddDays(1), seedDay.AddDays(2), null).Count == 0, "another demo day has no neighbours");
 
     // Task 3: availability, booking and reschedule apply the rule (demo store).

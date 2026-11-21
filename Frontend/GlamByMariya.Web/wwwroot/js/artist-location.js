@@ -32,20 +32,21 @@
 
   const marker = L.marker(start, { draggable: true, keyboard: true, title: 'Pin to save' }).addTo(map);
 
-  const setPin = (lat, lng, message) => {
+  const hasSaved = !!(current || home);
+  const setPin = (lat, lng, message, placed = true) => {
     marker.setLatLng([lat, lng]);
     const ok = inside(lat, lng);
     forms.forEach(form => {
       form.querySelector('[name="latitude"]').value = ok ? lat.toFixed(6) : '';
       form.querySelector('[name="longitude"]').value = ok ? lng.toFixed(6) : '';
-      form.querySelector('button').disabled = !ok;
+      form.querySelector('button').disabled = !ok || !placed;
     });
-    say(ok ? (message || 'Pin placed. Save it as the current location or as home base.') : outsideMessage);
+    say(!placed ? message : ok ? (message || 'Pin placed. Save it as the current location or as home base.') : outsideMessage);
   };
 
   marker.on('dragend', () => { const p = marker.getLatLng(); setPin(p.lat, p.lng); });
   map.on('click', event => setPin(event.latlng.lat, event.latlng.lng));
-  setPin(start[0], start[1], current || home ? 'Drag the pin to move it, then save.' : 'Drag the pin to where the artist is based, then save.');
+  setPin(start[0], start[1], current || home ? 'Drag the pin to move it, then save.' : 'Drag the pin or click the map to where the artist is based, then save.', hasSaved);
 
   geoButton?.addEventListener('click', () => {
     if (!navigator.geolocation) { say(geolocationMessage); return; }

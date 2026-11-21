@@ -373,7 +373,14 @@ public class AdminController(IStudioStore store, BookingService workflow, Paymen
     {
         return RedirectToAction(nameof(Appointments), new { mode = "calendar", year, month });
     }
-    public IActionResult Settings() { ViewBag.PaymentQr = paymentQr.GetOptions(); lock (store.Gate) { ViewBag.ArtistLocation = store.GetArtistLocation(); ViewBag.ArtistNow = store.Now; return View(store.Settings); } }
+    public IActionResult Settings() { ViewBag.PaymentQr = paymentQr.GetOptions(); lock (store.Gate)
+    {
+        // A misconfigured artist must not take the whole page down: only the location card says so.
+        try { ViewBag.ArtistLocation = store.GetArtistLocation(); ViewBag.ArtistNow = store.Now; }
+        catch (Exception) { ViewBag.ArtistLocation = null; }
+        return View(store.Settings);
+    }
+    }
     public const string TravelSpeedMessage = "Travel speed must be between 5 and 60 km/h.";
     public const string TravelMinimumMessage = "Minimum travel must be between 0 and 180 minutes.";
     // The owner saves where the artist is based (home) or is right now (current); backHome clears the current pin.

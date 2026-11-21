@@ -63,7 +63,7 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
         artistLocation = artistLocation with { CurrentLat = lat, CurrentLng = lng, CurrentUpdatedAt = lat is null ? null : Now };
     }
     public virtual IReadOnlyList<TravelAppointment> TravelStops(DateTime from, DateTime until, Guid? exclude) =>
-        Bookings.Where(b => b.Id != exclude && (b.Status == "Confirmed" || (b.Status == "Pending Payment" && !PaymentWindow.IsExpired(b, Now))))
+        Bookings.Where(b => b.Id != exclude && (b.Status is "Confirmed" or "InProgress" || (b.Status == "Pending Payment" && !PaymentWindow.IsExpired(b, Now))))
             .Select(b => new TravelAppointment(b.Start, b.End, b.BufferMinutesSnapshot ?? Settings.BufferMinutes, b.Latitude, b.Longitude))
             .Where(x => x.Start < until && x.End.AddMinutes(x.BufferMinutes) > from)
             .OrderBy(x => x.Start).ToList();
