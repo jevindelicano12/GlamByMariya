@@ -8,7 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 namespace GlamByMariya.Web.Controllers;
 [Authorize(Roles = "Admin,SuperAdmin")]
-public class AdminController(IStudioStore store, BookingService workflow, PaymentQrService paymentQr, CatalogImageService imageService, IInvitationService invites, EmailVerificationService mail) : Controller
+public class AdminController(IStudioStore store, BookingService workflow, CatalogImageService imageService, IInvitationService invites, EmailVerificationService mail) : Controller
 {
     private Guid UserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
     public override void OnActionExecuting(Microsoft.AspNetCore.Mvc.Filters.ActionExecutingContext context)
@@ -373,7 +373,7 @@ public class AdminController(IStudioStore store, BookingService workflow, Paymen
     {
         return RedirectToAction(nameof(Appointments), new { mode = "calendar", year, month });
     }
-    public IActionResult Settings() { ViewBag.PaymentQr = paymentQr.GetOptions(); lock (store.Gate)
+    public IActionResult Settings() { lock (store.Gate)
     {
         // A misconfigured artist must not take the whole page down: only the location card says so.
         try { ViewBag.ArtistLocation = store.GetArtistLocation(); ViewBag.ArtistNow = store.Now; }
@@ -417,33 +417,6 @@ public class AdminController(IStudioStore store, BookingService workflow, Paymen
             catch (InvalidOperationException e) { TempData["Error"] = e.Message; }
             return RedirectToAction("Settings");
         }
-    }
-    [HttpPost, RequestSizeLimit(6_000_000)]
-    public async Task<IActionResult> SavePaymentQr(string method, IFormFile? qr)
-    {
-        try
-        {
-            if (qr == null || qr.Length == 0 || qr.Length > 5_000_000) throw new InvalidOperationException("Choose a JPG or PNG QR image up to 5 MB.");
-            using var memory = new MemoryStream();
-            await qr.CopyToAsync(memory);
-            paymentQr.Save(method, memory.ToArray());
-            lock (store.Gate) store.RecordAudit(UserId, $"Updated {method} payment QR");
-            TempData["Success"] = $"{method} QR saved. Customers will see it when selecting this payment method.";
-        }
-        catch (InvalidOperationException e) { TempData["Error"] = e.Message; }
-        return RedirectToAction("Settings");
-    }
-    [HttpPost]
-    public IActionResult RemovePaymentQr(string method)
-    {
-        try
-        {
-            paymentQr.Remove(method);
-            lock (store.Gate) store.RecordAudit(UserId, $"Removed {method} payment QR");
-            TempData["Success"] = $"{method} QR removed.";
-        }
-        catch (InvalidOperationException e) { TempData["Error"] = e.Message; }
-        return RedirectToAction("Settings");
     }
     [HttpPost]
     public IActionResult Settings(int openHour, int closeHour, int bufferMinutes, decimal travelFee, decimal downPaymentPercent, string serviceAreas, string? paymentInstructions, bool confirmAffected = false, decimal? travelSpeedKmh = null, int? travelMinimumMinutes = null)

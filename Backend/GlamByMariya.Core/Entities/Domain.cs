@@ -128,7 +128,6 @@ public record AuditLog(Guid ActorId, string Event, DateTime Created);
 public record DemoAdminActivity(Guid ActorId, string ActorName, string Role, string Action, string TargetType, Guid TargetId, DateTimeOffset OccurredAt);
 public record AvailabilityBlock(Guid Id, DateTime From, DateTime To, string Reason);
 public record ScheduleWindow(DateTime From, DateTime To);
-public record PaymentQrOption(string Method, string? ImageUrl);
 public class BusinessSettings
 {
     public string TimeZone { get; set; } = "Asia/Manila";

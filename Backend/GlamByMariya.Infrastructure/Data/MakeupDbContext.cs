@@ -81,7 +81,7 @@ public class SettingsRow
 public class MethodRow
 {
     public Guid Id { get; set; } public string Name { get; set; } = "";
-    public bool IsActive { get; set; } public bool AcceptsDeposits { get; set; } public Guid? QrAssetId { get; set; }
+    public bool IsActive { get; set; } public bool AcceptsDeposits { get; set; }
 }
 public class AssetRow { public Guid Id { get; set; } public string ObjectKey { get; set; } = ""; public string ContentType { get; set; } = ""; }
 public class ImageRow { public Guid Id { get; set; } public Guid? ServiceId { get; set; } public Guid? AddonId { get; set; } public string Slot { get; set; } = ""; public Guid AssetId { get; set; } }

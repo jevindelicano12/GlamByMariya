@@ -222,12 +222,10 @@ builder.Services.AddScoped<IAppFileStore>(sp =>
 });
 if (connection != null)
 {
-    builder.Services.AddScoped(sp => new PaymentQrService(sp.GetRequiredService<IWebHostEnvironment>().ContentRootPath, sp.GetRequiredService<IStudioStore>() as IPersistentStudioStore));
     builder.Services.AddScoped(sp => new CatalogImageService(sp.GetRequiredService<IWebHostEnvironment>().ContentRootPath, sp.GetRequiredService<IStudioStore>() as IPersistentStudioStore));
 }
 else
 {
-    builder.Services.AddSingleton(sp => new PaymentQrService(sp.GetRequiredService<IWebHostEnvironment>().ContentRootPath));
     builder.Services.AddSingleton(sp => new CatalogImageService(sp.GetRequiredService<IWebHostEnvironment>().ContentRootPath, demoMedia: sp.GetService<DemoCatalogMedia>()));
 }
 if (connection != null && schema == "public")

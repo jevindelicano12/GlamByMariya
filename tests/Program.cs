@@ -204,7 +204,7 @@ if (args.Contains("--accounts-only"))
     AccountController Account() => Wire(new AccountController(demo, codes, accountSettings, null!, controllerInvites, new LoginAttemptLimiter()), Http());
     ClaimsPrincipal As(AppUser u) => new(new ClaimsIdentity(new[] { new Claim(ClaimTypes.NameIdentifier, u.Id.ToString()), new Claim(ClaimTypes.Email, u.Email),
         new Claim(ClaimTypes.Role, u.Role), new Claim("account_version", AccountSession.Version(u.PasswordHash)) }, "Cookies"));
-    AdminController Admin(AppUser u) => Wire(new AdminController(demo, null!, null!, null!, controllerInvites, null!), Http(As(u)));
+    AdminController Admin(AppUser u) => Wire(new AdminController(demo, null!, null!, controllerInvites, null!), Http(As(u)));
     bool SessionValid(ClaimsPrincipal principal)
     {
         var scheme = new Microsoft.AspNetCore.Authentication.AuthenticationScheme("Cookies", null, typeof(Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationHandler));
@@ -289,7 +289,7 @@ if (args.Contains("--catalog-settings-only"))
         var http = new Microsoft.AspNetCore.Http.DefaultHttpContext();
         http.User = new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim(ClaimTypes.NameIdentifier, owner.Id.ToString()), new Claim(ClaimTypes.Role, owner.Role) }, "Cookies"));
         http.Request.Form = new Microsoft.AspNetCore.Http.FormCollection(form ?? new());
-        var controller = new AdminController(demo, new BookingService(demo, demo, demo, demo, demo), null!, null!, new MemoryInvitationService(TimeProvider.System), null!)
+        var controller = new AdminController(demo, new BookingService(demo, demo, demo, demo, demo), null!, new MemoryInvitationService(TimeProvider.System), null!)
         { ControllerContext = new ControllerContext { HttpContext = http } };
         controller.TempData = new Microsoft.AspNetCore.Mvc.ViewFeatures.TempDataDictionary(http, new NoTempData());
         return controller;
@@ -335,7 +335,7 @@ if (args.Contains("--travel-admin-only"))
     {
         var http = new Microsoft.AspNetCore.Http.DefaultHttpContext();
         http.User = new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim(ClaimTypes.NameIdentifier, userId.ToString()), new Claim(ClaimTypes.Role, role) }, "Cookies"));
-        var controller = new AdminController(adminDemo, new BookingService(adminDemo, adminDemo, adminDemo, adminDemo, adminDemo), null!, null!, new MemoryInvitationService(TimeProvider.System), null!)
+        var controller = new AdminController(adminDemo, new BookingService(adminDemo, adminDemo, adminDemo, adminDemo, adminDemo), null!, new MemoryInvitationService(TimeProvider.System), null!)
         { ControllerContext = new ControllerContext { HttpContext = http } };
         controller.TempData = new Microsoft.AspNetCore.Mvc.ViewFeatures.TempDataDictionary(http, new NoTempData());
         return controller;
@@ -626,12 +626,12 @@ if (args.Contains("--booking-lookup-only"))
     }
     Check(demo.FindBooking(booking.Id) == booking && demo.FindBooking(Guid.NewGuid()) == null, "FindBooking returns the booking by id, or nothing");
     counter.Reset();
-    var adminView = Wire(new AdminController(counting, flow, null!, null!, new MemoryInvitationService(TimeProvider.System), null!), lookupAdmin).Details(booking.Id);
+    var adminView = Wire(new AdminController(counting, flow, null!, new MemoryInvitationService(TimeProvider.System), null!), lookupAdmin).Details(booking.Id);
     Check(adminView is ViewResult { Model: Booking shown } && shown.Id == booking.Id && counter.Calls("get_Bookings") == 0, "admin booking details load one booking, not the whole list");
     counter.Reset();
-    var mine = Wire(new BookingsController(counting, flow, null!, null!, null!, null!), lookupCustomer).Confirmation(booking.Id);
+    var mine = Wire(new BookingsController(counting, flow, null!, null!, null!), lookupCustomer).Confirmation(booking.Id);
     Check(mine is ViewResult && counter.Calls("get_Bookings") == 0, "customer booking confirmation loads one booking, not the whole list");
-    var notMine = Wire(new BookingsController(counting, flow, null!, null!, null!, null!), other).Confirmation(booking.Id);
+    var notMine = Wire(new BookingsController(counting, flow, null!, null!, null!), other).Confirmation(booking.Id);
     Check(notMine is NotFoundResult, "a customer still cannot open another customer's booking");
     foreach (var controllerFile in new[] { "AdminController.cs", "BookingsController.cs" })
         Check(!File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "Controllers", controllerFile)).Contains("store.Bookings.FirstOrDefault("),
@@ -689,8 +689,8 @@ if (args.Contains("--xendit-only"))
     // Customer-facing wording in Xendit mode: no manual-payment leftovers.
     string View(params string[] parts) => File.ReadAllText(Path.Combine(new[] { Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "Views" }.Concat(parts).ToArray()));
     var createView = View("Bookings", "Create.cshtml");
-    Check(createView.Contains("@if (ViewBag.XenditEnabled != true) { <partial name=\"_PaymentQr\"") && createView.Contains("Continue to secure payment"),
-        "the Xendit booking form hides the manual QR box and says it continues to secure payment");
+    Check(!createView.Contains("_PaymentQr") && createView.Contains("Continue to secure payment"),
+        "the booking form has no manual payment QR box and says it continues to secure payment");
     Check(!View("Shared", "_AvailabilityCalendar.cshtml").Contains("not yet verified"), "the calendar note no longer shows an internal 'not yet verified' remark");
     var receipt = View("Bookings", "Confirmation.cshtml");
     Check(receipt.Contains("You’re booked!") && receipt.Contains("Complete payment") && receipt.Contains("PaidOnXendit"),
@@ -1103,8 +1103,8 @@ if (args.Contains("--mixed-read-model-only"))
     Reject(() => flow.AdminAction(mixed, "verify", super.Id, "", 0, ""), "persistent mixed Admin action remains gated");
     Reject(() => flow.Cancel(mixed, owner.Id, true), "persistent mixed cancellation remains gated");
     Reject(() => flow.CorrectProof(mixed, owner.Id, "SYNTHETIC", null), "persistent mixed correction remains gated");
-    var adminController = new AdminController(persistent, flow, null!, null!, null!, null!);
-    var customerController = new BookingsController(persistent, flow, null!, null!, null!, null!);
+    var adminController = new AdminController(persistent, flow, null!, null!, null!);
+    var customerController = new BookingsController(persistent, flow, null!, null!, null!);
     void Actor(Microsoft.AspNetCore.Mvc.Controller controller, AppUser user) =>
         controller.ControllerContext = new Microsoft.AspNetCore.Mvc.ControllerContext {
             HttpContext = new Microsoft.AspNetCore.Http.DefaultHttpContext {
@@ -1146,7 +1146,7 @@ if (args.Contains("--mixed-read-model-only"))
     var demoMixed = new Booking { Id=Guid.NewGuid(), CustomerId=customer.Id, MixedPeople=result };
     store.Bookings.Add(demoMixed);
     store.Payments.Add(new Payment { BookingId=demoMixed.Id, ReviewStatus="Correction Requested" });
-    var demoAdminController = new AdminController(store, workflow, null!, null!, null!, null!);
+    var demoAdminController = new AdminController(store, workflow, null!, null!, null!);
     Actor(demoAdminController, admin);
     demoAdminController.Index(null);
     Check(!((HashSet<Guid>)demoAdminController.ViewBag.CorrectionBookingIds).Contains(demoMixed.Id),
@@ -1179,7 +1179,7 @@ if (args.Contains("--persistent-mixed-guard-only"))
     Unavailable(() => flow.CreateMixed(customer.Id, people, DateTime.Today.AddDays(10), "Synthetic address", "Quezon City", 500,
         "GCash", "SYNTHETIC", "proof", true, true, 1000, 500), "persistent mixed creation fails closed");
     Check(proxy.Arguments == null, "no persistent booking command ran");
-    var controller = new BookingsController(persistent, flow, null!, null!, null!, null!);
+    var controller = new BookingsController(persistent, flow, null!, null!, null!);
     Check(controller.MixedSelection() is Microsoft.AspNetCore.Mvc.NotFoundResult, "persistent mixed selection route fails closed");
     Check(controller.MixedQuote(people) is Microsoft.AspNetCore.Mvc.NotFoundResult, "persistent mixed quote route fails closed");
     Check(controller.MixedAvailability(null!) is Microsoft.AspNetCore.Mvc.NotFoundResult, "persistent mixed availability route fails closed");
@@ -1906,7 +1906,7 @@ if (args.Contains("--travel-rule-only"))
         return controller;
     }
     object? Field(IActionResult result, string name) => result is JsonResult { Value: { } v } ? v.GetType().GetProperty(name)?.GetValue(v) : null;
-    var pages = WireAs(new BookingsController(tDemo, tFlow, null!, null!, null!, null!), tCustomer);
+    var pages = WireAs(new BookingsController(tDemo, tFlow, null!, null!, null!), tCustomer);
     var staleCheck = pages.ValidateSlot(SlotKey(9, 45), soft.Id, [], null, 1, "auto", fvLat, fvLng);
     Check(Field(staleCheck, "available") is false && Field(staleCheck, "message") as string == TravelPlanner.RefusalMessage, "ValidateSlot refuses 9:45 for a Fairview pin");
     Check(Field(pages.ValidateSlot(SlotKey(10, 15), soft.Id, [], null, 1, "auto", fvLat, fvLng), "available") is true, "ValidateSlot accepts 10:15 for a Fairview pin");
@@ -1932,7 +1932,7 @@ if (args.Contains("--travel-rule-only"))
         "approval re-runs the rule and refuses 11:15 before a 13:00 Fairview booking");
     Check(Refusal(() => tFlow.AdminAction(makati, "reschedule", tStaff.Id, "", 0, "", travelOverride: true)) == BookingService.TravelOverrideRefused && makati.Start == tDay.AddHours(9),
         "an Admin cannot override the travel rule");
-    var adminPages = WireAs(new AdminController(tDemo, tFlow, null!, null!, new MemoryInvitationService(TimeProvider.System), null!), tOwner);
+    var adminPages = WireAs(new AdminController(tDemo, tFlow, null!, new MemoryInvitationService(TimeProvider.System), null!), tOwner);
     adminPages.Action(makati.Id, "reschedule", rescheduleQuoteId: toEleven.Id, travelOverride: true);
     Check(makati.Start == tDay.AddHours(11).AddMinutes(15) && makati.TravelOverrideBy == tOwner.Id && makati.TravelOverrideAt != null,
         $"the SuperAdmin override approves and records who and when ({adminPages.TempData["Error"]})");
@@ -2435,33 +2435,6 @@ foreach (var item in matrixStore.Services.Where(x => x.Active && !x.Archived))
                 $"Configured {item.Name}, {count} people: add-on quantity cannot exceed party size");
     }
 }
-var qrRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Temp", "opencode", "qr-tests-" + Guid.NewGuid());
-try
-{
-    var qr = new PaymentQrService(qrRoot);
-    var png = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6cWQAAAAASUVORK5CYII=");
-    Check(qr.GetOptions().Count == 3 && qr.GetOptions().All(o => o.ImageUrl == null), "Payment QR options start empty for each supported method");
-    qr.Save("GCash", png);
-    var gcash = qr.Read("GCash")!.Value;
-    Check(gcash.ContentType == "image/png" && gcash.Bytes.SequenceEqual(png), "Uploaded GCash QR image can be read with correct content type");
-    Check(qr.GetOptions().Single(o => o.Method == "GCash").ImageUrl!.StartsWith("/Payments/Qr?method=GCash&v=") && qr.Read("Maya") == null, "QR is mapped only to its selected payment method");
-    qr.Save("Maya", png);
-    qr.Save("Bank Transfer", png);
-    Check(qr.GetOptions().All(o => o.ImageUrl != null) && qr.GetOptions().Last().ImageUrl!.Contains("Bank%20Transfer"), "All three payment QR methods can be configured independently");
-    Check(new PaymentQrService(qrRoot).Read("GCash")!.Value.Bytes.SequenceEqual(png), "Payment QR image persists across service restarts");
-    Reject(() => qr.Save("Cash", png), "Unsupported QR payment method rejected");
-    Reject(() => qr.Save("../gcash", png), "QR upload path traversal rejected");
-    Reject(() => qr.Read("../gcash"), "QR read path traversal rejected");
-    Reject(() => qr.Save("GCash", []), "Empty QR upload rejected");
-    Reject(() => qr.Save("GCash", new byte[5_000_001]), "QR upload above 5 MB rejected");
-    Reject(() => qr.Save("GCash", System.Text.Encoding.UTF8.GetBytes("<svg>not a payment QR</svg>")), "Non-JPG/PNG QR files rejected");
-    Check(qr.Read("GCash")!.Value.Bytes.SequenceEqual(png), "Rejected QR upload keeps the previous image intact");
-    qr.Save("GCash", png);
-    Check(Directory.GetFiles(Path.Combine(qrRoot, "App_Data", "PaymentQr"), "gcash.*").Length == 1, "Replacing a QR leaves only the current image");
-    qr.Remove("GCash");
-    Check(qr.Read("GCash") == null && qr.Read("Maya") != null, "Removing one QR preserves other payment methods");
-}
-finally { if (Directory.Exists(qrRoot)) Directory.Delete(qrRoot, recursive: true); }
 var catalogRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Temp", "opencode", "catalog-image-tests-" + Guid.NewGuid());
 try
 {
@@ -2538,7 +2511,7 @@ Check(RegistrationRules.Validate("Maria", "Santos", "maria@example.com", 25, "",
 Check(RegistrationRules.Validate("Maria", "Santos", "maria@example.com", 25, "", "123 Sampaguita Street", "12345678") != null, "Password without letters rejected");
 Check(RegistrationRules.Validate("Maria", "Santos", "maria@example.com", 25, "", "123 Sampaguita Street", "Password") != null, "Password without numbers rejected");
 Check(RegistrationRules.Genders.Length == 3, "Gender options list is defined");
-Console.WriteLine($"All {checks} workflow, availability, payment QR, catalog image, preview-slot and registration checks passed.");
+Console.WriteLine($"All {checks} workflow, availability, catalog image, preview-slot and registration checks passed.");
 
 public class PersistentQuoteProxy : System.Reflection.DispatchProxy
 {

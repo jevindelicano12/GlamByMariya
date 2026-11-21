@@ -14,7 +14,7 @@ internal static class PublicOnlySite
     };
     private static readonly HashSet<string> Assets = new(StringComparer.OrdinalIgnoreCase)
     {
-        "/favicon.svg", "/images/botanical.svg", "/css/site.css", "/css/availability.css", "/css/payment-qr.css",
+        "/favicon.svg", "/images/botanical.svg", "/css/site.css", "/css/availability.css",
         "/css/booking-refinement.css", "/css/catalog-images.css", "/css/branding.css", "/css/landing.css",
         "/css/workspace-redesign.css", "/css/customer-beauty.css", "/css/typography-system.css", "/css/public-refinement.css",
         "/js/site.js"

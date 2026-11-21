@@ -260,7 +260,7 @@ try
     Check(!retained.Verified && retained.Reference == review.Reference && retained.ProofKey == review.ProofKey
         && retained.PersistentReviewRevision == review.PersistentReviewRevision && retained.PersistentReviewVersion == review.PersistentReviewVersion
         && store.Bookings.Single(x => x.Id == b.Id).Status == "Pending Payment", "Rejected reviews roll back without changing payment or booking");
-    var controller = new AdminController(store, workflow, null!, null!, null!, null!) { ControllerContext = new Microsoft.AspNetCore.Mvc.ControllerContext { HttpContext = http.HttpContext! } };
+    var controller = new AdminController(store, workflow, null!, null!, null!) { ControllerContext = new Microsoft.AspNetCore.Mvc.ControllerContext { HttpContext = http.HttpContext! } };
     Check(controller.Proof(oldReview.Id, b.Id, oldReview.PersistentReviewRevision, oldReview.PersistentReviewVersion) is Microsoft.AspNetCore.Mvc.ConflictObjectResult, "Stale proof link rejected");
     Check(controller.Proof(review.Id, b.Id, review.PersistentReviewRevision, review.PersistentReviewVersion) is Microsoft.AspNetCore.Mvc.FileContentResult exact && exact.FileContents.SequenceEqual(File.ReadAllBytes(revisedProof)), "Current proof link returns exact reviewed proof");
     store.ManageBooking(b.Id, "verify", admin.Id, "", 0, "", review.Id, review.PersistentReviewRevision, review.PersistentReviewVersion);

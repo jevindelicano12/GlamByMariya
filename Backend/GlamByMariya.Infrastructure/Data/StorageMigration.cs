@@ -5,7 +5,7 @@ using GlamByMariya.Infrastructure.Services;
 
 namespace GlamByMariya.Infrastructure.Data;
 
-// One-shot move of App_Data file bytes (Proofs, PaymentQr, CatalogImages) to
+// One-shot move of App_Data file bytes (Proofs, CatalogImages) to
 // the private Supabase Storage bucket, preserving object keys so existing
 // database references keep working. Read-only toward the database.
 public static class StorageMigration
@@ -49,7 +49,7 @@ public static class StorageMigration
 
         var root = Path.Combine(app.Environment.ContentRootPath, "App_Data");
         var uploaded = 0;
-        foreach (var folder in new[] { "Proofs", "PaymentQr", "CatalogImages" })
+        foreach (var folder in new[] { "Proofs", "CatalogImages" })
         {
             var dir = Path.Combine(root, folder);
             if (!Directory.Exists(dir)) continue;

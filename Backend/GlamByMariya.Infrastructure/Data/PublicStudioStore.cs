@@ -698,18 +698,4 @@ public sealed class PublicStudioStore(
         else pdb.Database.ExecuteSqlInterpolated($"DELETE FROM public.catalog_images WHERE addon_id={id} AND slot={slot}");
         files.Delete(key);
     });
-
-    public override void RemovePaymentQr(string method) => Transaction(ActorId, () =>
-    {
-        Admin(ActorId ?? Guid.Empty);
-        var key = PaymentQrKey(method);
-        pdb.Database.ExecuteSqlInterpolated($"UPDATE public.payment_methods SET qr_asset_id=NULL WHERE name={method} AND accepts_deposits");
-        files.Delete(key);
-    });
-
-    public override void SavePaymentQr(string method, byte[] bytes) => SaveImage(bytes, "PaymentQr", asset =>
-    {
-        if (pdb.Database.ExecuteSqlInterpolated($"UPDATE public.payment_methods SET qr_asset_id={asset} WHERE name={method} AND accepts_deposits") == 0)
-            throw new InvalidOperationException("Unsupported QR payment method.");
-    });
 }

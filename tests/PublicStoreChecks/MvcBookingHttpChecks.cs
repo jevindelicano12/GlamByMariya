@@ -62,7 +62,6 @@ internal static class MvcBookingHttpChecks
         builder.Services.AddScoped<BookingService>();
         builder.Services.AddScoped<AccountSettingsService>();
         builder.Services.AddScoped<IAppFileStore>(sp => new LocalAppFileStore(sp.GetRequiredService<IWebHostEnvironment>()));
-        builder.Services.AddScoped(sp => new PaymentQrService(root, sp.GetRequiredService<PublicStudioStore>()));
         builder.Services.AddScoped(sp => new CatalogImageService(root, sp.GetRequiredService<PublicStudioStore>()));
         builder.Services.AddControllersWithViews(o => o.Filters.Add(new AutoValidateAntiforgeryTokenAttribute()))
             .AddApplicationPart(typeof(BookingsController).Assembly);
@@ -310,8 +309,7 @@ internal static class MvcBookingHttpChecks
         {
             var sp=c.HttpContext.RequestServices;
             if (c.ActionDescriptor.ControllerTypeInfo.AsType()==typeof(AdminController))
-                return new AdminController(sp.GetRequiredService<IStudioStore>(),sp.GetRequiredService<BookingService>(),
-                    sp.GetRequiredService<PaymentQrService>(),sp.GetRequiredService<CatalogImageService>(),null!,null!);
+                return new AdminController(sp.GetRequiredService<IStudioStore>(),sp.GetRequiredService<BookingService>(),sp.GetRequiredService<CatalogImageService>(),null!,null!);
             if (c.ActionDescriptor.ControllerTypeInfo.AsType()==typeof(BookingsController))
                 return ActivatorUtilities.CreateInstance<BookingsController>(sp);
             throw new InvalidOperationException("Only booking test controllers are available.");

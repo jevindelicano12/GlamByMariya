@@ -88,7 +88,6 @@ using (var wide = new MagickImage(MagickColors.Blue, (uint)PaymentProofImageVali
 var workflow = new BookingService(store, store, store, store, store);
 var http = new HttpContextAccessor { HttpContext = new DefaultHttpContext() };
 var configuration = new ConfigurationBuilder().AddInMemoryCollection().Build();
-var qr = new PaymentQrService(root);
 var images = new CatalogImageService(root);
 
 ClaimsPrincipal Principal(AppUser user) => new(new ClaimsIdentity([
@@ -100,7 +99,7 @@ using var services = new ServiceCollection().AddSingleton<IWebHostEnvironment>(e
 void Context(Controller controller, AppUser user) => controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = Principal(user), RequestServices = services } };
 void Check(bool condition, string name) { if (!condition) throw new Exception("FAIL: " + name); Console.WriteLine("PASS: " + name); }
 
-var customerController = new BookingsController(store, workflow, env, qr, images, files);
+var customerController = new BookingsController(store, workflow, env, images, files);
 Context(customerController, customer);
 customerController.Request.Headers.Accept = "application/json";
 var beforeBookingState = System.Text.Json.JsonSerializer.Serialize(store.Bookings);
@@ -123,11 +122,11 @@ Check(own?.FileContents.SequenceEqual(png) == true, "Customer can retrieve proof
 Context(customerController, other);
 Check(customerController.Proof(payment.Id) is NotFoundResult, "Customer cannot retrieve another customer's proof");
 
-var anonymous = new BookingsController(store, workflow, env, qr, images, files);
+var anonymous = new BookingsController(store, workflow, env, images, files);
 Context(anonymous, customer);
 Check(anonymous.Proof(Guid.NewGuid()) is NotFoundResult, "Unknown proof is not disclosed");
 
-var adminController = new AdminController(store, workflow, qr, images, null!, null!);
+var adminController = new AdminController(store, workflow, images, null!, null!);
 Context(adminController, admin);
 var adminProof = adminController.Proof(payment.Id);
 var adminBytes = adminProof is PhysicalFileResult physical ? await File.ReadAllBytesAsync(physical.FileName) : adminProof is FileContentResult content ? content.FileContents : [];
@@ -138,7 +137,7 @@ reviewProxy.Booking = booking;
 reviewProxy.Admin = admin;
 reviewProxy.ProofBytes = png;
 reviewProxy.Payment = new Payment { Id=payment.Id, BookingId=booking.Id, ProofKey="Proofs/synthetic.png", PersistentReviewRevision=4, PersistentReviewVersion="42" };
-var persistentAdmin = new AdminController(persistent, new BookingService(persistent,persistent,persistent,persistent,persistent), qr, images, null!, null!);
+var persistentAdmin = new AdminController(persistent, new BookingService(persistent,persistent,persistent,persistent,persistent), images, null!, null!);
 Context(persistentAdmin, admin);
 Check(persistentAdmin.Proof(payment.Id, booking.Id, 4, "42") is FileContentResult exactReview && exactReview.FileContents.SequenceEqual(png), "Persistent proof endpoint serves the exact reviewed snapshot in the fake store");
 Check(persistentAdmin.Proof(payment.Id, booking.Id, 3, "42") is ConflictObjectResult, "Persistent proof endpoint rejects an old revision");
@@ -148,7 +147,7 @@ Context(persistentAdmin, other);
 Check(persistentAdmin.Proof(payment.Id, booking.Id, 4, "42") is ForbidResult, "Persistent proof endpoint rejects an unauthorized actor");
 
 var persistentWorkflow = new BookingService(persistent, persistent, persistent, persistent, persistent);
-var persistentCustomer = new BookingsController(persistent, persistentWorkflow, env, qr, images, files);
+var persistentCustomer = new BookingsController(persistent, persistentWorkflow, env, images, files);
 Context(persistentCustomer, customer);
 persistentCustomer.TempData = new TempDataDictionary(persistentCustomer.HttpContext, new EmptyTempDataProvider());
 persistentCustomer.Url = new UrlHelper(new ActionContext(persistentCustomer.HttpContext, new RouteData(), new ActionDescriptor()));

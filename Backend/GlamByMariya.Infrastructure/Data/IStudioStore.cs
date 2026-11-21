@@ -63,11 +63,8 @@ public interface IPersistentStudioStore : IStudioStore
     void RequestReschedule(Guid booking, Guid customer, DateTime start);
     void CorrectPayment(Guid booking, Guid customer, string reference, string? proof);
     string? CatalogImageKey(string kind, Guid id, string slot);
-    string? PaymentQrKey(string method);
     void SaveCatalogImage(string kind, Guid id, string slot, byte[] bytes);
     void RemoveCatalogImage(string kind, Guid id, string slot);
-    void SavePaymentQr(string method, byte[] bytes);
-    void RemovePaymentQr(string method);
     (byte[] Bytes, string ContentType)? ReadAsset(string? key);
 }
 

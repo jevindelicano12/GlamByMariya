@@ -8,7 +8,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 namespace GlamByMariya.Web.Controllers;
 [Authorize(Roles = "Customer")]
-public class BookingsController(IStudioStore store, BookingService workflow, IWebHostEnvironment environment, PaymentQrService paymentQr, CatalogImageService imageService, IAppFileStore files, XenditClient? xendit = null) : Controller
+public class BookingsController(IStudioStore store, BookingService workflow, IWebHostEnvironment environment, CatalogImageService imageService, IAppFileStore files, XenditClient? xendit = null) : Controller
 {
     private Guid UserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
     public override void OnActionExecuting(Microsoft.AspNetCore.Mvc.Filters.ActionExecutingContext context)
@@ -142,7 +142,6 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
     public IActionResult Create(Guid? serviceId)
     {
         ViewBag.XenditEnabled = UsesXendit;
-        ViewBag.PaymentQr = UsesXendit ? new List<PaymentQrOption>() : paymentQr.GetOptions();
         ViewBag.CatalogImages = (Func<string, Guid, string?>)((kind, id) => imageService.GetImageUrl(kind, id));
         ViewBag.CatalogPreviewImages = (Func<string, Guid, string?>)((kind, id) => imageService.GetImageUrl(kind, id, "preview"));
         lock (store.Gate)

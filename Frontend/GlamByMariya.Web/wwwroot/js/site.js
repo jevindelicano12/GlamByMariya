@@ -173,13 +173,6 @@ if (sidebarToggle) {
 const bookingForm = document.querySelector('#booking-form');
 if (bookingForm) {
   const paymentMethod = bookingForm.querySelector('[name="method"]');
-  const updatePaymentQr = () => {
-    bookingForm.querySelectorAll('[data-payment-qr]').forEach(panel => {
-      panel.hidden = panel.dataset.paymentQr !== paymentMethod.value;
-    });
-  };
-  paymentMethod.addEventListener('change', updatePaymentQr);
-  updatePaymentQr();
   const money = value => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
   const peopleInput = bookingForm.elements.people;
   const packageField = bookingForm.elements.package;

@@ -59,7 +59,7 @@ try {
     if (status === 404) assert.equal(r.body, '');
   }
   check(true, 'public, static, denied GET and POST responses retain security headers and issue no cookies');
-  for (const asset of ['/favicon.svg', '/images/botanical.svg', '/css/site.css', '/css/availability.css', '/css/payment-qr.css',
+  for (const asset of ['/favicon.svg', '/images/botanical.svg', '/css/site.css', '/css/availability.css',
     '/css/booking-refinement.css', '/css/catalog-images.css', '/css/branding.css', '/css/landing.css', '/css/workspace-redesign.css',
     '/css/customer-beauty.css', '/css/typography-system.css', '/css/public-refinement.css', '/js/site.js']) {
     const r = await request('GET', asset); assert.equal(r.status, 200, `public asset ${asset}`); assert.ok(r.body.length, `nonempty ${asset}`);

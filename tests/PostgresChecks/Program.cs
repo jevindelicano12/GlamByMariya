@@ -116,7 +116,7 @@ try
     Check(!retained.Verified && retained.Reference==review.Reference && retained.ProofKey==review.ProofKey
         && retained.PersistentReviewRevision==review.PersistentReviewRevision && retained.PersistentReviewVersion==review.PersistentReviewVersion
         && store.Bookings.Single(x=>x.Id==b.Id).Status=="Pending Payment","Rejected reviews roll back without changing payment or booking");
-    var controller=new AdminController(store,new BookingService(store,store,store,store,store),null!,null!,null!,null!) { ControllerContext=new Microsoft.AspNetCore.Mvc.ControllerContext { HttpContext=http.HttpContext! } };
+    var controller=new AdminController(store,new BookingService(store,store,store,store,store),null!,null!,null!) { ControllerContext=new Microsoft.AspNetCore.Mvc.ControllerContext { HttpContext=http.HttpContext! } };
     Check(controller.Proof(oldReview.Id,b.Id,oldReview.PersistentReviewRevision,oldReview.PersistentReviewVersion) is Microsoft.AspNetCore.Mvc.ConflictObjectResult,"Stale proof link is rejected");
     Check(controller.Proof(review.Id,b.Id,review.PersistentReviewRevision,review.PersistentReviewVersion) is Microsoft.AspNetCore.Mvc.FileContentResult exact && exact.FileContents.SequenceEqual(File.ReadAllBytes(revisedProof)),"Proof link returns the exact reviewed synthetic proof");
     store.ManageBooking(b.Id,"verify",admin.Id,"",0,"",review.Id,review.PersistentReviewRevision,review.PersistentReviewVersion);
@@ -150,10 +150,6 @@ try
     Check(card!=null && store.ReadAsset(card)?.Bytes.SequenceEqual(png)==true,"Catalog asset metadata and private local storage round-trip");
     store.RemoveCatalogImage("service",soft.Id,"preview");
     Check(store.CatalogImageKey("service",soft.Id,"preview")==null && store.CatalogImageKey("service",soft.Id,"card")==card,"Card/preview images remain independent");
-    store.SavePaymentQr("GCash",png);
-    Check(store.ReadAsset(store.PaymentQrKey("GCash"))?.Bytes.SequenceEqual(png)==true,"Payment QR metadata persists for selected method");
-    store.RemovePaymentQr("GCash");
-    Check(store.PaymentQrKey("GCash")==null,"Admin can remove persisted QR association");
     var settings=store.Settings; settings.BufferMinutes=60; settings.TravelFee=500; store.SaveSettings(settings,admin.Id);
     Check(store.Settings.BufferMinutes==60 && store.Bookings.Single().BufferMinutesSnapshot==45,"Settings edits do not change existing reservation buffer");
     Login(customer);

@@ -505,13 +505,12 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
         images=kind=="service"?images.Where(x=>x.ServiceId==id):images.Where(x=>x.AddonId==id);
         return (from i in images join a in db.Set<AssetRow>() on i.AssetId equals a.Id select a.ObjectKey).SingleOrDefault();
     }
-    public string? PaymentQrKey(string method) => (from m in db.Set<MethodRow>() join a in db.Set<AssetRow>() on m.QrAssetId equals a.Id where m.Name==method select a.ObjectKey).SingleOrDefault();
     public (byte[] Bytes,string ContentType)? ReadAsset(string? key) => files.Read(key);
     protected void SaveImage(byte[] bytes,string folder,Action<Guid> associate)
     {
         var mime=ImageType(bytes); var actor=Actor??throw new InvalidOperationException("Sign in as admin.");
         var id=Guid.NewGuid(); var key=$"{folder}/{id:N}{(mime=="image/png"?".png":".jpg")}";
-        try { Transaction(actor,()=>{ Admin(actor); AddAsset(id,key,folder=="CatalogImages"?"catalog":"payment_qr",bytes,actor); associate(id); }); }
+        try { Transaction(actor,()=>{ Admin(actor); AddAsset(id,key,"catalog",bytes,actor); associate(id); }); }
         catch { files.Delete(key); throw; }
     }
     public virtual void SaveCatalogImage(string kind,Guid id,string slot,byte[] bytes) => SaveImage(bytes,"CatalogImages",asset=>
@@ -525,18 +524,6 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
         var key=CatalogImageKey(kind,id,slot);
         if(kind=="service") db.Database.ExecuteSqlInterpolated($"DELETE FROM makeup.catalog_images WHERE service_id={id} AND slot={slot}");
         else db.Database.ExecuteSqlInterpolated($"DELETE FROM makeup.catalog_images WHERE addon_id={id} AND slot={slot}");
-        files.Delete(key);
-    });
-    public virtual void SavePaymentQr(string method,byte[] bytes) => SaveImage(bytes,"PaymentQr",asset=>
-    {
-        if(db.Database.ExecuteSqlInterpolated($"UPDATE makeup.payment_methods SET qr_asset_id={asset} WHERE name={method} AND accepts_deposits")==0)
-            throw new InvalidOperationException("Unsupported QR payment method.");
-    });
-    public virtual void RemovePaymentQr(string method) => Transaction(Actor,()=>
-    {
-        Admin(Actor??Guid.Empty);
-        var key=PaymentQrKey(method);
-        db.Database.ExecuteSqlInterpolated($"UPDATE makeup.payment_methods SET qr_asset_id=NULL WHERE name={method} AND accepts_deposits");
         files.Delete(key);
     });
 }
