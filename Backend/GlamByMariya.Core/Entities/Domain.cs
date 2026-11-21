@@ -35,7 +35,7 @@ public class Booking
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public string? StoredReference { get; set; }
-    public string Reference => StoredReference ?? "LM-" + Id.ToString("N")[..8].ToUpperInvariant();
+    public string Reference => StoredReference ?? "GBM-" + Id.ToString("N")[..8].ToUpperInvariant();
     // "Package" only when the group rate actually applied; a group below the minimum pays the regular rate.
     public string BookingType => MixedPeople.Count > 0 ? "Mixed-service" : Package != "group" ? "Individual"
         : GroupPrice.HasValue && People >= GroupMinimumPeople ? "Same-Service Package" : "Group booking (regular rate)";
