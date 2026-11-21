@@ -16,7 +16,7 @@ public class DemoStore : IStudioStore
     public List<CatalogItem> Services { get; } = [
         new() { Name = "Soft Glam", Description = "Fresh, luminous skin and softly defined eyes. Your everyday beauty, elevated.", Price = 600, GroupPrice = 525, GroupMinimumPeople = 4, Minutes = 60, Category = "The everyday edit" },
         new() { Name = "Glamour Makeup", Description = "Sculpted definition, statement eyes and a flawless finish that lasts all night.", Price = 750, Minutes = 90, Category = "The occasion edit" },
-        new() { Name = "Bridal Makeup", Description = "An exquisite, camera-ready look made for your most unforgettable day. Priced for one bride.", Price = 1500, Minutes = 120, Category = "The bridal edit" }
+        new() { MaxPerPackage = 1, Name = "Bridal Makeup", Description = "An exquisite, camera-ready look made for your most unforgettable day. Priced for one bride.", Price = 1500, Minutes = 120, Category = "The bridal edit" }
     ];
     public List<CatalogItem> AddOns { get; } = [
         new() { Name = "Lash application", Description = "A little extra definition", Price = 250, Minutes = 15 },

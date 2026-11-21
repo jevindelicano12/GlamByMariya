@@ -13,6 +13,8 @@ public class CatalogItem
     public bool Archived { get; set; }
     public string Category { get; set; } = "Signature";
     public string VisualWord { get; set; } = "";
+    // Most times this service may appear in one package booking; null = no limit.
+    public int? MaxPerPackage { get; set; }
 }
 public class AppUser
 {
@@ -80,6 +82,9 @@ public class Booking
     public decimal RemainingBalance => Math.Max(0, Total - VerifiedPaid);
     public string PaymentStatus { get; set; } = "Pending Verification";
     public string Status { get; set; } = "Pending Payment";
+    // Flexible booking: an early request waits for the artist ("Awaiting Approval"); after-hours runs past closing.
+    public bool IsEarlyRequest { get; set; }
+    public bool AfterHours { get; set; }
     // When an unpaid Pending Payment booking stops holding its slot. Null means no deadline (older records).
     public DateTime? PaymentDueAt { get; set; }
     public string Note { get; set; } = "";
@@ -148,6 +153,9 @@ public class BusinessSettings
     // Travel rule (Phase 5): average speed between bookings and the minimum travel between two places.
     public decimal TravelSpeedKmh { get; set; } = 15;
     public int TravelMinimumMinutes { get; set; } = 30;
+    // Flexible booking (Phase 6): earliest early-request start and latest booking end; null = opening/closing hour.
+    public int? EarlyRequestStartHour { get; set; }
+    public int? AfterHoursEndHour { get; set; }
     public string ServiceAreas { get; set; } = "Quezon City,Makati,Manila,Pasig,Taguig,Mandaluyong";
     public string PaymentInstructions { get; set; } = "Demo only — do not send real money. Contact the artist for verified GCash, Maya or bank account details.";
 }

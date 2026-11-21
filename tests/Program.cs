@@ -1874,6 +1874,35 @@ if (args.Contains("--fees-only"))
         "a fee change from rescheduling is shown in a quote that needs customer consent; nothing changes yet");
     Console.WriteLine($"All {checks} Demo fee checks passed."); return;
 }
+if (args.Contains("--flexible-rules-only"))
+{
+    // Flexible booking (Phase 6, Task 1): early / regular / after-hours windows and package limits.
+    var s = new BusinessSettings { OpenHour = 8, CloseHour = 18, BufferMinutes = 45 };
+    DateTime At(int h, int m = 0) => new DateTime(2026, 12, 2, h, m, 0);
+    Check(BookingWindow.EarliestHour(s) == 8 && BookingWindow.LatestHour(s) == 18, "with no early or latest hour set, the window is the opening hours");
+    s.EarlyRequestStartHour = 4;
+    Check(BookingWindow.KindOf(At(7), s) == SlotKind.Early, "a start before opening is an early booking");
+    Check(BookingWindow.KindOf(At(8), s) == SlotKind.Regular, "a start at opening is regular");
+    Check(BookingWindow.IsAfterHours(At(17), 120, s), "a session ending after closing is after-hours");
+    Check(!BookingWindow.IsAfterHours(At(16), 120, s), "a session ending exactly at closing is not after-hours");
+    s.AfterHoursEndHour = 22;
+    Check(BookingWindow.Fits(At(4), 540, 45, s), "the owner's 4 AM to 1 PM example fits when early booking starts at 4");
+    Check(!BookingWindow.Fits(At(3, 45), 60, 45, s), "a start before the earliest early hour does not fit");
+    Check(!BookingWindow.Fits(At(21), 60, 45, s), "a session plus buffer ending after the latest hour does not fit");
+    Check(BookingWindow.ValidateSettings(8, 18, 9, null) == "Early booking cannot start after opening.", "early start after opening is refused");
+    Check(BookingWindow.ValidateSettings(8, 18, null, 17) == "Latest end cannot be before closing.", "latest end before closing is refused");
+    Check(BookingWindow.ValidateSettings(8, 18, 4, 22) == null, "early 4 and latest 22 are valid");
+    Check(string.Format(BookingWindow.AfterHoursNote, "6:00 PM") == "This booking runs past closing (6:00 PM). An extra after-hours fee applies, to be agreed with the artist.", "after-hours note wording");
+    Check(BookingWindow.EarlyGroupLabel == "Early booking (needs artist approval)", "early group label wording");
+    var bridal = new CatalogItem { Name = "Bridal Makeup", MaxPerPackage = 1 };
+    var soft = new CatalogItem { Name = "Soft Glam" };
+    var glam = new CatalogItem { Name = "Glamour Makeup" };
+    Check(PackageRules.Check([bridal, bridal, soft]) == "Only 1 Bridal Makeup is allowed per package booking.", "two Bridal in one package are refused");
+    Check(PackageRules.Check([bridal, soft, soft, glam, glam, glam]) == null, "1 Bridal, 2 Soft Glam and 3 Glamour are allowed");
+    Check(PackageRules.Check(Enumerable.Repeat(soft, 21).ToList()) == "Choose between 2 and 20 people.", "more than 20 people are refused");
+    Check(PackageRules.Check([soft]) == "Choose between 2 and 20 people.", "a package needs at least 2 people");
+    Console.WriteLine($"All {checks} flexible rule checks passed."); return;
+}
 if (args.Contains("--travel-rule-only"))
 {
     // The travel rule: pure functions, all times Manila-local.
