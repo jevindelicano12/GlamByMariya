@@ -615,6 +615,8 @@ if (args.Contains("--website-content-live-only"))
     var previewView = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "Views", "WebsiteContent", "Preview.cshtml"));
     Check(previewController.Contains("ViewData[\"PreviewImages\"] = await images.DraftImages(User, draft.Id, cancellationToken)") && previewView.Contains("ViewData[\"PreviewImages\"]")
           && previewView.Contains("\"gallery\" => \"Gallery photo\""), "the live draft preview shows hero, portrait and gallery photos");
+    var landingCss = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "wwwroot", "css", "landing.css"));
+    Check(landingCss.Contains(".public-contact p { white-space:pre-line; }"), "contact details keep the owner's line breaks (mobile and email on their own lines)");
     Console.WriteLine($"All {checks} live website content checks passed."); return;
 }
 if (args.Contains("--package-label-only"))

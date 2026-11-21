@@ -103,6 +103,7 @@
 .public-hero-copy { padding:clamp(30px,5vw,70px); align-self:center; }
 .public-hero h1 { color:var(--cocoa); font-size:clamp(40px,4.5vw,64px); font-weight:600; }
 .public-hero p, .public-about p, .public-contact p { color:var(--cocoa); max-width:440px; margin:16px 0; }
+.public-contact p { white-space:pre-line; } /* owner-entered contact details keep their line breaks */
 .public-buttons { display:flex; flex-wrap:wrap; gap:10px; margin-top:24px; }
 .public-button { display:inline-flex; min-height:44px; align-items:center; justify-content:center; padding:10px 20px; background:var(--dusty-pink); color:var(--cream); border:1px solid var(--dusty-pink); border-radius:5px; font-weight:700; font-size:12px; }
 .public-button:hover { background:var(--cocoa); color:var(--cream); }
