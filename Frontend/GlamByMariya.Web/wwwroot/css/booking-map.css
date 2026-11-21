@@ -1,0 +1,11 @@
+/* Service-location pin on booking step 2. */
+.service-map-panel { display:grid; gap:10px; margin:6px 0 18px; padding:16px; border:1px solid rgba(73,54,59,.14); border-radius:14px; background:#fff; }
+.service-map-head { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px; }
+.service-map { height:340px; border-radius:10px; overflow:hidden; border:1px solid rgba(73,54,59,.12); z-index:0; }
+.service-map-status { margin:0; font-size:.9rem; color:#5b4a4f; }
+.service-map-status[data-state="error"] { color:#a3343f; }
+.service-map-status[data-state="ok"] { color:#3d6b4f; }
+.service-map-next { margin:4px 0 8px; }
+#booking-form[data-pinned="false"] .availability-picker .availability-calendar { opacity:.45; pointer-events:none; }
+.directions-links a { margin-left:10px; }
+@media (max-width:640px) { .service-map { height:280px; } .service-map-head .button { width:100%; } }

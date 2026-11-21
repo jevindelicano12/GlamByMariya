@@ -57,6 +57,9 @@ public class Booking
     public DateTime End => Start.AddMinutes(MixedPeople.Count > 0 ? MixedPeople.Sum(x => x.DurationMinutes) : Service.Minutes * People + AddOns.Sum(x => x.Minutes * x.Quantity));
     public string Address { get; set; } = "";
     public string Area { get; set; } = "";
+    // Pinned service location (null for bookings made before pins existed).
+    public double? ServiceLat { get; set; }
+    public double? ServiceLng { get; set; }
     public decimal TravelFee { get; set; }
     public decimal EarlyFeeSnapshot { get; set; }
     public decimal LateFeeSnapshot { get; set; }
@@ -122,6 +125,8 @@ public record AuditLog(Guid ActorId, string Event, DateTime Created);
 public record DemoAdminActivity(Guid ActorId, string ActorName, string Role, string Action, string TargetType, Guid TargetId, DateTimeOffset OccurredAt);
 public record AvailabilityBlock(Guid Id, DateTime From, DateTime To, string Reason);
 public record ScheduleWindow(DateTime From, DateTime To);
+// A busy range plus the travel minutes needed between it and a candidate location.
+public record TravelWindow(DateTime From, DateTime To, int TravelMinutes);
 public record PaymentQrOption(string Method, string? ImageUrl);
 public class BusinessSettings
 {
@@ -141,5 +146,13 @@ public class BusinessSettings
     public decimal TravelFee { get; set; } = 250;
     public decimal DownPaymentPercent { get; set; } = 50;
     public string ServiceAreas { get; set; } = "Quezon City,Makati,Manila,Pasig,Taguig,Mandaluyong";
+    // Travel-time-aware scheduling (see TravelEstimate and migration 0013).
+    public decimal TravelSpeedKmh { get; set; } = 20;
+    public decimal TravelRoadFactor { get; set; } = 1.40m;
+    public int TravelMarginMinutes { get; set; } = 15;
+    public int TravelUnknownMinutes { get; set; } = 60;
+    public decimal ServiceCenterLat { get; set; } = 14.5995m;
+    public decimal ServiceCenterLng { get; set; } = 120.9842m;
+    public decimal ServiceRadiusKm { get; set; } = 40;
     public string PaymentInstructions { get; set; } = "Demo only — do not send real money. Contact the artist for verified GCash, Maya or bank account details.";
 }

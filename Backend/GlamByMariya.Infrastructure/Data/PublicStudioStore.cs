@@ -68,6 +68,56 @@ public sealed class PublicStudioStore(
             throw new InvalidOperationException("Availability cannot be verified. Please try again later.", e);
         }
     }
+    private static NpgsqlParameter PinParameter(string name, double? value) => new(name, NpgsqlTypes.NpgsqlDbType.Numeric) { Value = (object?)PinValue(value) ?? DBNull.Value };
+    private static decimal? PinValue(double? value) => value.HasValue ? decimal.Round((decimal)value.Value, 6, MidpointRounding.AwayFromZero) : null;
+    // Busy ranges with the database-computed travel minutes from (lat,lng) to each booking.
+    // Other customers' coordinates stay in the database.
+    internal List<TravelWindow> OccupiedTravel(DateTime from, DateTime until, Guid? exclude, double? lat, double? lng)
+    {
+        try
+        {
+            var (artist, _) = ResolveArtist();
+            var excluded = new NpgsqlParameter("excluded", NpgsqlTypes.NpgsqlDbType.Uuid) { Value = (object?)exclude ?? DBNull.Value };
+            var latParam = new NpgsqlParameter("lat", NpgsqlTypes.NpgsqlDbType.Numeric) { Value = (object?)PinValue(lat) ?? DBNull.Value };
+            var lngParam = new NpgsqlParameter("lng", NpgsqlTypes.NpgsqlDbType.Numeric) { Value = (object?)PinValue(lng) ?? DBNull.Value };
+            var rows = pdb.Database.SqlQueryRaw<OccupiedTravelRow>(
+                """SELECT occupied_from AS "From", occupied_until AS "Until", travel_minutes AS "Travel" FROM public.mvc_occupied_travel({0},{1},{2},@excluded,@lat,@lng)""",
+                artist, Utc(from), Utc(until), excluded, latParam, lngParam).ToList();
+            return rows.Select(r => new TravelWindow(Local(r.From), Local(r.Until), r.Travel)).ToList();
+        }
+        catch (Exception e) when (e is PostgresException or NpgsqlException)
+        {
+            throw new InvalidOperationException("Availability cannot be verified. Please try again later.", e);
+        }
+    }
+    private sealed class OccupiedTravelRow { public DateTime From { get; set; } public DateTime Until { get; set; } public int Travel { get; set; } }
+    private sealed class TravelSettingsRow
+    {
+        public decimal Speed { get; set; } public decimal Factor { get; set; } public int Margin { get; set; } public int Unknown { get; set; }
+        public decimal CenterLat { get; set; } public decimal CenterLng { get; set; } public decimal Radius { get; set; }
+    }
+    protected override BusinessSettings LoadSettings()
+    {
+        var settings = base.LoadSettings();
+        var t = pdb.Database.SqlQueryRaw<TravelSettingsRow>("""
+            SELECT travel_speed_kmh AS "Speed", travel_road_factor AS "Factor", travel_margin_minutes AS "Margin", travel_unknown_minutes AS "Unknown",
+                   service_center_lat AS "CenterLat", service_center_lng AS "CenterLng", service_radius_km AS "Radius"
+              FROM public.business_settings WHERE id=1
+            """).Single();
+        settings.TravelSpeedKmh = t.Speed; settings.TravelRoadFactor = t.Factor; settings.TravelMarginMinutes = t.Margin; settings.TravelUnknownMinutes = t.Unknown;
+        settings.ServiceCenterLat = t.CenterLat; settings.ServiceCenterLng = t.CenterLng; settings.ServiceRadiusKm = t.Radius;
+        return settings;
+    }
+    private sealed class PinRow { public Guid Id { get; set; } public decimal? Lat { get; set; } public decimal? Lng { get; set; } }
+    protected override void EnrichBookings(List<Booking> bookings)
+    {
+        if (bookings.Count == 0) return;
+        var ids = bookings.Select(b => b.Id).ToArray();
+        var pins = pdb.Database.SqlQueryRaw<PinRow>("""SELECT app_id AS "Id", service_lat AS "Lat", service_lng AS "Lng" FROM public.reservations WHERE app_id = ANY({0})""", ids)
+            .ToDictionary(x => x.Id);
+        foreach (var b in bookings)
+            if (pins.TryGetValue(b.Id, out var pin) && pin.Lat.HasValue && pin.Lng.HasValue) { b.ServiceLat = (double)pin.Lat.Value; b.ServiceLng = (double)pin.Lng.Value; }
+    }
     private sealed class OccupiedInterval
     {
         public DateTime From { get; set; }
@@ -264,6 +314,7 @@ public sealed class PublicStudioStore(
         var names = value.ServiceAreas.Split(',').Select(x => x.Trim()).Where(x => x.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         if (names.Length == 0 || names.Any(x => x.Length > 100)) throw new InvalidOperationException("Provide service area names of at most 100 characters.");
         pdb.Database.ExecuteSqlInterpolated($"UPDATE public.business_settings SET time_zone={value.TimeZone}, open_hour={value.OpenHour}, close_hour={value.CloseHour}, buffer_minutes={value.BufferMinutes}, down_payment_percent={value.DownPaymentPercent}, travel_fee_informational={value.TravelFee}, payment_instructions={value.PaymentInstructions} WHERE id=1");
+        pdb.Database.ExecuteSqlInterpolated($"UPDATE public.business_settings SET travel_speed_kmh={value.TravelSpeedKmh}, travel_road_factor={value.TravelRoadFactor}, travel_margin_minutes={value.TravelMarginMinutes}, travel_unknown_minutes={value.TravelUnknownMinutes}, service_center_lat={value.ServiceCenterLat}, service_center_lng={value.ServiceCenterLng}, service_radius_km={value.ServiceRadiusKm} WHERE id=1");
         pdb.Database.ExecuteSqlRaw("UPDATE public.service_areas SET is_active=false");
         foreach (var name in names)
             pdb.Database.ExecuteSqlInterpolated($"INSERT INTO public.service_areas(name) VALUES({name}) ON CONFLICT DO NOTHING");
@@ -316,7 +367,7 @@ public sealed class PublicStudioStore(
         });
     }
 
-    public override Booking SubmitBooking(Guid customer, Guid service, Guid[] extras, DateTime start, string address, string area, decimal deposit, string method, string reference, string? proof, bool agreed, bool travelAcknowledged, int people, string package, decimal? expectedTotal = null, decimal? expectedMinimum = null)
+    public override Booking SubmitBooking(Guid customer, Guid service, Guid[] extras, DateTime start, string address, string area, decimal deposit, string method, string reference, string? proof, bool agreed, bool travelAcknowledged, int people, string package, decimal? expectedTotal = null, decimal? expectedMinimum = null, double? serviceLat = null, double? serviceLng = null)
     {
         if (!agreed || !travelAcknowledged) throw new InvalidOperationException("Read and accept the Transportation Fee Policy before submitting payment.");
         if (package == "auto" && people != 1) throw new InvalidOperationException("Individual bookings must have exactly one person.");
@@ -347,7 +398,7 @@ public sealed class PublicStudioStore(
                     var extrasTotal = selectedExtras.Sum(x => x.Price);
                     var extrasMinutes = selectedExtras.Sum(x => x.Minutes);
                     var bookingRef = NewReference(appId);
-                     pdb.Database.ExecuteSqlInterpolated($"INSERT INTO public.reservations(app_id, app_managed, snapshot_source, reference, customer_id, artist_id, service_id, start_at, location, area_id, booking_type, people, addons_total_snapshot, addons_minutes_snapshot, down_payment_percent_snapshot, required_down_payment_snapshot, policy_accepted_at, policy_version, travel_reminder_acknowledged_at, travel_reminder_version, status) VALUES({appId}, true, 'booking_creation', {bookingRef}, {customerId}, {artistId}, {serviceId}, {utc}, {address.Trim()}, {coverage.Id}, {type}, {people}, {extrasTotal}, {extrasMinutes}, {Settings.DownPaymentPercent}, {quote.RequiredDownPayment}, now(), {Settings.PolicyVersion}, now(), {Settings.TravelReminderVersion}, 'Pending Payment')");
+                     pdb.Database.ExecuteSqlInterpolated($"INSERT INTO public.reservations(app_id, app_managed, snapshot_source, reference, customer_id, artist_id, service_id, start_at, location, area_id, booking_type, people, addons_total_snapshot, addons_minutes_snapshot, down_payment_percent_snapshot, required_down_payment_snapshot, policy_accepted_at, policy_version, travel_reminder_acknowledged_at, travel_reminder_version, service_lat, service_lng, status) VALUES({appId}, true, 'booking_creation', {bookingRef}, {customerId}, {artistId}, {serviceId}, {utc}, {address.Trim()}, {coverage.Id}, {type}, {people}, {extrasTotal}, {extrasMinutes}, {Settings.DownPaymentPercent}, {quote.RequiredDownPayment}, now(), {Settings.PolicyVersion}, now(), {Settings.TravelReminderVersion}, {PinParameter("service_lat", serviceLat)}, {PinParameter("service_lng", serviceLng)}, 'Pending Payment')");
                     var reservationId = pdb.Database.SqlQueryRaw<long>("SELECT id AS \"Value\" FROM public.reservations WHERE app_id = {0}", appId).Single();
                     foreach (var group in selectedExtras.GroupBy(x => x.Id))
                         if (PreparedPersistentBooking.Enabled) pdb.Database.ExecuteSqlInterpolated($"INSERT INTO public.reservation_addons(reservation_id, addon_id, quantity) VALUES({reservationId}, {group.Key}, {group.Count()})");

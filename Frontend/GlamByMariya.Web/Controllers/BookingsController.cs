@@ -86,7 +86,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
         catch (InvalidOperationException e) { return BadRequest(new { error = e.Message }); }
     }
     [HttpGet, ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
-    public IActionResult Availability(string month, Guid serviceId, Guid[] addOnIds, Guid? bookingId, int people = 1, string package = "auto")
+    public IActionResult Availability(string month, Guid serviceId, Guid[] addOnIds, Guid? bookingId, int people = 1, string package = "auto", double? lat = null, double? lng = null)
     {
         if (!DateTime.TryParseExact(month, "yyyy-MM", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var date)) return BadRequest(new { error = "Choose a valid month." });
         if (!ModelState.IsValid) return BadRequest(new { error = "Invalid availability request." });
@@ -94,37 +94,45 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
         {
             try
             {
-                var selection = AvailabilitySelection(serviceId, addOnIds, bookingId, people, package);
+                var selection = AvailabilitySelection(serviceId, addOnIds, bookingId, people, package, lat, lng);
                 if (selection == null) return NotFound(new { error = "This appointment cannot be rescheduled." });
-                return Json(workflow.GetAvailability(date, selection.Value.Duration, selection.Value.Exclude, HttpContext.RequestAborted));
+                if (selection.Value.PinError != null) return BadRequest(new { error = selection.Value.PinError, pinRequired = true });
+                return Json(workflow.GetAvailability(date, selection.Value.Duration, selection.Value.Exclude, HttpContext.RequestAborted, selection.Value.Lat, selection.Value.Lng));
             }
             catch (InvalidOperationException e) { return BadRequest(new { error = e.Message }); }
             catch (OperationCanceledException) when (HttpContext.RequestAborted.IsCancellationRequested) { return new EmptyResult(); }
         }
     }
     [HttpGet, ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
-    public IActionResult ValidateSlot(string start, Guid serviceId, Guid[] addOnIds, Guid? bookingId, int people = 1, string package = "auto")
+    public IActionResult ValidateSlot(string start, Guid serviceId, Guid[] addOnIds, Guid? bookingId, int people = 1, string package = "auto", double? lat = null, double? lng = null)
     {
         if (!DateTime.TryParseExact(start, "yyyy-MM-ddTHH:mm", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var date) || !ModelState.IsValid) return BadRequest(new { error = "Choose a valid date and time." });
         lock (store.Gate)
         {
             try
             {
-                var selection = AvailabilitySelection(serviceId, addOnIds, bookingId, people, package);
+                var selection = AvailabilitySelection(serviceId, addOnIds, bookingId, people, package, lat, lng);
                 if (selection == null) return NotFound(new { error = "This appointment cannot be rescheduled." });
-                workflow.CheckSlot(date, selection.Value.Duration, selection.Value.Exclude);
+                if (selection.Value.PinError != null) return Json(new { available = false, message = selection.Value.PinError });
+                workflow.CheckSlot(date, selection.Value.Duration, selection.Value.Exclude, selection.Value.Lat, selection.Value.Lng);
                  return Json(new { available = true, message = UsesXendit
-                     ? "This time is available. It covers makeup and preparation; travel time is not included. Your booking is confirmed once the down payment goes through."
-                     : "Available for request at this moment; service and preparation time only. Travel is not estimated. Confirmation requires payment review and approval." });
+                     ? "This time is available. It includes makeup, preparation and estimated travel from the artist's other appointments. Your booking is confirmed once the down payment goes through."
+                     : "Available for request at this moment, including estimated travel from the artist's other appointments. Confirmation requires payment review and approval." });
             }
             catch (InvalidOperationException e) { return Json(new { available = false, message = e.Message }); }
         }
     }
-    private (int Duration, Guid? Exclude)? AvailabilitySelection(Guid serviceId, Guid[] addOnIds, Guid? bookingId, int people, string package)
+    // New bookings use the customer's pin (required); reschedules use the booking's own pin.
+    private (int Duration, Guid? Exclude, double? Lat, double? Lng, string? PinError)? AvailabilitySelection(Guid serviceId, Guid[] addOnIds, Guid? bookingId, int people, string package, double? lat, double? lng)
     {
-        if (!bookingId.HasValue) return (workflow.SelectedDuration(serviceId, addOnIds, people, package), null);
+        if (!bookingId.HasValue)
+        {
+            var pinError = TravelEstimate.ValidatePin(store.Settings, lat, lng);
+            return (workflow.SelectedDuration(serviceId, addOnIds, people, package), null,
+                pinError == null ? TravelEstimate.Round(lat!.Value) : null, pinError == null ? TravelEstimate.Round(lng!.Value) : null, pinError);
+        }
         var b = store.FindBooking(bookingId.Value) is { } upcoming && upcoming.CustomerId == UserId && upcoming.Status == "Confirmed" && upcoming.Start > store.Now ? upcoming : null;
-        return b == null ? null : ((int)(b.End - b.Start).TotalMinutes, b.Id);
+        return b == null ? null : ((int)(b.End - b.Start).TotalMinutes, b.Id, b.ServiceLat, b.ServiceLng, null);
     }
     public IActionResult Index()
     {
@@ -155,20 +163,20 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
         }
     }
     [HttpPost, RequestSizeLimit(6_000_000)]
-    public async Task<IActionResult> Create(Guid serviceId, Guid[] addOnIds, DateTime start, string address, string area, decimal deposit, string method, string? reference, IFormFile? proof, bool agreed, int people = 1, string package = "auto", bool travelAcknowledged = false, decimal? expectedTotal = null, decimal? expectedMinimum = null)
+    public async Task<IActionResult> Create(Guid serviceId, Guid[] addOnIds, DateTime start, string address, string area, decimal deposit, string method, string? reference, IFormFile? proof, bool agreed, int people = 1, string package = "auto", bool travelAcknowledged = false, decimal? expectedTotal = null, decimal? expectedMinimum = null, double? serviceLat = null, double? serviceLng = null)
     {
         string? path = null;
         try
         {
             if (!ModelState.IsValid) throw new InvalidOperationException("Check the number of people, date and payment amount.");
             if (!expectedTotal.HasValue || !expectedMinimum.HasValue) throw new InvalidOperationException("Review the current price before submitting.");
-            if (UsesXendit) return await CreateWithXendit(serviceId, addOnIds, start, address, area, deposit, agreed, people, package, travelAcknowledged, expectedTotal, expectedMinimum);
+            if (UsesXendit) return await CreateWithXendit(serviceId, addOnIds, start, address, area, deposit, agreed, people, package, travelAcknowledged, expectedTotal, expectedMinimum, serviceLat, serviceLng);
             if (method == "Cash") throw new InvalidOperationException("Deposits must use GCash, Maya or Bank Transfer.");
             if (proof == null || proof.Length == 0) throw new InvalidOperationException("Upload a payment screenshot to submit your booking.");
             // Nullable only because the Xendit form has no reference field; the manual flow still requires one.
             if (string.IsNullOrWhiteSpace(reference)) throw new InvalidOperationException("Enter your payment reference number.");
             path = await SaveProof(proof);
-            workflow.Create(UserId, serviceId, addOnIds, start, address, area, deposit, method, reference, path, agreed, people, package, travelAcknowledged, expectedTotal, expectedMinimum);
+            workflow.Create(UserId, serviceId, addOnIds, start, address, area, deposit, method, reference, path, agreed, people, package, travelAcknowledged, expectedTotal, expectedMinimum, serviceLat, serviceLng);
             CompleteStaging(path);
             path = null;
             TempData["Success"] = "Your booking is submitted. The artist will verify your deposit and confirm your appointment.";
@@ -191,10 +199,10 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
     // and sends the customer to it. Only the Xendit webhook confirms the booking. If the invoice
     // cannot be created, the unpaid booking is cancelled (free) so the slot is released at once.
     private async Task<IActionResult> CreateWithXendit(Guid serviceId, Guid[] addOnIds, DateTime start, string address, string area, decimal deposit, bool agreed,
-        int people, string package, bool travelAcknowledged, decimal? expectedTotal, decimal? expectedMinimum)
+        int people, string package, bool travelAcknowledged, decimal? expectedTotal, decimal? expectedMinimum, double? serviceLat, double? serviceLng)
     {
         var reference = "XENDIT-" + Guid.NewGuid().ToString("N")[..16].ToUpperInvariant();
-        var booking = workflow.Create(UserId, serviceId, addOnIds, start, address, area, deposit, "Xendit", reference, null, agreed, people, package, travelAcknowledged, expectedTotal, expectedMinimum);
+        var booking = workflow.Create(UserId, serviceId, addOnIds, start, address, area, deposit, "Xendit", reference, null, agreed, people, package, travelAcknowledged, expectedTotal, expectedMinimum, serviceLat, serviceLng);
         var database = (IPersistentStudioStore)store;
         try
         {

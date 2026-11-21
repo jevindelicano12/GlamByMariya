@@ -19,6 +19,23 @@
 <label><input type="checkbox" name="lateFeeEnabled" value="true" checked="@Model.LateFeeEnabled" /> Enable late fee and bounded late bookings</label><button class="button">Save Demo fee policy</button></form>
 } else { <p>@(DataStore.IsPersistent ? "Early and late fee settings can't be changed on the live site yet." : "Only the SuperAdmin can manage these settings in Demo mode.")</p> }
 </section>
+@{ var ts = DataStore.Settings; var tenKm = GlamByMariya.Core.BusinessRules.TravelEstimate.Minutes(ts, (double)ts.ServiceCenterLat, (double)ts.ServiceCenterLng, (double)ts.ServiceCenterLat + 0.0899, (double)ts.ServiceCenterLng); }
+<section class="panel stack travel-settings"><h3>Travel time between appointments</h3>
+<p>Customers pin their location before choosing a time. The artist is at the first customer's place by the booked time; between two appointments the calendar also keeps the estimated travel time free, after the session and the @ts.BufferMinutes-minute preparation buffer.</p>
+<p class="help">Estimate = straight-line distance × road factor ÷ average speed, plus a safety margin, rounded up to 5 minutes. With the current settings a 10 km trip takes about <strong>@tenKm minutes</strong>. Example: a 7:00–9:00 booking followed by a customer 1 hour away leaves the next time at 9:00 + @ts.BufferMinutes min preparation + 1 hour travel.</p>
+@if (isSuperAdmin) {
+<form asp-action="TravelSettings" method="post" class="form-grid">
+    <label>Average speed (km/h)<input name="travelSpeedKmh" type="number" min="5" max="120" step="0.1" value="@ts.TravelSpeedKmh.ToString(System.Globalization.CultureInfo.InvariantCulture)" required /></label>
+    <label>Road factor (1 = straight line)<input name="travelRoadFactor" type="number" min="1" max="3" step="0.01" value="@ts.TravelRoadFactor.ToString(System.Globalization.CultureInfo.InvariantCulture)" required /></label>
+    <label>Safety margin (minutes)<input name="travelMarginMinutes" type="number" min="0" max="120" step="1" value="@ts.TravelMarginMinutes" required /></label>
+    <label>Travel for an old booking with no pin (minutes)<input name="travelUnknownMinutes" type="number" min="0" max="240" step="1" value="@ts.TravelUnknownMinutes" required /></label>
+    <label>Service area centre — latitude<input name="serviceCenterLat" type="number" min="-90" max="90" step="0.000001" value="@ts.ServiceCenterLat.ToString(System.Globalization.CultureInfo.InvariantCulture)" required /></label>
+    <label>Service area centre — longitude<input name="serviceCenterLng" type="number" min="-180" max="180" step="0.000001" value="@ts.ServiceCenterLng.ToString(System.Globalization.CultureInfo.InvariantCulture)" required /></label>
+    <label>Service radius (km)<input name="serviceRadiusKm" type="number" min="1" max="500" step="0.1" value="@ts.ServiceRadiusKm.ToString(System.Globalization.CultureInfo.InvariantCulture)" required /></label>
+    <div><button class="button" type="submit">Save travel settings</button></div>
+</form>
+} else { <p>Only the SuperAdmin can change travel settings. Current: @ts.TravelSpeedKmh km/h, road factor @ts.TravelRoadFactor, margin @ts.TravelMarginMinutes min, radius @ts.ServiceRadiusKm km.</p> }
+</section>
 @if (!online) {
 <div class="section-title"><div><div class="eyebrow">PAYMENT METHODS</div><h2>Your payment QR codes.</h2></div></div>
 <p class="help">Upload the QR for each payment method you accept. Customers see the matching image beside their booking summary. QR images stay saved on this server after a restart.</p>

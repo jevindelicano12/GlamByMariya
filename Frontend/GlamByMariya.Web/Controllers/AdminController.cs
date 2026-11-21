@@ -427,6 +427,40 @@ public class AdminController(IStudioStore store, BookingService workflow, Paymen
         var list = bookings.Select(b => b.Reference).ToList();
         return string.Join(", ", list.Take(5)) + (list.Count > 5 ? $" and {list.Count - 5} more" : "");
     }
+    // Travel-time estimate between appointments (owner only). See TravelEstimate.
+    [HttpPost, Authorize(Roles = "SuperAdmin")]
+    public IActionResult TravelSettings(decimal travelSpeedKmh, decimal travelRoadFactor, int travelMarginMinutes, int travelUnknownMinutes,
+        decimal serviceCenterLat, decimal serviceCenterLng, decimal serviceRadiusKm)
+    {
+        lock (store.Gate)
+        {
+            if (!ModelState.IsValid || travelSpeedKmh is < 5 or > 120 || decimal.Round(travelSpeedKmh, 1) != travelSpeedKmh
+                || travelRoadFactor is < 1 or > 3 || decimal.Round(travelRoadFactor, 2) != travelRoadFactor
+                || travelMarginMinutes is < 0 or > 120 || travelUnknownMinutes is < 0 or > 240
+                || serviceCenterLat is < -90 or > 90 || serviceCenterLng is < -180 or > 180
+                || serviceRadiusKm is < 1 or > 500 || decimal.Round(serviceRadiusKm, 1) != serviceRadiusKm)
+            {
+                TempData["Error"] = "Enter a speed of 5–120 km/h, a road factor of 1–3, a margin of 0–120 minutes, a fallback of 0–240 minutes, a valid centre point and a radius of 1–500 km.";
+                return RedirectToAction("Settings");
+            }
+            var s = store.Settings;
+            var previous = (s.TravelSpeedKmh, s.TravelRoadFactor, s.TravelMarginMinutes, s.TravelUnknownMinutes, s.ServiceCenterLat, s.ServiceCenterLng, s.ServiceRadiusKm);
+            s.TravelSpeedKmh = travelSpeedKmh; s.TravelRoadFactor = travelRoadFactor; s.TravelMarginMinutes = travelMarginMinutes; s.TravelUnknownMinutes = travelUnknownMinutes;
+            s.ServiceCenterLat = decimal.Round(serviceCenterLat, 6); s.ServiceCenterLng = decimal.Round(serviceCenterLng, 6); s.ServiceRadiusKm = serviceRadiusKm;
+            try
+            {
+                store.SaveSettings(s, UserId);
+                store.RecordAudit(UserId, $"Updated travel time settings: {travelSpeedKmh} km/h, road factor {travelRoadFactor}, margin {travelMarginMinutes} min, fallback {travelUnknownMinutes} min, radius {serviceRadiusKm} km.");
+                TempData["Success"] = "Travel time settings saved. They apply to new bookings and reschedules; existing appointments keep their times.";
+            }
+            catch (InvalidOperationException e)
+            {
+                (s.TravelSpeedKmh, s.TravelRoadFactor, s.TravelMarginMinutes, s.TravelUnknownMinutes, s.ServiceCenterLat, s.ServiceCenterLng, s.ServiceRadiusKm) = previous;
+                TempData["Error"] = e.Message;
+            }
+            return RedirectToAction("Settings");
+        }
+    }
     [HttpPost, Authorize(Roles = "SuperAdmin")]
     public IActionResult Block(DateTime from, DateTime to, string reason)
     {

@@ -121,11 +121,12 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
         foreach (var admin in store.Users.Where(u => u.Role is "Admin" or "SuperAdmin")) store.Notifications.Add(new(admin.Id, $"{b.Reference}: {message}", DateTime.Now));
         store.AuditLogs.Add(new(actor, $"{b.Reference}: {message}", DateTime.Now));
     }
-    public void CheckSlot(DateTime start, int duration, Guid? exclude = null)
+    public const string TravelConflict = "This time does not leave enough travel time between appointments. Please choose another time.";
+    public void CheckSlot(DateTime start, int duration, Guid? exclude = null, double? lat = null, double? lng = null)
     {
         lock (store.Gate)
         {
-            var issue = SlotIssue(start, duration, store.Now, exclude);
+            var issue = SlotIssue(start, duration, store.Now, exclude, lat: lat, lng: lng);
             if (issue != null) throw new InvalidOperationException(issue);
         }
     }
@@ -198,7 +199,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
     }
     private string? SlotIssue(DateTime start, int duration, DateTime now, Guid? exclude,
         BusinessSettings? cachedSettings = null, IReadOnlyList<Booking>? cachedBookings = null, IReadOnlyList<AvailabilityBlock>? cachedBlocks = null,
-        IReadOnlyList<ScheduleWindow>? cachedOccupied = null)
+        IReadOnlyList<ScheduleWindow>? cachedOccupied = null, double? lat = null, double? lng = null, IReadOnlyList<TravelWindow>? cachedTravel = null)
     {
         var settings = cachedSettings ?? store.Settings;
         if (duration <= 0 || duration > 1440) return "Choose a valid session duration.";
@@ -218,6 +219,24 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
         if (occupied != null ? occupied.Any(b => start < b.To && reservedEnd > b.From) :
             (cachedBookings ?? bookings.Bookings).Any(b => b.Id != exclude && HoldsReservation(b) && start < b.End.AddMinutes(b.BufferMinutesSnapshot ?? settings.BufferMinutes) && reservedEnd > b.Start))
             return "This slot overlaps a reserved appointment. Please choose another time.";
+        // Travel between this location and each neighbouring booking (the artist is at the
+        // customer's location by the start time, so travel sits between bookings).
+        if (store is PublicStudioStore travelStore)
+        {
+            var windows = cachedTravel ?? travelStore.OccupiedTravel(start.Date.AddDays(-1), start.Date.AddDays(2), exclude, lat, lng);
+            if (windows.Any(w => w.TravelMinutes > 0 && start < w.To.AddMinutes(w.TravelMinutes) && reservedEnd.AddMinutes(w.TravelMinutes) > w.From))
+                return TravelConflict;
+        }
+        else if (!store.IsPersistent)
+        {
+            foreach (var b in cachedBookings ?? bookings.Bookings)
+            {
+                if (b.Id == exclude || !HoldsReservation(b)) continue;
+                var travel = TravelEstimate.Minutes(settings, lat, lng, b.ServiceLat, b.ServiceLng);
+                if (travel > 0 && start < b.End.AddMinutes((b.BufferMinutesSnapshot ?? settings.BufferMinutes) + travel) && reservedEnd.AddMinutes(travel) > b.Start)
+                    return TravelConflict;
+            }
+        }
         return null;
     }
     public int SelectedDuration(Guid serviceId, Guid[] addOnIds, int people = 1, string package = "auto")
@@ -227,7 +246,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             return Quote(serviceId, addOnIds, people, package).DurationMinutes;
         }
     }
-    public AvailabilityCalendar GetAvailability(DateTime month, int duration, Guid? exclude = null, CancellationToken cancellationToken = default)
+    public AvailabilityCalendar GetAvailability(DateTime month, int duration, Guid? exclude = null, CancellationToken cancellationToken = default, double? lat = null, double? lng = null)
     {
         lock (store.Gate)
         {
@@ -243,6 +262,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             var booked = bookings.Bookings;
             var blocks = store.Blocks;
             var occupied = store is PublicStudioStore publicStore ? publicStore.OccupiedIntervals(first.AddDays(-1), first.AddMonths(1).AddDays(1), exclude) : null;
+            var travelWindows = store is PublicStudioStore travelStore ? travelStore.OccupiedTravel(first.AddDays(-1), first.AddMonths(1).AddDays(1), exclude, lat, lng) : null;
             var excluded = booked.FirstOrDefault(b => b.Id == exclude);
             var buffer = excluded?.BufferMinutesSnapshot ?? settings.BufferMinutes;
             var days = new List<AvailableDate>();
@@ -257,7 +277,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
                     for (var start = date.AddHours(!store.IsPersistent && settings.EarlyFeeEnabled ? settings.EarlyStartHour : settings.OpenHour); start <= last; start = start.AddMinutes(15))
                     {
                         cancellationToken.ThrowIfCancellationRequested();
-                        var issue = SlotIssue(start, duration, now, exclude, settings, booked, blocks, occupied);
+                        var issue = SlotIssue(start, duration, now, exclude, settings, booked, blocks, occupied, lat, lng, travelWindows);
                         slots.Add(new(start.ToString("yyyy-MM-ddTHH:mm"), start.ToString("h:mm tt", System.Globalization.CultureInfo.InvariantCulture), issue == null, issue));
                     }
                 }
@@ -270,15 +290,20 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             return new(now.ToString("yyyy-MM-dd"), first.ToString("yyyy-MM"), duration, buffer, days);
         }
     }
-    public Booking Create(Guid userId, Guid serviceId, Guid[] addOnIds, DateTime start, string address, string area, decimal deposit, string method, string reference, string? proof, bool agreed, int people = 1, string package = "auto", bool travelAcknowledged = false, decimal? expectedTotal = null, decimal? expectedMinimum = null)
+    public Booking Create(Guid userId, Guid serviceId, Guid[] addOnIds, DateTime start, string address, string area, decimal deposit, string method, string reference, string? proof, bool agreed, int people = 1, string package = "auto", bool travelAcknowledged = false, decimal? expectedTotal = null, decimal? expectedMinimum = null, double? serviceLat = null, double? serviceLng = null)
     {
+        // The customer pins the service location before choosing a time: travel time
+        // between appointments depends on it.
+        var pinError = TravelEstimate.ValidatePin(store.Settings, serviceLat, serviceLng);
+        if (pinError != null) throw new InvalidOperationException(pinError);
+        serviceLat = TravelEstimate.Round(serviceLat!.Value); serviceLng = TravelEstimate.Round(serviceLng!.Value);
         if (store is IPersistentStudioStore database)
         {
             if (!expectedTotal.HasValue || !expectedMinimum.HasValue) throw new InvalidOperationException("Review the current price before submitting.");
             if (!PreparedPersistentBooking.Enabled && addOnIds.Distinct().Count() != addOnIds.Length) throw new InvalidOperationException("Add-on quantities are not yet available in persistent storage.");
             // Friendly early check; the database trigger stays the final authority under concurrency.
-            CheckSlot(start, Quote(serviceId, addOnIds, people, package).DurationMinutes);
-            return database.SubmitBooking(userId, serviceId, addOnIds, start, address, area, deposit, method, reference, proof, agreed, travelAcknowledged, people, package, expectedTotal, expectedMinimum);
+            CheckSlot(start, Quote(serviceId, addOnIds, people, package).DurationMinutes, null, serviceLat, serviceLng);
+            return database.SubmitBooking(userId, serviceId, addOnIds, start, address, area, deposit, method, reference, proof, agreed, travelAcknowledged, people, package, expectedTotal, expectedMinimum, serviceLat, serviceLng);
         }
         lock (store.Gate)
         {
@@ -289,9 +314,9 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             if (!store.Settings.ServiceAreas.Split(',').Any(x => x.Trim().Equals(area, StringComparison.OrdinalIgnoreCase))) throw new InvalidOperationException("The address must be within our service area.");
             var quote = Quote(serviceId, addOnIds, people, package, start);
             if ((expectedTotal.HasValue && expectedTotal != quote.FinalTotal) || (expectedMinimum.HasValue && expectedMinimum != quote.RequiredDownPayment)) throw new InvalidOperationException("The booking price or minimum payment changed. Please review the updated quote before submitting.");
-            CheckSlot(start, quote.DurationMinutes);
+            CheckSlot(start, quote.DurationMinutes, null, serviceLat, serviceLng);
             var user = store.Users.First(x => x.Id == userId);
-            var b = new Booking { CustomerId = userId, CustomerName = user.Name, Service = new(service.Id, service.Name, service.Price, service.Minutes), AddOns = selected.GroupBy(x => x.Id).Select(g => new PriceSnapshot(g.Key, g.First().Name, g.First().Price, g.First().Minutes, g.Count())).ToList(), Start = start, BufferMinutesSnapshot = store.Settings.BufferMinutes, Address = address.Trim(), Area = area, TravelFee = 0, EarlyFeeSnapshot = quote.EarlyFee, LateFeeSnapshot = quote.LateFee, TransportationPolicyAcknowledgedAt = store.Now, People = people, Package = package, AppliedPricePerPerson = quote.AppliedPricePerPerson, GroupPrice = quote.GroupPrice, GroupMinimumPeople = quote.GroupMinimumPeople, DownPaymentPercentSnapshot = store.Settings.DownPaymentPercent, RequiredDownPaymentSnapshot = quote.RequiredDownPayment, PaymentDueAt = PaymentWindow.DueAt(store.Now) };
+            var b = new Booking { ServiceLat = serviceLat, ServiceLng = serviceLng, CustomerId = userId, CustomerName = user.Name, Service = new(service.Id, service.Name, service.Price, service.Minutes), AddOns = selected.GroupBy(x => x.Id).Select(g => new PriceSnapshot(g.Key, g.First().Name, g.First().Price, g.First().Minutes, g.Count())).ToList(), Start = start, BufferMinutesSnapshot = store.Settings.BufferMinutes, Address = address.Trim(), Area = area, TravelFee = 0, EarlyFeeSnapshot = quote.EarlyFee, LateFeeSnapshot = quote.LateFee, TransportationPolicyAcknowledgedAt = store.Now, People = people, Package = package, AppliedPricePerPerson = quote.AppliedPricePerPerson, GroupPrice = quote.GroupPrice, GroupMinimumPeople = quote.GroupMinimumPeople, DownPaymentPercentSnapshot = store.Settings.DownPaymentPercent, RequiredDownPaymentSnapshot = quote.RequiredDownPayment, PaymentDueAt = PaymentWindow.DueAt(store.Now) };
             Money.RequireExactDeposit(deposit, quote.RequiredDownPayment);
             if (method == "Cash") throw new InvalidOperationException("Use GCash, Maya or Bank Transfer for your down payment.");
             CheckReference(method, reference);
@@ -408,7 +433,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
                     CheckReference(deposit.Method, deposit.Reference, deposit.Id);
                     // Validate everything before changing either payment or booking under the same lock.
                     if (!store.Settings.ServiceAreas.Split(',').Any(x => x.Trim().Equals(b.Area, StringComparison.OrdinalIgnoreCase))) throw new InvalidOperationException("This address is outside the configured service area.");
-                    CheckSlot(b.Start, (int)(b.End - b.Start).TotalMinutes, b.Id);
+                    CheckSlot(b.Start, (int)(b.End - b.Start).TotalMinutes, b.Id, b.ServiceLat, b.ServiceLng);
                     deposit.Verified = true; deposit.VerifiedBy = actor; deposit.VerifiedAt = DateTime.Now;
                     b.Status = "Confirmed";
                     b.Note = "Submitted payment verified. Please have clean, moisturized skin and a well-lit space ready.";
@@ -418,7 +443,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
                     if (b.Status != "Pending Payment" || Paid(b) < b.RequiredDownPayment || Paid(b) > b.Total) throw new InvalidOperationException("Verify at least the required down payment before confirming this booking.");
                     EnsurePaymentWindowOpen(b);
                     if (!store.Settings.ServiceAreas.Split(',').Any(x => x.Trim().Equals(b.Area, StringComparison.OrdinalIgnoreCase))) throw new InvalidOperationException("This address is no longer within the configured service areas. Reject or update coverage before approval.");
-                    CheckSlot(b.Start, (int)(b.End - b.Start).TotalMinutes, b.Id);
+                    CheckSlot(b.Start, (int)(b.End - b.Start).TotalMinutes, b.Id, b.ServiceLat, b.ServiceLng);
                     b.Status = "Confirmed";
                     b.Note = "Please have clean, moisturized skin and a well-lit space ready.";
                     break;
@@ -548,9 +573,9 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
         if (store.IsPersistent && b.MixedPeople.Count > 0) throw new InvalidOperationException("Persistent mixed booking operations are unavailable.");
         if (b.Status != "Confirmed" || b.Start <= store.Now) throw new InvalidOperationException("Only future confirmed appointments can be rescheduled.");
         var duration = (int)(b.End - b.Start).TotalMinutes;
-        var calendar = GetAvailability(start, duration, b.Id);
+        var calendar = GetAvailability(start, duration, b.Id, lat: b.ServiceLat, lng: b.ServiceLng);
         if (start.Ticks % TimeSpan.TicksPerMinute != 0 || !calendar.Days.SelectMany(d => d.Slots).Any(s => s.Start == start.ToString("yyyy-MM-ddTHH:mm") && s.Available)) throw new InvalidOperationException("Choose an available appointment time.");
-        CheckSlot(start, duration, b.Id);
+        CheckSlot(start, duration, b.Id, b.ServiceLat, b.ServiceLng);
         var early = EarlyFeeAt(start, store.Settings); var late = LateFeeAt(start, duration, store.Settings);
         return new(quoteId, b.Id, b.ApprovedReschedules.Count, b.Start, start, duration, b.BufferMinutesSnapshot ?? store.Settings.BufferMinutes, b.InitialBookingTotal, b.Total, b.InitialBookingTotal - b.EarlyFeeSnapshot - b.LateFeeSnapshot + early + late, early, late);
     }

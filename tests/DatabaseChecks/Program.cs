@@ -476,6 +476,129 @@ if (Run("--website-content"))
     Console.WriteLine($"All {checks - before} website content database checks passed.");
 }
 
+if (Run("--travel"))
+{
+    var before = checks;
+    await ResetPublic();
+    await SqlMigrator.ApplyAsync(source, migrations);
+    var store = NewStore();
+    var owner = store.CreateInitialSuperAdmin("Store", "Owner", "owner@example.test", "OwnerPass123");
+    var hasher = new Microsoft.AspNetCore.Identity.PasswordHasher<GlamByMariya.Core.Entities.AppUser>();
+    GlamByMariya.Core.Entities.AppUser Customer(string first) => store.AddCustomerWithPasswordHash(first, "Travel", first.ToLowerInvariant() + "@example.test",
+        hasher.HashPassword(new(), first + "Pass123"), 30, "Female", "24 Synthetic Street, Quezon City");
+    var ana = Customer("Ana"); var bea = Customer("Bea"); var cia = Customer("Cia"); var dee = Customer("Dee"); var eli = Customer("Eli");
+    // The owner's example: service from 7:00, a one-hour preparation buffer.
+    await Exec("UPDATE public.business_settings SET open_hour=7, close_hour=22, buffer_minutes=60, travel_speed_kmh=20, travel_road_factor=1.40, travel_margin_minutes=15, travel_unknown_minutes=60 WHERE id=1");
+    var soft = NewStore().Services.Single(x => x.Name == "Soft Glam");
+    var day = DateTime.Today.AddDays(5);
+    const string travelMsg = "This time does not leave enough travel time between appointments. Please choose another time.";
+    GlamByMariya.Core.Entities.Booking Book(Guid customer, DateTime start, string reference, double? lat, double? lng)
+    {
+        var s = NewStore();
+        var quote = GlamByMariya.Core.BusinessRules.BookingPricing.Calculate(soft, [], 1, s.Settings.TravelFee, "auto", s.Settings.DownPaymentPercent);
+        return s.SubmitBooking(customer, soft.Id, [], start, "24 Synthetic Street, Quezon City", "Quezon City", quote.RequiredDownPayment, "GCash", reference, null,
+            true, true, 1, "auto", quote.FinalTotal, quote.RequiredDownPayment, lat, lng);
+    }
+    string Refusal(Action action) { try { action(); } catch (InvalidOperationException e) { return e.Message; } return ""; }
+    async Task<int> SqlTravel(double a, double b, double c, double d) =>
+        (int)(await Scalar(FormattableString.Invariant($"SELECT public.mvc_travel_minutes({a}::numeric,{b}::numeric,{c}::numeric,{d}::numeric)")))!;
+    var settings = NewStore().Settings;
+
+    // 1. App and database agree on travel minutes.
+    var rng = new Random(13);
+    var mismatches = 0;
+    for (var i = 0; i < 300; i++)
+    {
+        double R(double lo, double hi) => Math.Round(lo + rng.NextDouble() * (hi - lo), 6);
+        var (a, b, c, d) = (R(14.35, 14.85), R(120.85, 121.20), R(14.35, 14.85), R(120.85, 121.20));
+        if (await SqlTravel(a, b, c, d) != GlamByMariya.Core.BusinessRules.TravelEstimate.Minutes(settings, a, b, c, d)) mismatches++;
+    }
+    Check(mismatches == 0, "app and database compute the same travel minutes for 300 random Metro Manila trips");
+    Check(await SqlTravel(14.6760, 121.0437, 14.6760, 121.0437) == 0 && await SqlTravel(14.6760, 121.0437, 14.67605, 121.04375) == 0, "the same spot (under 100 m) needs no travel");
+    Check((int)(await Scalar("SELECT public.mvc_travel_minutes(NULL,NULL,NULL,NULL)"))! == 0, "two bookings without pins keep the old rule (no travel added)");
+    Check((int)(await Scalar("SELECT public.mvc_travel_minutes(14.6760,121.0437,NULL,NULL)"))! == 60, "one booking without a pin uses the 60-minute fallback");
+
+    // Two spots about one hour apart with these settings: Quezon City and a point ~10.7 km south.
+    var (qcLat, qcLng) = (14.676000, 121.043700);
+    var (farLat, farLng) = (14.580000, 121.043700);
+    var hour = await SqlTravel(qcLat, qcLng, farLat, farLng);
+    Check(hour is >= 55 and <= 65, $"test spots are about an hour apart ({hour} min)");
+
+    // 2. The owner's example: 7:00 booking, next customer one hour away.
+    var first = Book(ana.Id, day.AddHours(7), "TRAVEL-1", qcLat, qcLng);
+    var reservedUntil = first.Start.AddMinutes(soft.Minutes + 60);
+    var earliest = reservedUntil.AddMinutes(hour);
+    Check(Refusal(() => Book(bea.Id, earliest.AddMinutes(-5), "TRAVEL-2", farLat, farLng)) == travelMsg, "a far customer cannot start before session + buffer + travel");
+    Check(Refusal(() => Book(bea.Id, reservedUntil, "TRAVEL-3", farLat, farLng)) == travelMsg, "right after the buffer is still too soon without travel time");
+    var second = Book(bea.Id, earliest, "TRAVEL-4", farLat, farLng);
+    Check(second.Start == earliest, $"the far customer can start exactly at {earliest:HH:mm} (end + buffer + travel)");
+
+    // 3. A new booking before an existing one must leave travel time to reach it.
+    var lateAnchor = Book(cia.Id, day.AddDays(1).AddHours(15), "TRAVEL-5", qcLat, qcLng);
+    var latestEnd = lateAnchor.Start.AddMinutes(-hour - 60);
+    Check(Refusal(() => Book(dee.Id, latestEnd.AddMinutes(-soft.Minutes + 5), "TRAVEL-6", farLat, farLng)) == travelMsg, "an earlier booking must leave travel time to the next one");
+    Check(Book(dee.Id, latestEnd.AddMinutes(-soft.Minutes), "TRAVEL-7", farLat, farLng).Start == latestEnd.AddMinutes(-soft.Minutes), "an earlier booking that leaves exactly enough time is accepted");
+
+    // 4. Same spot back-to-back needs no travel.
+    var sameSpot = Book(eli.Id, second.Start.AddMinutes(soft.Minutes + 60), "TRAVEL-8", farLat + 0.0002, farLng);
+    Check(sameSpot.Start == second.Start.AddMinutes(soft.Minutes + 60), "a neighbour at the same spot can book straight after the buffer");
+
+    // 5. Old bookings without a pin use the fallback against a pinned one.
+    await Exec("UPDATE public.business_settings SET open_hour=7 WHERE id=1");
+    var legacyDay = day.AddDays(2);
+    var legacy = Book(ana.Id, legacyDay.AddHours(9), "TRAVEL-9", null, null);
+    var afterLegacy = legacy.Start.AddMinutes(soft.Minutes + 60);
+    Check(Refusal(() => Book(bea.Id, afterLegacy.AddMinutes(30), "TRAVEL-10", qcLat, qcLng)) == travelMsg, "a pinned booking keeps the fallback travel time after an unpinned one");
+    Check(Book(bea.Id, afterLegacy.AddMinutes(60), "TRAVEL-11", qcLat, qcLng).Start == afterLegacy.AddMinutes(60), "the fallback travel time is enough");
+
+    // 6. Cancelled and expired bookings stop blocking travel time.
+    var freeDay = day.AddDays(3);
+    var gone = Book(cia.Id, freeDay.AddHours(9), "TRAVEL-12", qcLat, qcLng);
+    var gap = gone.Start.AddMinutes(soft.Minutes + 60);
+    Check(Refusal(() => Book(dee.Id, gap, "TRAVEL-13", farLat, farLng)) == travelMsg, "a pending booking blocks travel time");
+    await Exec($"UPDATE public.reservations SET payment_expires_at=now()-interval '1 minute' WHERE app_id='{gone.Id}'");
+    Check(Book(dee.Id, gap, "TRAVEL-14", farLat, farLng).Start == gap, "an expired unpaid booking no longer blocks travel time");
+
+    // 7. Pins are validated and cannot be changed afterwards.
+    var badPin = "";
+    try { Book(eli.Id, day.AddDays(4).AddHours(9), "TRAVEL-15", 95, 121); } catch (Exception e) { badPin = e.Message; }
+    Check(badPin != "", "an impossible latitude is refused by the database");
+    var moved = "";
+    try { await Exec($"UPDATE public.reservations SET service_lat=14.5 WHERE app_id='{second.Id}'"); } catch (PostgresException e) { moved = e.MessageText; }
+    Check(moved.Contains("cannot be changed"), "a booking's pinned location cannot be changed");
+    Check(GlamByMariya.Core.BusinessRules.TravelEstimate.ValidatePin(settings, null, 121) != null
+        && GlamByMariya.Core.BusinessRules.TravelEstimate.ValidatePin(settings, double.NaN, 121) != null
+        && GlamByMariya.Core.BusinessRules.TravelEstimate.ValidatePin(settings, 14.6, double.PositiveInfinity) != null
+        && GlamByMariya.Core.BusinessRules.TravelEstimate.ValidatePin(settings, 10.3157, 123.8854) != null
+        && GlamByMariya.Core.BusinessRules.TravelEstimate.ValidatePin(settings, qcLat, qcLng) == null,
+        "missing, NaN, infinite and out-of-area (Cebu) pins are rejected; a Quezon City pin is accepted");
+
+    // 8. Racing customers: base slots do not overlap, but travel does. Exactly one wins.
+    var raceDay = day.AddDays(6);
+    var x = raceDay.AddHours(9);
+    var y = x.AddMinutes(soft.Minutes + 60);
+    using var barrier = new Barrier(2);
+    var racers = new (Guid Customer, DateTime Start, double Lat, double Lng, string Ref)[] { (ana.Id, x, qcLat, qcLng, "RACE-A"), (bea.Id, y, farLat, farLng, "RACE-B") };
+    var results = await Task.WhenAll(racers.Select(r => Task.Run(() =>
+    {
+        barrier.SignalAndWait();
+        try { Book(r.Customer, r.Start, r.Ref, r.Lat, r.Lng); return ""; } catch (InvalidOperationException e) { return e.Message; }
+    })));
+    var raceCount = (long)(await Scalar($"SELECT count(*) FROM public.reservations WHERE reference IN (SELECT reference FROM public.reservations WHERE start_at::date = '{raceDay:yyyy-MM-dd}'::date)"))!;
+    Check(results.Count(r => r == "") == 1 && results.Count(r => r == travelMsg) == 1 && raceCount == 1, "two far-apart customers racing for back-to-back times: one wins");
+
+    // 9. The app's calendar matches the database.
+    var flowStore = NewStore();
+    var flow = new GlamByMariya.Infrastructure.Services.BookingService(flowStore, flowStore, flowStore, flowStore, flowStore);
+    var calendar = flow.GetAvailability(day, soft.Minutes, null, default, farLat, farLng);
+    var slots = calendar.Days.Single(d => d.Date == day.ToString("yyyy-MM-dd")).Slots;
+    bool Open(DateTime t) => slots.Single(s => s.Start == t.ToString("yyyy-MM-ddTHH:mm")).Available;
+    Check(!Open(reservedUntil) && !Open(earliest.AddMinutes(-15)), "the calendar hides times without enough travel for a far customer");
+    var columns = (long)(await Scalar("SELECT count(*) FROM information_schema.routines r JOIN information_schema.parameters p ON p.specific_name=r.specific_name WHERE r.routine_name='mvc_occupied_travel' AND p.parameter_mode='OUT' AND p.parameter_name IN ('service_lat','service_lng','lat','lng')"))!;
+    Check(columns == 0, "busy-time results never include other customers' coordinates");
+    Console.WriteLine($"All {checks - before} travel time database checks passed.");
+}
+
 sealed class TestEnv : Microsoft.AspNetCore.Hosting.IWebHostEnvironment
 {
     public string ApplicationName { get; set; } = "DatabaseChecks";

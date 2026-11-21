@@ -529,6 +529,13 @@ document.querySelectorAll('.availability-picker').forEach(picker => {
       params.set('people', String(quantity.people));
       params.set('package', quantity.package);
       form.querySelectorAll('input[name="addOnIds"]:checked, input[type="hidden"][name="addOnIds"]').forEach(a => params.append('addOnIds', a.value));
+      // New bookings need the pinned service location: times include travel between appointments.
+      const lat = form.elements.serviceLat, lng = form.elements.serviceLng;
+      if (lat && lng) {
+        if (!lat.value || !lng.value) throw Object.assign(new Error('Pin your service location on the map above to see available times.'), { pinRequired: true });
+        params.set('lat', lat.value);
+        params.set('lng', lng.value);
+      }
     }
     return params;
   };
@@ -743,7 +750,8 @@ document.querySelectorAll('.availability-picker').forEach(picker => {
            renderDays();
            renderSlots();
          }
-         calendarMessage(`${error.message || 'Availability could not be retrieved.'} ${snapshot.durationMinutes > 0 ? 'Current dates remain shown.' : 'Dates are shown as unavailable.'} Use Refresh to retry.`, 'error');
+         if (error.pinRequired) calendarMessage(error.message, 'info');
+         else calendarMessage(`${error.message || 'Availability could not be retrieved.'} ${snapshot.durationMinutes > 0 ? 'Current dates remain shown.' : 'Dates are shown as unavailable.'} Use Refresh to retry.`, 'error');
        }
      } finally {
        if (calendarGate.isCurrent(version)) {
@@ -790,6 +798,7 @@ document.querySelectorAll('.availability-picker').forEach(picker => {
      window.clearTimeout(quantityTimer);
      quantityTimer = window.setTimeout(refresh, 350);
    });
+  form.addEventListener('service-pin-changed', () => { window.clearTimeout(quantityTimer); invalidateSelectionCalendar(); refresh(); });
   form.addEventListener('booking-price-state-changed', syncSubmit);
   form.addEventListener('booking-price-updated', () => { if (startInput.value && !submitting) validateTime(); else syncSubmit(); });
   form.addEventListener('booking-submission-cancel', cancelValidation);

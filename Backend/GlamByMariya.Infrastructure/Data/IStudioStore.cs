@@ -38,7 +38,7 @@ public interface IPersistentStudioStore : IStudioStore
 {
     Booking SubmitBooking(Guid customer, Guid service, Guid[] extras, DateTime start, string address, string area,
         decimal deposit, string method, string reference, string? proof, bool agreed, bool travelAcknowledged, int people, string package,
-        decimal? expectedTotal = null, decimal? expectedMinimum = null);
+        decimal? expectedTotal = null, decimal? expectedMinimum = null, double? serviceLat = null, double? serviceLng = null);
     void CancelBooking(Guid booking, Guid customer, bool confirmed);
     // Marks unpaid bookings whose 30-minute window ended as Expired; returns how many.
     int ExpireOverduePayments();

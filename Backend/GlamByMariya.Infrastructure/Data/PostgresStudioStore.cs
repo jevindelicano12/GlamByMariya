@@ -27,7 +27,7 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
     }
     protected BusinessSettings? settings;
     public BusinessSettings Settings => settings ??= LoadSettings();
-    private BusinessSettings LoadSettings()
+    protected virtual BusinessSettings LoadSettings()
     {
         var s = db.Set<SettingsRow>().AsNoTracking().Single(x => x.Id == 1);
         return new() { TimeZone = s.TimeZone, OpenHour = s.OpenHour, CloseHour = s.CloseHour, BufferMinutes = s.BufferMinutes,
@@ -57,7 +57,7 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
             var quantityLines = PreparedPersistentBooking.Enabled ? PreparedPersistentBooking.ReadLines(db, ids, db is PublicMakeupDbContext) : null;
             var transfers = (from c in db.Set<ClosureRow>() join r in db.Set<RefundRow>() on c.Id equals r.ClosureId
                 where ids.Contains(c.BookingId) orderby r.SentAt descending select new { c.BookingId,r.TransferReference }).ToList().ToLookup(x=>x.BookingId);
-            return rows.Select(b => new Booking { Id=b.Id,StoredReference=b.Reference,CustomerId=b.CustomerId,CustomerName=b.CustomerNameSnapshot,
+            var loaded = rows.Select(b => new Booking { Id=b.Id,StoredReference=b.Reference,CustomerId=b.CustomerId,CustomerName=b.CustomerNameSnapshot,
                 Service=new(b.ServiceId,b.ServiceNameSnapshot,b.RegularPriceSnapshot,b.ServiceMinutesSnapshot),
                 AddOns=quantityLines != null ? quantityLines.GetValueOrDefault(b.Id) ?? [] : extras[b.Id].Select(a=>new PriceSnapshot(a.AddonId,a.NameSnapshot,a.PriceSnapshot,a.MinutesSnapshot)).ToList(),
                 Start=Local(b.StartsAt),BufferMinutesSnapshot=b.BufferMinutesSnapshot,People=b.People,Package=b.BookingType=="package"?"group":"auto",
@@ -66,7 +66,11 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
                 Address=b.Address,Area=b.AreaNameSnapshot,TravelFee=b.TravelFeeInformationalSnapshot,TransportationPolicyAcknowledgedAt=b.TransportationPolicyAcknowledgedAt,VerifiedPaid=b.VerifiedPaid,
                 PaymentStatus=b.PaymentStatus,Status=b.Status,Note=b.Note,RequestedStart=b.RequestedStart.HasValue?Local(b.RequestedStart.Value):null,
                 CancellationFee=b.CancellationFee,RefundDue=b.RefundDue,Refunded=b.Refunded,RefundReference=transfers[b.Id].FirstOrDefault()?.TransferReference??"" }).ToList();
+            EnrichBookings(loaded);
+            return loaded;
     }
+    // Database-mode extras that the legacy schema does not have (pinned service location).
+    protected virtual void EnrichBookings(List<Booking> bookings) { }
     public List<Payment> Payments
     {
         get
@@ -300,7 +304,7 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
             db.Database.ExecuteSqlInterpolated($"UPDATE makeup.app_users SET password_hash={hash}, security_stamp=gen_random_uuid() WHERE id={existing.Id}"));
     }
 
-    public virtual Booking SubmitBooking(Guid customer,Guid service,Guid[] extras,DateTime start,string address,string area,decimal deposit,string method,string reference,string? proof,bool agreed,bool travelAcknowledged,int people,string package,decimal? expectedTotal=null,decimal? expectedMinimum=null)
+    public virtual Booking SubmitBooking(Guid customer,Guid service,Guid[] extras,DateTime start,string address,string area,decimal deposit,string method,string reference,string? proof,bool agreed,bool travelAcknowledged,int people,string package,decimal? expectedTotal=null,decimal? expectedMinimum=null,double? serviceLat=null,double? serviceLng=null)
     {
         if(!agreed || !travelAcknowledged) throw new InvalidOperationException("Read and accept the Transportation Fee Policy before submitting payment.");
         if(package=="auto" && people!=1) throw new InvalidOperationException("Individual bookings must have exactly one person.");

@@ -10,6 +10,7 @@ namespace GlamByMariya.Web.Middleware;
 public static class ContentSecurityPolicy
 {
     public const string NonceItemKey = "csp-nonce";
+    public const string MapTilesOrigin = "https://tile.openstreetmap.org";
     public const string ReportOnlyHeader = "Content-Security-Policy-Report-Only";
 
     private const string GoogleFontStylesOrigin = "https://fonts.googleapis.com";
@@ -49,7 +50,8 @@ public static class ContentSecurityPolicy
 
     public static string BuildReportOnly(string nonce, IEnumerable<string> imageOrigins)
     {
-        var images = string.Join(' ', new[] { "'self'" }.Concat(imageOrigins));
+        // OpenStreetMap tiles for the booking location map (vendored Leaflet loads them as images).
+        var images = string.Join(' ', new[] { "'self'" }.Concat(imageOrigins).Append(MapTilesOrigin));
         return string.Join("; ",
             "default-src 'self'",
             // Zod 3.23.8 is vendored under wwwroot and needs no third-party origin.
