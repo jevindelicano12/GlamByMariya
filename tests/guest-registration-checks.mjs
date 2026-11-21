@@ -62,7 +62,7 @@ try {
     && /<option value="" disabled selected="selected">Select gender<\/option>/.test(registerPage.body)
     && !registerPage.body.includes('Select (optional)'), 'gender select has required disabled placeholder');
   check(registerPage.body.includes('Email verification is not configured') && registerPage.body.includes('no email will be sent'), 'unconfigured registration explains that no email can be sent');
-  const form = { firstName: 'Synthetic', lastName: 'Visitor', age: '25', birthday: '1995-01-15', address: '123 Example Street', password: 'Test9' + randomUUID(), returnUrl: '' };
+  const form = { firstName: 'Synthetic', lastName: 'Visitor', age: '25', birthday: '1995-01-15', address: '123 Example Street', password: 'Test9' + randomUUID(), returnUrl: '', acceptTerms: 'true' };
   const missing = await guest('/Account/Register', { ...form, email: 'missinggender@example.test', gender: '', __RequestVerificationToken: token(registerPage.body) });
   check(missing.status === 200 && missing.body.includes('Select a gender.') && !missing.location, 'server rejects registration without gender');
   const invalid = await guest('/Account/Register', { ...form, email: 'invalidgender@example.test', gender: 'Invalid', __RequestVerificationToken: token(registerPage.body) });

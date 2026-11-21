@@ -566,7 +566,7 @@ sealed class FlowFixture : IDisposable
     public Task<IActionResult> Register(string password)
     {
         Http.ExpectedPassword = password;
-        return Controller.Register("Test", "Member", RegisterEmail, 25, "Others", "Synthetic address for tests", password, birthday: new DateOnly(2000, 1, 15));
+        return Controller.Register("Test", "Member", RegisterEmail, 25, "Others", "Synthetic address for tests", password, birthday: new DateOnly(2000, 1, 15), acceptTerms: true);
     }
 
     public Task<IActionResult> Invite(string password)

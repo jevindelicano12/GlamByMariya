@@ -56,7 +56,7 @@ internal static class CustomerMvcChecks
         static Dictionary<string,string> Registration(string email)=>new() {
             ["firstName"]="Synthetic",["lastName"]="Customer",["email"]=email,["birthday"]="2001-01-01",
             ["suffix"]="Jr.",["gender"]="Others",["address"]="Synthetic test address",["password"]="Synthetic123!",
-            ["role"]="SuperAdmin",["customerId"]=Guid.NewGuid().ToString(),["age"]="99" };
+            ["role"]="SuperAdmin",["customerId"]=Guid.NewGuid().ToString(),["age"]="99",["acceptTerms"]="true" };
         async Task<long> Scalar(string sql,string? email=null)
         {
             await using var c=await admin.OpenConnectionAsync();
@@ -78,6 +78,11 @@ internal static class CustomerMvcChecks
             Check((await stranger.Http.GetAsync("/forged")).StatusCode==HttpStatusCode.Unauthorized,"arbitrary ClaimsPrincipal cannot establish trusted session");
             Check((await stranger.Http.PostAsync("/Account/Register",new FormUrlEncodedContent(Registration("csrf@example.test")))).StatusCode==HttpStatusCode.BadRequest,
                 "real MVC registration requires antiforgery");
+            var noTerms=Registration("no-terms@example.test"); noTerms.Remove("acceptTerms");
+            using(var response=await a.Post("/Account/Register",noTerms))
+                Check(response.StatusCode==HttpStatusCode.OK && (await response.Content.ReadAsStringAsync()).Contains("agree to the Terms and Conditions")
+                    && await Scalar("SELECT count(*) FROM public.customers WHERE lower(email)='no-terms@example.test'")==0,
+                    "registration without accepting the Terms is refused before any account or attempt is created");
             var email="owner@example.test";
             using(var response=await a.Post("/Account/Register",Registration(email)))
             {
@@ -391,7 +396,7 @@ internal static class CustomerMvcChecks
             var calls=fake.Signups;
             check((await client.Post("/Account/Register",new(){["email"]="not-allowlisted@example.test",
                 ["firstName"]="Synthetic",["lastName"]="Customer",["birthday"]="2001-01-01",["gender"]="Others",
-                ["address"]="Synthetic address",["password"]="Synthetic123!"})).StatusCode==HttpStatusCode.ServiceUnavailable &&
+                ["address"]="Synthetic address",["password"]="Synthetic123!",["acceptTerms"]="true"})).StatusCode==HttpStatusCode.ServiceUnavailable &&
                 fake.Signups==calls,"single-email allowlist denies before any provider signup");
             using(var response=await client.Login("race@example.test","Synthetic123!"))
                 check(response.StatusCode==HttpStatusCode.Redirect && response.Headers.Location?.OriginalString=="/auth-test/session",

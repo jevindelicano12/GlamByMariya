@@ -85,3 +85,8 @@
     border-inline-end-color: currentColor;
   }
 }
+
+/* Admin payment review: inline screenshot preview so the transfer can be checked before verifying. */
+.proof-preview { display:block; margin:10px 0 6px; max-width:320px; border:1px solid rgba(73,54,59,.15); border-radius:10px; overflow:hidden; background:#fff; }
+.proof-preview img { display:block; width:100%; max-height:420px; object-fit:contain; background:#faf6f3; }
+.proof-preview:hover, .proof-preview:focus-visible { border-color:var(--dusty-pink, #A6536B); }

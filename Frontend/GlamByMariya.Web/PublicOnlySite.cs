@@ -10,7 +10,7 @@ internal static class PublicOnlySite
 {
     private static readonly HashSet<string> Pages = new(StringComparer.OrdinalIgnoreCase)
     {
-        "/", "/Home", "/Home/Index", "/Home/About", "/Home/Services", "/Home/Gallery", "/Home/Contact", "/healthz"
+        "/", "/Home", "/Home/Index", "/Home/About", "/Home/Services", "/Home/Gallery", "/Home/Contact", "/Home/Terms", "/healthz"
     };
     private static readonly HashSet<string> Assets = new(StringComparer.OrdinalIgnoreCase)
     {

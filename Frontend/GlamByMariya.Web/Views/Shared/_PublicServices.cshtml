@@ -3,7 +3,7 @@
 <div class="service-grid public-services">
 @foreach (var item in Model) {
     var imageUrl = CatalogImages.GetImageUrl("service", item.Id);
-    <article class="service-card"><div class="photo-placeholder service-placeholder">@if (imageUrl != null) { <img src="@imageUrl" alt="@item.Name" loading="lazy" /> } else { <span aria-hidden="true">✧</span> }</div><div class="service-body"><h3>@item.Name</h3><p>@item.Description</p><div class="service-meta"><strong>₱@item.Price.ToString("N2")</strong><span>@item.Minutes min</span></div>
+    <article class="service-card"><div class="photo-placeholder service-placeholder@(imageUrl == null ? " no-image" : "")">@if (imageUrl != null) { <img src="@imageUrl" alt="@item.Name" loading="lazy" /> } else { <span aria-hidden="true">✧</span> }</div><div class="service-body"><h3>@item.Name</h3><p>@item.Description</p><div class="service-meta"><strong>₱@item.Price.ToString("N2")</strong><span>@item.Minutes min</span></div>
     @if (Context.Items.ContainsKey("InformationOnly")) { <a asp-controller="Home" asp-action="Contact" class="public-button" aria-label="Contact about @item.Name">Contact</a> }
     else if (GlamByMariya.Core.Entities.Roles.IsStaff(User)) { <a asp-controller="Admin" asp-action="Catalog" class="public-button" aria-label="Manage @item.Name">Manage service</a> }
     else if (User.Identity?.IsAuthenticated == true) { <a asp-controller="Bookings" asp-action="Create" asp-route-serviceId="@item.Id" class="public-button" aria-label="Book @item.Name">Book This</a> }

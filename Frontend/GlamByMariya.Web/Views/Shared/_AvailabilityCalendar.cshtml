@@ -8,7 +8,7 @@
         <div class="time-slots" data-time-slots aria-label="Appointment times"></div>
         <p class="availability-status calendar-status" data-calendar-status role="status" aria-live="polite">Checking availability…</p>
         <p class="availability-status validation-status" data-validation-status role="status" aria-live="polite"></p>
-        <p class="help">Available times are not guarantees of confirmation. Final confirmation depends on payment verification and Admin approval. @(DataStore.IsPersistent ? "Persistent pending reservation behavior is not yet verified." : "A successfully submitted pending request reserves service and preparation time until rejected or otherwise released. Reschedule requests do not reserve the proposed time until approved.") Availability uses service and preparation time only; travel is not estimated. Times use the business timezone. Availability refreshes every 15 seconds.</p>
+        <p class="help">Open times include makeup and prep time (not travel). Your slot is held once you submit, and confirmed after the artist verifies your payment.</p>
     </div>
     <label data-date-fallback>Appointment date & time<input type="datetime-local" name="start" required min="@DataStore.Now.ToString("yyyy-MM-ddTHH:mm")" /></label>
     <noscript><p class="help">Enable JavaScript for the live calendar. Your chosen time is still checked by the server on submission.</p></noscript>

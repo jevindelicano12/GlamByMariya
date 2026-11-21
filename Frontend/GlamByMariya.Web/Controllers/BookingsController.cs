@@ -239,7 +239,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
             try
             {
                 workflow.Cancel(b, UserId, confirmed, reason);
-                TempData["Success"] = "Appointment cancelled. Any refund will be sent manually by the artist.";
+                TempData["Success"] = b.CancellationFee > 0 ? "Appointment cancelled. Any refund will be sent manually by the artist." : "Booking request cancelled. No cancellation fee applies.";
             }
             catch (InvalidOperationException e) { TempData["Error"] = e.Message; }
             return RedirectToAction("Details", new { id });

@@ -251,7 +251,7 @@ try
             response.Headers.TryGetValues("Set-Cookie", out var values) && values.Any(value =>
                 value.StartsWith(name + "=", StringComparison.Ordinal) && value.Contains("; secure", StringComparison.OrdinalIgnoreCase)
                 && value.Contains("; httponly", StringComparison.OrdinalIgnoreCase) && value.Contains("; samesite=" + sameSite, StringComparison.OrdinalIgnoreCase));
-        Dictionary<string,string> Registration(string address) => new() { ["firstName"]="Synthetic", ["lastName"]="Customer", ["email"]=address, ["age"]="25", ["gender"]="Others", ["address"]="Synthetic address", ["password"]="Synthetic123!" };
+        Dictionary<string,string> Registration(string address) => new() { ["acceptTerms"]="true", ["firstName"]="Synthetic", ["lastName"]="Customer", ["email"]=address, ["age"]="25", ["gender"]="Others", ["address"]="Synthetic address", ["password"]="Synthetic123!" };
         var email = $"mvc-signup-{Guid.NewGuid():N}@example.test";
         using var client = TlsClient();
         using (var start = await TlsPost(client, "/Account/Register", Registration(email)))
@@ -287,7 +287,7 @@ try
             request.Headers.Add("X-CSRF-TOKEN", await client.GetStringAsync("/csrf"));
             return await client.SendAsync(request);
         }
-        using var start = await SignupPost("/Account/Register", new() { ["firstName"]="Synthetic", ["lastName"]="Customer", ["email"]=email, ["age"]="25", ["gender"]="Others", ["address"]="Synthetic address", ["password"]="Synthetic123!" });
+        using var start = await SignupPost("/Account/Register", new() { ["acceptTerms"]="true", ["firstName"]="Synthetic", ["lastName"]="Customer", ["email"]=email, ["age"]="25", ["gender"]="Others", ["address"]="Synthetic address", ["password"]="Synthetic123!" });
         if (start.StatusCode != HttpStatusCode.Redirect || !start.Headers.TryGetValues("Set-Cookie", out var headers) || !headers.Any(x => x.StartsWith("GlamSignup=") && x.Contains("httponly", StringComparison.OrdinalIgnoreCase) && x.Contains("samesite=strict", StringComparison.OrdinalIgnoreCase))) throw new Exception("Signup start or cookie failed: " + start.StatusCode);
         var signupCookie = jar.GetCookies(new Uri(url + "/Account"))["GlamSignup"]?.Value ?? throw new Exception("Signup cookie missing.");
         using (var outsider = new HttpClient(new HttpClientHandler { CookieContainer=new CookieContainer(), AllowAutoRedirect=false }) { BaseAddress=new Uri(url) })
@@ -306,7 +306,7 @@ try
         using (var replay = await SignupPost("/Account/Verify", new() { ["email"]=email, ["code"]="123456" }))
             if (replay.StatusCode != HttpStatusCode.Unauthorized || (replay.Headers.TryGetValues("Set-Cookie", out var cookies) && cookies.Any(x => x.StartsWith(".AspNetCore.Cookies=")))) throw new Exception("Signup replay accepted.");
         var concurrentEmail = $"mvc-signup-{Guid.NewGuid():N}@example.test";
-        using (var second = await SignupPost("/Account/Register", new() { ["firstName"]="Synthetic", ["lastName"]="Customer", ["email"]=concurrentEmail, ["age"]="25", ["gender"]="Others", ["address"]="Synthetic address", ["password"]="Synthetic123!" }))
+        using (var second = await SignupPost("/Account/Register", new() { ["acceptTerms"]="true", ["firstName"]="Synthetic", ["lastName"]="Customer", ["email"]=concurrentEmail, ["age"]="25", ["gender"]="Others", ["address"]="Synthetic address", ["password"]="Synthetic123!" }))
             if (second.StatusCode != HttpStatusCode.Redirect) throw new Exception("Concurrent signup setup failed.");
         var responses = await Task.WhenAll(SignupPost("/Account/Verify", new() { ["email"]=concurrentEmail, ["code"]="123456" }), SignupPost("/Account/Verify", new() { ["email"]=concurrentEmail, ["code"]="123456" }));
         if (responses.Count(x => x.StatusCode == HttpStatusCode.Redirect) != 1 || responses.Count(x => x.StatusCode == HttpStatusCode.Unauthorized) != 1) throw new Exception("Concurrent signup was not single-use.");
@@ -328,7 +328,7 @@ try
         {
             var fresh = new HttpClient(new HttpClientHandler { CookieContainer=new CookieContainer(), AllowAutoRedirect=false }) { BaseAddress=new Uri(url) };
             var address = $"mvc-signup-{Guid.NewGuid():N}@example.test";
-            using var request = new HttpRequestMessage(HttpMethod.Post, "/Account/Register") { Content=new FormUrlEncodedContent(new Dictionary<string,string> { ["firstName"]="Synthetic",["lastName"]="Customer",["email"]=address,["age"]="25",["gender"]="Others",["address"]="Synthetic address",["password"]="Synthetic123!" }) };
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/Account/Register") { Content=new FormUrlEncodedContent(new Dictionary<string,string> { ["acceptTerms"]="true", ["firstName"]="Synthetic",["lastName"]="Customer",["email"]=address,["age"]="25",["gender"]="Others",["address"]="Synthetic address",["password"]="Synthetic123!" }) };
             request.Headers.Add("X-CSRF-TOKEN", await fresh.GetStringAsync("/csrf"));
             if (https) request.Headers.Add("X-Synthetic-Https", "1");
             using var response = await fresh.SendAsync(request);
@@ -404,7 +404,7 @@ try
             if (secondResult.StatusCode != HttpStatusCode.Unauthorized || HasAuth(secondResult) || (await State(duplicateSecond.Id)).Account) throw new Exception("Duplicate subject accepted.");
         fake.Mode=null;
         using (var duplicateClient = new HttpClient(new HttpClientHandler { CookieContainer=new CookieContainer(),AllowAutoRedirect=false }) { BaseAddress=new Uri(url) })
-        using (var request = new HttpRequestMessage(HttpMethod.Post, "/Account/Register") { Content=new FormUrlEncodedContent(new Dictionary<string,string> { ["firstName"]="Synthetic",["lastName"]="Customer",["email"]=duplicateFirst.Email,["age"]="25",["gender"]="Others",["address"]="Synthetic address",["password"]="Synthetic123!" }) })
+        using (var request = new HttpRequestMessage(HttpMethod.Post, "/Account/Register") { Content=new FormUrlEncodedContent(new Dictionary<string,string> { ["acceptTerms"]="true", ["firstName"]="Synthetic",["lastName"]="Customer",["email"]=duplicateFirst.Email,["age"]="25",["gender"]="Others",["address"]="Synthetic address",["password"]="Synthetic123!" }) })
         {
             request.Headers.Add("X-CSRF-TOKEN", await duplicateClient.GetStringAsync("/csrf"));
             using var response = await duplicateClient.SendAsync(request);
@@ -439,7 +439,7 @@ try
         try
         {
             using var firstClient = new HttpClient(new HttpClientHandler { CookieContainer=restartJar, AllowAutoRedirect=false }) { BaseAddress=new Uri(workerOne.Address) };
-            using var request = new HttpRequestMessage(HttpMethod.Post, "/Account/Register") { Content=new FormUrlEncodedContent(new Dictionary<string,string> { ["firstName"]="Synthetic",["lastName"]="Customer",["email"]=restartEmail,["age"]="25",["gender"]="Others",["address"]="Synthetic address",["password"]="Synthetic123!" }) };
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/Account/Register") { Content=new FormUrlEncodedContent(new Dictionary<string,string> { ["acceptTerms"]="true", ["firstName"]="Synthetic",["lastName"]="Customer",["email"]=restartEmail,["age"]="25",["gender"]="Others",["address"]="Synthetic address",["password"]="Synthetic123!" }) };
             request.Headers.Add("X-CSRF-TOKEN", await firstClient.GetStringAsync("/csrf"));
             using var response = await firstClient.SendAsync(request);
             if (response.StatusCode != HttpStatusCode.Redirect) throw new Exception("Restart signup start failed.");

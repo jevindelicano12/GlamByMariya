@@ -313,8 +313,9 @@ public class AccountController(
         return Redirect(ReturnDestination(returnUrl, account.Role));
     }
 
+    private const string TermsRequired = "Please agree to the Terms and Conditions to create an account.";
     [HttpPost, EnableRateLimiting(RateLimitPolicies.Register)]
-    public async Task<IActionResult> Register(string firstName, string lastName, string email, int age, string gender, string address, string password, string? returnUrl = null, string? suffix = null, DateOnly? birthday = null)
+    public async Task<IActionResult> Register(string firstName, string lastName, string email, int age, string gender, string address, string password, string? returnUrl = null, string? suffix = null, DateOnly? birthday = null, bool acceptTerms = false)
     {
         if (PersistentCustomerAuth is { } persistent)
         {
@@ -322,6 +323,7 @@ public class AccountController(
             try
             {
                 if (!ModelState.IsValid) throw new InvalidOperationException("Check your registration details.");
+                if (!acceptTerms) throw new InvalidOperationException(TermsRequired);
                 var result = await persistent.RegisterAsync(firstName,lastName,email,birthday,suffix?.Trim(),
                     gender,address,password,Request.Cookies["GlamSignup"],HttpContext.RequestAborted);
                 if (result.BrowserCookie != null)
@@ -354,6 +356,7 @@ public class AccountController(
             }
             var validation = RegistrationRules.Validate(firstName, lastName, email, age, gender ?? "", address, password, enforceLegacyAge: !PreparedPersistentBooking.Enabled);
             if (validation != null || string.IsNullOrWhiteSpace(gender)) { ViewBag.Error = validation ?? "Select a gender."; return View("Login"); }
+            if (!acceptTerms) { ViewBag.Error = TermsRequired; return View("Login"); }
             try
             {
                 if (!supabase.IsConfigured) return StatusCode(503, "Registration is temporarily unavailable.");
@@ -378,6 +381,7 @@ public class AccountController(
         ViewBag.ReturnUrl = Url.IsLocalUrl(returnUrl) ? returnUrl : null;
         ViewBag.Gender = gender;
         if (store.IsPersistent) { ViewBag.Error = "Customer registration is temporarily unavailable until secure profile storage is ready."; return View("Login"); }
+        if (!acceptTerms) { ViewBag.Error = TermsRequired; return View("Login"); }
         if (!ModelState.IsValid || !birthday.HasValue || birthday.Value > DateOnly.FromDateTime(store.Now))
         { ViewBag.Error = "Enter a valid birthday that is not in the future."; return View("Login"); }
         suffix = (suffix ?? "").Trim();

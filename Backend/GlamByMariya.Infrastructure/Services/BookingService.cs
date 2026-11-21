@@ -306,19 +306,21 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
         if (store is IPersistentStudioStore database) { database.CancelBooking(b.Id, actor, confirmed); return; }
         lock (store.Gate)
         {
-            if (b.CustomerId != actor || !store.Users.Any(u => u.Id == actor && u.IsActive && u.Role == Roles.Customer) || b.Status != "Confirmed" || b.Start <= store.Now || !confirmed)
-                throw new InvalidOperationException("Confirm the cancellation of a future confirmed appointment.");
+            if (b.CustomerId != actor || !store.Users.Any(u => u.Id == actor && u.IsActive && u.Role == Roles.Customer) || b.Status is not ("Confirmed" or "Pending Payment") || b.Start <= store.Now || !confirmed)
+                throw new InvalidOperationException("Confirm the cancellation of a future appointment.");
             reason = (reason ?? "").Trim();
             if (reason.Length > 1000 || (b.MixedPeople.Count > 0 && reason.Length == 0)) throw new InvalidOperationException("Provide a cancellation reason, up to 1,000 characters.");
-            if (reason.Length == 0) reason = "Customer requested cancellation.";
-            b.CancellationFee = 200;
-            b.RefundDue = Math.Max(0, Paid(b) - 200);
+            // Not yet accepted by the artist: the customer may withdraw without the cancellation deduction.
+            var accepted = b.Status == "Confirmed";
+            if (reason.Length == 0) reason = accepted ? "Customer requested cancellation." : "Customer withdrew the request before it was accepted.";
+            b.CancellationFee = accepted ? 200 : 0;
+            b.RefundDue = Math.Max(0, Paid(b) - b.CancellationFee);
             b.Status = "Cancelled";
             b.RequestedStart = null;
             b.Note = reason;
             UpdatePaymentStatus(b);
             RecordDecision(b, actor, "Customer cancellation", reason);
-            Notify(b, $"Cancelled. ₱200 cancellation fee; refund due ₱{b.RefundDue:N2}.", actor);
+            Notify(b, accepted ? $"Cancelled. ₱200 cancellation fee; refund due ₱{b.RefundDue:N2}." : "Request cancelled before acceptance. No cancellation fee; any payment sent will be returned by the artist.", actor);
         }
     }
     public void VerifyCancelledReceipt(Booking b, Guid actor, Guid paymentId, int revision, bool reviewed)
