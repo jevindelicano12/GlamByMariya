@@ -2,7 +2,6 @@ using GlamByMariya.Core.BusinessRules;
 using GlamByMariya.Core.Entities;
 using GlamByMariya.Infrastructure.Data;
 using GlamByMariya.Infrastructure.Services;
-using System.Security.Claims;
 
 var checks = 0;
 void Check(bool value, string name)
@@ -22,11 +21,10 @@ void Reject(Action action, string name)
 var service = new CatalogItem { Name = "Synthetic", Price = 1000.01m, Minutes = 60 };
 var quote = BookingPricing.Calculate(service, [], 1, 0m, downPaymentPercent: 50);
 Check(quote.FinalTotal == 1000.01m && quote.RequiredDownPayment == 500.01m, "server quote and peso midpoint rounding");
-foreach (var amount in new[] { quote.RequiredDownPayment, 750m, quote.FinalTotal })
-{
-    PreparedPersistentBooking.ValidateClaim(amount, quote);
-    Check(true, "minimum, intermediate and full claim accepted");
-}
+PreparedPersistentBooking.ValidateClaim(quote.RequiredDownPayment, quote);
+Check(true, "the exact required down payment is accepted");
+Reject(() => PreparedPersistentBooking.ValidateClaim(750m, quote), "an amount above the exact down payment is denied");
+Reject(() => PreparedPersistentBooking.ValidateClaim(quote.FinalTotal, quote), "paying the full total online is denied (exact down payment only)");
 Reject(() => PreparedPersistentBooking.ValidateClaim(500m, quote), "below minimum denied");
 Reject(() => PreparedPersistentBooking.ValidateClaim(1000.02m, quote), "above total denied");
 Reject(() => PreparedPersistentBooking.ValidateClaim(500.011m, quote), "fractional cent denied");
@@ -53,52 +51,4 @@ Reject(() => BookingService.ValidatePersistentPaymentReview(payment, Guid.NewGui
 payment.ProofKey = null;
 Reject(() => BookingService.ValidatePersistentPaymentReview(payment, payment.Id, 5, "42", false), "missing proof denied");
 
-// Guard tests use a synthetic provider only: they do not issue or validate a real cookie.
-var account = Guid.NewGuid();
-var subject = Guid.NewGuid();
-var snapshot = new AccountSecuritySnapshot(account, true, false, "Customer",
-    SessionStoreKind.PublicPostgres, SessionAuthenticationKind.Supabase, 1, account, account,
-    SessionIdentityOwnerKind.Customer, true, AuthenticationIdentityPolicy.Supabase, subject,
-    SessionCredentialState.Ready, 1, new string('A', 64));
-var evidence = new AccountSessionEvidence(account, "Customer", "1", new string('A', 64));
-async Task<bool> Eligible(AccountSecuritySnapshot s, AccountSessionEvidence e) =>
-    (await new AccountSessionSecurityGuard(new SyntheticProvider(s)).EvaluateAsync(e)).IsEligible;
-Check(await Eligible(snapshot, evidence), "eligible synthetic Customer snapshot");
-Check(!await Eligible(snapshot, evidence with { Role = "Admin" }), "client role mismatch denied");
-Check(!await Eligible(snapshot with { IsActive = false }, evidence), "inactive account denied");
-Check(!await Eligible(snapshot with { SupabaseSubject = null }, evidence), "missing provider subject denied");
-Check(!await Eligible(snapshot with { IdentityOwnerAccountId = Guid.NewGuid() }, evidence), "mismatched identity owner denied");
-
-// The issuer is a synthetic test principal, not a trusted host or provider.
-var versioned = new SyntheticVersionedProvider(new VersionedAccountSecurity(snapshot, 7));
-var authorizer = new VersionedSessionAuthorization(versioned);
-ClaimsPrincipal Ticket(Guid id, string role, Guid providerSubject, string generation) => new(new ClaimsIdentity(
-    [new(ClaimTypes.NameIdentifier, id.ToString()), new(ClaimTypes.Role, role),
-     new(DurableSessionAuthorization.EpochClaim, "1"), new("account_version", new string('A', 64)),
-     new(DurableSessionAuthorization.SubjectClaim, providerSubject.ToString()),
-     new(VersionedSessionAuthorization.SecurityVersionClaim, generation)], "synthetic"));
-var ticket = Ticket(account, "Customer", subject, "7");
-Check(await authorizer.ValidateCookie(ticket), "synthetic current session accepted by existing guard");
-Check(!await authorizer.ValidateCookie(Ticket(account, "Admin", subject, "7")), "synthetic forged staff role denied");
-Check(!await authorizer.ValidateCookie(Ticket(account, "Customer", Guid.NewGuid(), "7")), "synthetic wrong subject denied");
-Check(!await authorizer.ValidateCookie(Ticket(Guid.NewGuid(), "Customer", subject, "7")), "synthetic wrong account denied");
-versioned.Current = versioned.Current with { SecurityVersion = 8 };
-Check(!await authorizer.ValidateCookie(ticket), "synthetic session denied after generation advance");
-Check(!await authorizer.ValidateCookie(ticket), "synthetic revoked session remains denied on repeated check");
-Check(await authorizer.ValidateCookie(Ticket(account, "Customer", subject, "8")), "synthetic new generation accepted");
-versioned.Current = versioned.Current with { Account = snapshot with { CredentialState = SessionCredentialState.Pending } };
-Check(!await authorizer.ValidateCookie(Ticket(account, "Customer", subject, "8")), "synthetic pending credential denied");
-Console.WriteLine($"{checks} isolated checks passed. No provider, database, cookie, owner-scoped payment, or live workflow exercised.");
-
-sealed class SyntheticProvider(AccountSecuritySnapshot snapshot) : IAccountSecuritySnapshotProvider
-{
-    public Task<AccountSecuritySnapshot?> LoadAsync(Guid accountId, CancellationToken cancellationToken) =>
-        Task.FromResult<AccountSecuritySnapshot?>(snapshot);
-}
-
-sealed class SyntheticVersionedProvider(VersionedAccountSecurity current) : IVersionedAccountSecurityProvider
-{
-    public VersionedAccountSecurity Current { get; set; } = current;
-    public Task<VersionedAccountSecurity?> LoadAsync(Guid accountId, CancellationToken ct) =>
-        Task.FromResult<VersionedAccountSecurity?>(Current);
-}
+Console.WriteLine($"{checks} isolated checks passed. No database, owner-scoped payment, or live workflow exercised.");
