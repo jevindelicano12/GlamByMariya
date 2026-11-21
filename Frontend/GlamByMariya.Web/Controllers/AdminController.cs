@@ -377,7 +377,12 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
     {
         // A misconfigured artist must not take the whole page down: only the location card says so.
         try { ViewBag.ArtistLocation = store.GetArtistLocation(); ViewBag.ArtistNow = store.Now; }
-        catch (Exception) { ViewBag.ArtistLocation = null; }
+        catch (Exception e)
+        {
+            ViewBag.ArtistLocation = null;
+            // Logged so the server log shows why the card says the location is unavailable.
+            HttpContext?.RequestServices?.GetService<ILogger<AdminController>>()?.LogError(e, "Artist location could not be loaded for Settings.");
+        }
         return View(store.Settings);
     }
     }

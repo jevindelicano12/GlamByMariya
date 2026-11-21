@@ -444,7 +444,12 @@ if (args.Contains("--travel-admin-only"))
     Check(locationView.Contains("location.HomeLat.HasValue ? \"Back to home base\" : \"Clear current location\""), "the card says \"Clear current location\" when no home base is saved");
     Check(locationView.Contains("No current location either, so the first booking of the day uses the minimum travel time."), "with no pins at all, the card says the minimum travel time is used");
     var settingsAction = AdminView("Controllers", "AdminController.cs");
-    Check(locationView.Contains("Artist location is unavailable right now.") && settingsAction.Contains("catch (Exception) { ViewBag.ArtistLocation = null; }"), "a misconfigured artist only blanks the location card, not the Settings page");
+    Check(locationView.Contains("Artist location is unavailable right now.") && settingsAction.Contains("ViewBag.ArtistLocation = null;"), "a misconfigured artist only blanks the location card, not the Settings page");
+    Check(settingsAction.Contains("LogError(e, \"Artist location could not be loaded for Settings.\")"), "the server log records why the artist location card is unavailable");
+    var searchPathMigration = Path.Combine(Directory.GetCurrentDirectory(), "database", "migrations", "0017_function_search_path.sql");
+    var searchPathSql = File.Exists(searchPathMigration) ? File.ReadAllText(searchPathMigration) : "";
+    foreach (var fn in new[] { "mvc_actor", "mvc_immutable", "mvc_touch" })
+        Check(searchPathSql.Contains($"ALTER FUNCTION public.{fn}() SET search_path = pg_catalog, public;"), $"migration 0017 pins the search_path of {fn}");
     Check(settingsView.Contains("name=\"travelSpeedKmh\"") && settingsView.Contains("name=\"travelMinimumMinutes\"") && settingsView.Contains("<partial name=\"_ArtistLocation\" />"), "the settings page has the travel fields and the artist location card");
     foreach (var label in new[] { "Use my current location", "Save as current location", "Set as home base", "Back to home base", "Current location set" })
         Check(locationView.Contains(label), $"the artist location card offers \"{label}\"");
