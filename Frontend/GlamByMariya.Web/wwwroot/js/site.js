@@ -361,8 +361,11 @@ if (bookingForm) {
       if (version === pricingVersion && error.name !== 'AbortError') {
         bookingForm.dataset.priceState = 'error';
         const noGroupRate = error.message === 'This service does not have a package rate configured.';
+        // A group too long for the artist's day is a choice to change, not a hiccup to retry.
+        const tooLongForDay = /longer than the artist's day/.test(error.message || '');
         pricingStatus.textContent = noGroupRate
           ? `Group pricing is not available for ${service.dataset.name}. Choose Individual Booking for one person, choose a service with a group rate, or contact the artist.`
+          : tooLongForDay ? error.message
           : `Pricing unavailable: ${error.message} Please try again.`;
         if (addonFields.length) addonTotal.textContent = noGroupRate ? 'Add-on total is unavailable until a valid booking price is available.' : 'Add-on total unavailable. Please retry the quote.';
         bookingForm.dispatchEvent(new Event('booking-price-state-changed'));

@@ -2176,6 +2176,20 @@ if (args.Contains("--reservation-only"))
     var groupReservation = flow.Create(user.Id, look.Id, [extra.Id, extra.Id], groupStart, "Synthetic address", "Quezon City", groupQuote.RequiredDownPayment, "GCash", "SYNTHETIC-GROUP", null, true, 4, "group", true, latitude: 14.5547m, longitude: 121.0244m);
     Check((groupReservation.End - groupReservation.Start).TotalMinutes == look.Minutes * 4 + extra.Minutes * 2, "group reservation uses service and quantity-based add-on duration");
     Reject(() => flow.CheckSlot(groupReservation.End.AddMinutes(1), 60), "group reservation also blocks its preparation buffer");
+    {
+        // A group longer than the artist's day is refused at the quote with the largest group that fits,
+        // instead of the customer meeting an empty calendar (live: 8:00-18:00, 45-minute buffer).
+        var dayDemo = new DemoStore(presentationAccounts: true);
+        dayDemo.Settings.OpenHour = 8; dayDemo.Settings.CloseHour = 18; dayDemo.Settings.BufferMinutes = 45;
+        dayDemo.Settings.EarlyFeeEnabled = false; dayDemo.Settings.LateFeeEnabled = false;
+        var dayFlow = new BookingService(dayDemo, dayDemo, dayDemo, dayDemo, dayDemo);
+        var soft = dayDemo.Services.First(s => s.Name == "Soft Glam");
+        Check(dayFlow.Quote(soft.Id, [], 9, "group").DurationMinutes == 9 * soft.Minutes, "nine Soft Glam people (9 h + 45 min buffer) still fit in the artist's day");
+        string? tooLong = null;
+        try { dayFlow.Quote(soft.Id, [], 10, "group"); } catch (InvalidOperationException e) { tooLong = e.Message; }
+        Check(tooLong == "10 people need 10 hours of makeup, which is longer than the artist's day (8:00–18:00, plus a 45-minute preparation buffer). Book up to 9 people for Soft Glam, or split your group into two bookings.",
+            $"ten Soft Glam people are refused with the largest group that fits ({tooLong})");
+    }
     Console.WriteLine($"All {checks} synthetic reservation checks passed.");
     return;
 }

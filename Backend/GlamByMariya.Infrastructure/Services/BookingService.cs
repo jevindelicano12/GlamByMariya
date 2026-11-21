@@ -26,9 +26,30 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             var earlyFee = !store.IsPersistent && start.HasValue ? EarlyFeeAt(start.Value, store.Settings) : 0;
             var quote = BookingPricing.Calculate(service, selected, people, store.Settings.TravelFee, package, store.Settings.DownPaymentPercent, earlyFee);
             var lateFee = !store.IsPersistent && start.HasValue ? LateFeeAt(start.Value, quote.DurationMinutes, store.Settings) : 0;
+            RequireFitsInDay(service.Name, people, quote.DurationMinutes);
             return lateFee == 0 ? quote : BookingPricing.Calculate(service, selected, people, store.Settings.TravelFee, package, store.Settings.DownPaymentPercent, earlyFee, lateFee);
         }
     }
+
+    // One artist does every person in turn, so the whole session plus its preparation buffer must fit
+    // between the first and last bookable hour. Say so at the quote, before the customer meets an empty
+    // calendar, and name the largest group that fits.
+    private void RequireFitsInDay(string serviceName, int people, int durationMinutes)
+    {
+        var settings = store.Settings;
+        var opening = !store.IsPersistent && settings.EarlyFeeEnabled ? settings.EarlyStartHour : settings.OpenHour;
+        var closing = !store.IsPersistent && settings.LateFeeEnabled ? settings.LateEndHour : settings.CloseHour;
+        var longest = (closing - opening) * 60 - settings.BufferMinutes;
+        if (durationMinutes <= longest) return;
+        var perPerson = Math.Max(1, durationMinutes / Math.Max(1, people));
+        var most = Math.Max(1, longest / perPerson);
+        throw new InvalidOperationException(people > 1
+            ? $"{people} people need {Hours(durationMinutes)} of makeup, which is longer than the artist's day ({opening}:00–{closing}:00, plus a {settings.BufferMinutes}-minute preparation buffer). Book up to {most} people for {serviceName}, or split your group into two bookings."
+            : $"This session needs {Hours(durationMinutes)}, which is longer than the artist's day ({opening}:00–{closing}:00, plus a {settings.BufferMinutes}-minute preparation buffer). Remove some extras or contact the artist.");
+    }
+
+    private static string Hours(int minutes) =>
+        minutes % 60 == 0 ? $"{minutes / 60} hours" : $"{minutes / 60} h {minutes % 60} min";
     // Demo-only pricing; persistent booking remains separately guarded.
     public MixedBookingQuote QuoteMixed(IReadOnlyList<MixedPersonSelection>? people, DateTime? start = null)
     {
