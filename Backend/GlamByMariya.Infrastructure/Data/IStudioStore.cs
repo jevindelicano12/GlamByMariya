@@ -49,7 +49,7 @@ public interface IPersistentStudioStore : IStudioStore
         decimal deposit, string method, string reference, string? proof, bool agreed, bool travelAcknowledged, int people, string package,
         decimal? expectedTotal = null, decimal? expectedMinimum = null, decimal? latitude = null, decimal? longitude = null);
     void CancelBooking(Guid booking, Guid customer, bool confirmed);
-    // Marks unpaid bookings whose 30-minute window ended as Expired; returns how many.
+    // Marks unpaid bookings whose 15-minute window ended as Expired; returns how many.
     int ExpireOverduePayments();
     // Xendit: link the deposit row to its invoice; apply webhook events (see 0010_xendit.sql).
     void AttachInvoice(Guid booking, string invoiceId, string checkoutUrl);

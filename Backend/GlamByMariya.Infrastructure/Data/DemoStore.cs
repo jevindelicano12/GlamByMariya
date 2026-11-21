@@ -61,7 +61,7 @@ public class DemoStore : IStudioStore
         var service = Services.FirstOrDefault(x => x.Active && !x.Archived);
         if (service != null)
         {
-            var booking = new Booking { CustomerId = customer.Id, CustomerName = customer.Name, Service = new(service.Id, service.Name, service.Price, service.Minutes), Start = DateTime.Today.AddDays(2).AddHours(10), BufferMinutesSnapshot = Settings.BufferMinutes, Address = "24 Sample Street", Area = "Quezon City", Latitude = 14.6760m, Longitude = 121.0437m, TravelFee = Settings.TravelFee, PaymentDueAt = PaymentWindow.DueAt(Now) };
+            var booking = new Booking { CustomerId = customer.Id, CustomerName = customer.Name, Service = new(service.Id, service.Name, service.Price, service.Minutes), Start = DateTime.Today.AddDays(2).AddHours(10), BufferMinutesSnapshot = Settings.BufferMinutes, Address = "24 Sample Street", Area = "Quezon City", Latitude = 14.6760m, Longitude = 121.0437m, TravelFee = Settings.TravelFee, PaymentDueAt = null };
             Bookings.Add(booking);
             Payments.Add(new() { BookingId = booking.Id, Amount = booking.RequiredDownPayment, Method = "GCash", Reference = "DEMO-REFERENCE-001" });
         }

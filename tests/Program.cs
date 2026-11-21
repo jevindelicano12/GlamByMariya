@@ -268,7 +268,7 @@ if (args.Contains("--accounts-only"))
     var termsView = Path.Combine(root, "Frontend", "GlamByMariya.Web", "Views", "Home", "Terms.cshtml");
     Check(homeTerms != null && File.Exists(termsView), "there is a public Terms and Conditions page");
     var termsText = File.Exists(termsView) ? File.ReadAllText(termsView) : "";
-    Check(new[] { "DownPaymentPercent", "30 minutes", "₱200", "24 hours", "Transportation" }.All(termsText.Contains), "the Terms page states the deposit, payment window, cancellation and transport rules");
+    Check(new[] { "DownPaymentPercent", "15 minutes", "₱200", "24 hours", "Transportation" }.All(termsText.Contains), "the Terms page states the deposit, payment window, cancellation and transport rules");
     Check(File.ReadAllText(Path.Combine(root, "Frontend", "GlamByMariya.Web", "Views", "Shared", "_PublicFooter.cshtml")).Contains("asp-action=\"Terms\"")
         && File.ReadAllText(Path.Combine(root, "Frontend", "GlamByMariya.Web", "PublicOnlySite.cs")).Contains("\"/Home/Terms\""), "the footer links the Terms page and the public-only site allows it");
     var firstPost = await SignUp();
@@ -688,7 +688,7 @@ if (args.Contains("--xendit-only"))
     Check(xenditHttp.LastUri == "https://api.xendit.co/v2/invoices" && xenditHttp.LastAuth == "Basic " + Convert.ToBase64String(System.Text.Encoding.ASCII.GetBytes("xnd_development_abc:")),
         "the invoice request goes to Xendit with the secret key as basic auth");
     Check(sent.GetProperty("external_id").GetString() == "LM-1234ABCD" && sent.GetProperty("amount").GetDecimal() == 300m && sent.GetProperty("currency").GetString() == "PHP"
-        && sent.GetProperty("invoice_duration").GetInt32() == 1800, "the invoice is for the booking reference, the exact deposit in PHP, valid 30 minutes");
+        && sent.GetProperty("invoice_duration").GetInt32() == 840, "the invoice is for the booking reference, the exact deposit in PHP, valid 14 minutes (one minute inside the 15-minute hold)");
     Check(invoice.Id == "inv_fake_1" && invoice.InvoiceUrl == "https://checkout-staging.xendit.co/web/inv_fake_1", "the checkout link comes back from Xendit");
     Reject(() => new XenditClient(xenditHttp, Settings("xnd_production_abc")).CreateInvoiceAsync("LM-1", 1m, "a@example.test", "d", "https://s.test", "https://s.test").GetAwaiter().GetResult(),
         "a live Xendit key is refused for the demo");
@@ -1085,9 +1085,9 @@ if (args.Contains("--payment-window-only"))
     var customerUser = demo.Users.First(u => u.Role == Roles.Customer); var ownerUser = demo.Users.First(u => u.Role == Roles.SuperAdmin);
     var look = demo.Services.First(); var start = DateTime.Today.AddDays(29).AddHours(8);
     var quote = flow.Quote(look.Id, [], 1, "auto", start);
-    var booking = flow.Create(customerUser.Id, look.Id, [], start, "24 Synthetic Street", "Quezon City", quote.RequiredDownPayment, "GCash",
-        "WINDOW-REF-1", "synthetic-proof.png", true, 1, "auto", true, quote.FinalTotal, quote.RequiredDownPayment, latitude: 14.5547m, longitude: 121.0244m);
-    Check(booking.PaymentDueAt is { } due && Math.Abs((due - demo.Now - PaymentWindow.Length).TotalSeconds) < 5, "new booking gets a payment deadline 30 minutes from now");
+    var booking = flow.Create(customerUser.Id, look.Id, [], start, "24 Synthetic Street", "Quezon City", quote.RequiredDownPayment, "Xendit",
+        "WINDOW-REF-1", null, true, 1, "auto", true, quote.FinalTotal, quote.RequiredDownPayment, latitude: 14.5547m, longitude: 121.0244m);
+    Check(booking.PaymentDueAt is { } due && Math.Abs((due - demo.Now - PaymentWindow.Length).TotalSeconds) < 5, "new booking gets a payment deadline 15 minutes from now");
     Check(flow.HoldsReservation(booking), "booking inside its payment window holds the slot");
     Reject(() => flow.CheckSlot(start, quote.DurationMinutes), "another customer cannot take a slot that is still inside its payment window");
     Check(flow.ExpireOverduePayments() == 0 && booking.Status == "Pending Payment", "nothing expires before the deadline");
@@ -1103,10 +1103,21 @@ if (args.Contains("--payment-window-only"))
     Check(flow.ExpireOverduePayments() == 0, "expiry runs only once per booking");
     Check(!CancellationPolicy.Evaluate(booking.Status, booking.Start, demo.Now).Allowed, "expired booking cannot be cancelled again");
 
+    // A submitted GCash claim waits for the owner's review: no deadline, it keeps holding its slot and never expires.
+    var claimStart = start.AddDays(-1);
+    var claimQuote = flow.Quote(look.Id, [], 1, "auto", claimStart);
+    var claim = flow.Create(customerUser.Id, look.Id, [], claimStart, "24 Synthetic Street", "Quezon City", claimQuote.RequiredDownPayment, "GCash",
+        "WINDOW-REF-3", "synthetic-proof.png", true, 1, "auto", true, claimQuote.FinalTotal, claimQuote.RequiredDownPayment, latitude: 14.5547m, longitude: 121.0244m);
+    Check(claim.PaymentDueAt == null && flow.HoldsReservation(claim), "a booking with a submitted GCash claim has no deadline and keeps its slot");
+    Check(flow.ExpireOverduePayments() == 0 && claim.Status == "Pending Payment", "a booking awaiting the owner's review is never auto-expired");
     var legacy = new Booking { Status = "Pending Payment", PaymentDueAt = null, Start = start };
     Check(!PaymentWindow.IsExpired(legacy, demo.Now.AddDays(1)), "older bookings without a deadline never expire automatically");
     var confirmedLate = new Booking { Status = "Confirmed", PaymentDueAt = demo.Now.AddHours(-5), Start = start };
     Check(!PaymentWindow.IsExpired(confirmedLate, demo.Now) && flow.HoldsReservation(confirmedLate), "confirmed bookings are never expired by the payment window");
+    var holdSql = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "database", "migrations", "0019_fifteen_minute_hold.sql"));
+    Check(holdSql.Contains("interval '15 minutes'") && !holdSql.Contains("interval '30 minutes'") && PaymentWindow.Length == TimeSpan.FromMinutes(15), "the hold is 15 minutes in C# and in migration 0019");
+    Check(XenditClient.InvoiceSeconds == 14 * 60, "the Xendit checkout closes one minute before the hold ends");
+    Check(File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Backend", "GlamByMariya.Infrastructure", "Data", "PublicStudioStore.cs")).Contains("if (method != \"Xendit\") pdb.Database.ExecuteSqlInterpolated($\"UPDATE public.reservations SET payment_expires_at = NULL"), "on the live database a submitted manual claim has no deadline");
     Console.WriteLine($"All {checks} payment window checks passed."); return;
 }
 if (args.Contains("--mixed-read-model-only"))

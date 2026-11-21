@@ -14,7 +14,8 @@ public sealed record XenditInvoice(string Id, string InvoiceUrl);
 // Xendit:AllowLiveKeys=true is set on purpose.
 public sealed class XenditClient(IHttpClientFactory http, IConfiguration config)
 {
-    public const int InvoiceSeconds = 30 * 60; // same as the booking payment window
+    // One minute shorter than the 15-minute hold, so a payment always lands while the slot is still held.
+    public const int InvoiceSeconds = 14 * 60;
 
     public bool Enabled => !string.IsNullOrWhiteSpace(config["Xendit:SecretKey"]) && !string.IsNullOrWhiteSpace(config["Xendit:CallbackToken"]);
 

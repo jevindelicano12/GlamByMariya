@@ -175,6 +175,7 @@ if (Run("--rules"))
     var first = Book(store, ana.Id, day.AddHours(10), "RULES-001");
     Check(await Status(first.Id) == "Pending Payment", "a new booking waits for payment");
     Check(Refusal(() => Book(NewStore(), bea.Id, day.AddHours(10), "RULES-002")) == overlap, "pending payment holds the slot");
+    Check(await Scalar($"SELECT payment_expires_at FROM public.reservations WHERE app_id='{first.Id}'") is DBNull, "a submitted GCash claim has no payment deadline (it waits for the owner's review)");
 
     await Exec($"UPDATE public.reservations SET payment_expires_at=now()-interval '1 minute' WHERE app_id='{first.Id}'");
     var second = Book(NewStore(), bea.Id, day.AddHours(10), "RULES-003");
@@ -325,7 +326,7 @@ if (Run("--xendit"))
     Check(await Status(paid.Id) == "Pending Payment" && url.EndsWith("inv_test_1"), "a Xendit booking waits for payment with its invoice attached");
     Check(App().PendingCheckoutUrl(paid.Id) == url, "the app can show the unpaid booking's Xendit payment link again");
     var dueStore = App(); var dueAt = dueStore.FindBooking(paid.Id)?.PaymentDueAt;
-    Check(dueAt is { } d && d > dueStore.Now && d <= dueStore.Now.AddMinutes(31), $"booking details know the unpaid booking's payment deadline (due {dueAt}, now {dueStore.Now})");
+    Check(dueAt is { } d && d > dueStore.Now.AddMinutes(13) && d <= dueStore.Now.AddMinutes(16), $"an unpaid Xendit booking is held for 15 minutes (due {dueAt}, now {dueStore.Now})");
     var wrong = "";
     try { App().XenditPaid("inv_test_1", paid.RequiredDownPayment - 1, "inv_test_1:PAID"); } catch (InvalidOperationException e) { wrong = e.Message; }
     Check(wrong.Contains("does not match") && await Status(paid.Id) == "Pending Payment", "a wrong paid amount does not confirm the booking");

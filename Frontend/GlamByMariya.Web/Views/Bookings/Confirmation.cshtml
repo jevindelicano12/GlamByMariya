@@ -12,7 +12,7 @@
     {
         (true, "Confirmed" or "Completed") => ("You’re booked!", "Your down payment was received and your appointment is confirmed. We’ve saved everything below."),
         (true, "Pending Payment") => ("Almost there.", "We’re waiting for Xendit to confirm your down payment. This usually takes a few seconds — refresh this page if it doesn’t update."),
-        (true, "Expired") => ("This booking expired.", "The down payment wasn’t received within 30 minutes, so the time was released. Nothing was charged. You can book again anytime."),
+        (true, "Expired") => ("This booking expired.", "The down payment wasn’t received within 15 minutes, so the time was released. Nothing was charged. You can book again anytime."),
         (true, "Cancelled") => ("This booking was cancelled.", "This appointment is no longer active."),
         (false, "Confirmed" or "Completed") => ("You’re booked!", "Your payment was verified and your appointment is confirmed."),
         _ => ("Booking request received.", "Your request is saved. It is not a confirmed appointment or verified payment yet.")

@@ -157,7 +157,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             {
                 b.Status = PaymentWindow.ExpiredStatus;
                 b.RequestedStart = null; b.PendingReschedule = null; b.RescheduleOffer = null;
-                b.Note = "The 30-minute payment window ended before payment was confirmed. The time slot was released.";
+                b.Note = "The 15-minute payment window ended before payment was confirmed. The time slot was released.";
                 b.History.Add(new(Guid.Empty, "System", "Payment window expired", b.Note, now, b.Status, b.Start, null));
                 Notify(b, "Payment window expired. The time slot was released.", Guid.Empty);
                 expired++;
@@ -168,7 +168,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
     private void EnsurePaymentWindowOpen(Booking b)
     {
         if (PaymentWindow.IsExpired(b, store.Now))
-            throw new InvalidOperationException("The 30-minute payment window for this booking has ended and its time slot was released.");
+            throw new InvalidOperationException("The 15-minute payment window for this booking has ended and its time slot was released.");
     }
     // Demo-only service/preparation windows; routing and travel are not calculated.
     public IReadOnlyList<ScheduleWindow> DemoOpenWindows(DateTime date)
@@ -352,7 +352,8 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             // Same gate as the slot check, so two demo bookings cannot both pass the travel rule.
             if (!TravelFits(store, start, quote.DurationMinutes, store.Settings.BufferMinutes, latitude, longitude, null)) throw new InvalidOperationException(TravelPlanner.RefusalMessage);
             var user = store.Users.First(x => x.Id == userId);
-            var b = new Booking { CustomerId = userId, CustomerName = user.Name, Service = new(service.Id, service.Name, service.Price, service.Minutes), AddOns = selected.GroupBy(x => x.Id).Select(g => new PriceSnapshot(g.Key, g.First().Name, g.First().Price, g.First().Minutes, g.Count())).ToList(), Start = start, BufferMinutesSnapshot = store.Settings.BufferMinutes, Address = address.Trim(), Area = area, Latitude = latitude, Longitude = longitude, TravelFee = 0, EarlyFeeSnapshot = quote.EarlyFee, LateFeeSnapshot = quote.LateFee, TransportationPolicyAcknowledgedAt = store.Now, People = people, Package = package, AppliedPricePerPerson = quote.AppliedPricePerPerson, GroupPrice = quote.GroupPrice, GroupMinimumPeople = quote.GroupMinimumPeople, DownPaymentPercentSnapshot = store.Settings.DownPaymentPercent, RequiredDownPaymentSnapshot = quote.RequiredDownPayment, PaymentDueAt = PaymentWindow.DueAt(store.Now) };
+            // Only an unpaid Xendit checkout has the 15-minute hold; a submitted GCash/Maya/bank claim waits for review.
+            var b = new Booking { CustomerId = userId, CustomerName = user.Name, Service = new(service.Id, service.Name, service.Price, service.Minutes), AddOns = selected.GroupBy(x => x.Id).Select(g => new PriceSnapshot(g.Key, g.First().Name, g.First().Price, g.First().Minutes, g.Count())).ToList(), Start = start, BufferMinutesSnapshot = store.Settings.BufferMinutes, Address = address.Trim(), Area = area, Latitude = latitude, Longitude = longitude, TravelFee = 0, EarlyFeeSnapshot = quote.EarlyFee, LateFeeSnapshot = quote.LateFee, TransportationPolicyAcknowledgedAt = store.Now, People = people, Package = package, AppliedPricePerPerson = quote.AppliedPricePerPerson, GroupPrice = quote.GroupPrice, GroupMinimumPeople = quote.GroupMinimumPeople, DownPaymentPercentSnapshot = store.Settings.DownPaymentPercent, RequiredDownPaymentSnapshot = quote.RequiredDownPayment, PaymentDueAt = method == "Xendit" ? PaymentWindow.DueAt(store.Now) : null };
             Money.RequireExactDeposit(deposit, quote.RequiredDownPayment);
             if (method == "Cash") throw new InvalidOperationException("Use GCash, Maya or Bank Transfer for your down payment.");
             CheckReference(method, reference);
@@ -602,7 +603,8 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
                 Start = start, BufferMinutesSnapshot = store.Settings.BufferMinutes, Address = address.Trim(), Area = area,
                 EarlyFeeSnapshot = quote.EarlyFee, LateFeeSnapshot = quote.LateFee, TransportationPolicyAcknowledgedAt = store.Now,
                 People = quote.People.Count, Package = "group", DownPaymentPercentSnapshot = quote.DownPaymentPercent,
-                RequiredDownPaymentSnapshot = quote.RequiredDownPayment, PaymentDueAt = PaymentWindow.DueAt(store.Now)
+                // The customer already submitted a payment claim, so the booking waits for review without a deadline.
+                RequiredDownPaymentSnapshot = quote.RequiredDownPayment
             };
             bookings.Bookings.Add(booking);
             payments.Payments.Add(new() { BookingId = booking.Id, Amount = deposit, Method = method, Reference = reference.Trim(), ProofPath = proof });

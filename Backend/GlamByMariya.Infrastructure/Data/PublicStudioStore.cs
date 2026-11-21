@@ -461,6 +461,9 @@ public sealed class PublicStudioStore(
                     var asset = ProofAsset(proof, customer);
                     pdb.Database.ExecuteSqlInterpolated($"INSERT INTO public.payments(reservation_id, app_id, app_managed, purpose, amount, method, reference, status, verification_status, proof_asset_id, submitted_by) VALUES({reservationId}, {Guid.NewGuid()}, true, 'down_payment', {deposit}, {method}, {reference.Trim()}, 'Pending', 'Pending Verification', {asset}, {customer})");
                     _ = paymentMethod;
+                    // A manual claim (GCash, Maya, bank) waits for the owner's review, so it never expires; only an
+                    // unpaid Xendit checkout keeps the 15-minute hold.
+                    if (method != "Xendit") pdb.Database.ExecuteSqlInterpolated($"UPDATE public.reservations SET payment_expires_at = NULL WHERE id = {reservationId}");
                 });
                 created = Bookings.Single(x => x.Id == appId);
             }
