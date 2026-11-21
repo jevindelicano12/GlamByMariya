@@ -129,3 +129,23 @@
 .terms-section>p{margin:0;font-size:14px;line-height:1.7}
 .terms-section>p+p{margin-top:10px}
 .terms-section li{font-size:14px;line-height:1.7}
+
+/* Phones: keep the desktop arrangement (headline and text on the left, photo on the right)
+   instead of stacking a full-width photo under the text. The copy wrapper dissolves so its
+   pieces can sit in the hero grid; buttons and benefits run full width underneath. */
+@media (max-width: 700px) {
+  .landing-page .public-hero { grid-template-columns: minmax(0, 1fr) minmax(0, 40%); column-gap: 14px; row-gap: 12px; align-items: start; padding: 22px 18px 26px; }
+  .landing-page .public-hero-copy { display: contents; }
+  .landing-page .public-hero .eyebrow { grid-column: 1 / -1; margin: 0; }
+  .landing-page .public-hero h1 { grid-column: 1; grid-row: 2; margin: 0; font-size: clamp(28px, 8.2vw, 40px); line-height: 1.05; }
+  .landing-page .public-hero-copy > p { grid-column: 1; grid-row: 3; margin: 0; font-size: 14px; line-height: 1.55; }
+  .landing-page .public-hero .hero-placeholder { grid-column: 2; grid-row: 2 / span 2; width: 100%; height: auto; min-height: 0; aspect-ratio: 4 / 5; justify-self: end; align-self: start; border-radius: 30% 16px 18% 16px; }
+  .landing-page .public-hero .public-buttons { grid-column: 1 / -1; margin-top: 4px; }
+  .landing-page .public-hero .public-buttons .public-button { flex: 1 1 140px; }
+  .landing-page .public-hero .public-benefits { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; margin: 6px 0 0; }
+  .landing-page .public-hero .public-benefits span { flex-direction: column; align-items: flex-start; gap: 4px; padding: 0 10px; font-size: 11px; }
+  .landing-page .public-hero .public-benefits span:first-child { padding-left: 0; }
+  .landing-page .public-hero .public-benefits b { font-size: 20px; line-height: 1; }
+  /* Room for the decorative wave so it never covers the benefits. */
+  .landing-page .public-hero { padding-bottom: 58px; }
+}
