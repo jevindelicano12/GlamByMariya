@@ -617,6 +617,14 @@ if (args.Contains("--website-content-live-only"))
           && previewView.Contains("\"gallery\" => \"Gallery photo\""), "the live draft preview shows hero, portrait and gallery photos");
     var landingCss = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "wwwroot", "css", "landing.css"));
     Check(landingCss.Contains(".public-contact p { white-space:pre-line; }"), "contact details keep the owner's line breaks (mobile and email on their own lines)");
+    var socialPartial = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "Views", "Shared", "_PublishedSocialLinks.cshtml"));
+    Check(socialPartial.Contains("On(\"facebook.com\")") && socialPartial.Contains("On(\"instagram.com\")") && socialPartial.Contains("On(\"tiktok.com\")")
+          && socialPartial.Contains("class=\"social-link social-@platform\"") && !socialPartial.Contains("↗"),
+        "social links show the Facebook, Instagram or TikTok logo (picked from the link's host) instead of an arrow");
+    var signUp = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "Views", "Account", "Login.cshtml"));
+    Check(!signUp.Contains("Choose an 8–128 character password") && signUp.Contains("Create your account to book home-service makeup with Mariya.")
+          && signUp.Contains("@if (register) { <small class=\"field-hint\">At least 8 characters, with a letter (A–Z) and a number (0–9).</small> }"),
+        "sign-up opens with a friendly intro and keeps the password rule under the password field");
     Console.WriteLine($"All {checks} live website content checks passed."); return;
 }
 if (args.Contains("--package-label-only"))
