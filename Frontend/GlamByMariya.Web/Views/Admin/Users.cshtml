@@ -1,5 +1,5 @@
 @{ ViewData["Title"] = "Manage administrators"; }
-<div class="page-heading"><div><div class="eyebrow">SYSTEM OWNER</div><h1>Manage administrators</h1><p>Invitation acceptance is currently unavailable while administrator identity security is being completed.</p></div><span class="pill">Super Admin</span></div>
+<div class="page-heading"><div><div class="eyebrow">SYSTEM OWNER</div><h1>Manage administrators</h1><p>Invite administrators, and disable or enable their accounts.</p></div><span class="pill">Super Admin</span></div>
 <section class="panel"><h2>Permission management preparation</h2><p>These categories are planned, not active. Existing Admins retain their current access. Permission selection, changes and revocation are unavailable until secure storage and server-side enforcement are verified.</p><ul>@foreach (var permission in GlamByMariya.Core.BusinessRules.AdminPermissionCatalog.Items) { <li>@permission.Label</li> }</ul><p>Website Content publishing and administrator management remain SuperAdmin-only.</p></section>
 <section class="panel settings-card">
     <div><div class="eyebrow">INVITE</div><h2>Invite an administrator</h2><p>The invitation email contains a single-use setup link. The Admin role is assigned automatically.</p></div>
@@ -21,6 +21,11 @@
     <div><div class="eyebrow">ROSTER</div><h2>Administrators</h2><p>Only this screen can invite administrators. Admin accounts cannot change Super Admin privileges.</p></div>
     @foreach (var admin in (System.Collections.Generic.List<GlamByMariya.Core.Entities.AppUser>)ViewBag.Admins)
     {
-        <div class="detail-row"><span>@admin.Name<small>@admin.Email · @admin.Role · @(admin.IsActive ? "Active" : "Disabled")</small></span></div>
+        <div class="detail-row"><span>@admin.Name<small>@admin.Email · @admin.Role · @(admin.IsActive ? "Active" : "Disabled")</small></span>
+        @if (admin.Role == "Admin")
+        {
+            <form asp-action="SetAdminActive" method="post"><input type="hidden" name="id" value="@admin.Id" /><input type="hidden" name="active" value="@(admin.IsActive ? "false" : "true")" /><button class="text-button" type="submit">@(admin.IsActive ? "Disable" : "Enable")</button></form>
+        }
+        </div>
     }
 </section>

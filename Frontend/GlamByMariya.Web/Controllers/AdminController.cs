@@ -10,6 +10,11 @@ namespace GlamByMariya.Web.Controllers;
 public class AdminController(IStudioStore store, BookingService workflow, PaymentQrService paymentQr, CatalogImageService imageService, IInvitationService invites, EmailVerificationService mail) : Controller
 {
     private Guid UserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+    public override void OnActionExecuting(Microsoft.AspNetCore.Mvc.Filters.ActionExecutingContext context)
+    {
+        workflow.ExpireOverduePayments();
+        base.OnActionExecuting(context);
+    }
     private HashSet<Guid> CorrectionBookings(IEnumerable<Booking> bookings, IEnumerable<Payment> payments)
     {
         var corrected = payments.Where(p => p.ReviewStatus == "Correction Requested").Select(p => p.BookingId).ToHashSet();
@@ -23,9 +28,6 @@ public class AdminController(IStudioStore store, BookingService workflow, Paymen
     [Authorize(Roles = "SuperAdmin")]
     public IActionResult Users()
     {
-        if (store is PublicStudioStore &&
-            HttpContext.RequestServices.GetRequiredService<IConfiguration>().GetValue("Authentication:DurableSessionEnforcement", false))
-            return RedirectToAction(nameof(ManageAccounts));
         lock (store.Gate)
         {
             ViewBag.Admins = store.Users.Where(u => u.Role is "Admin" or "SuperAdmin").OrderBy(u => u.Role).ThenBy(u => u.Email).ToList();
@@ -85,6 +87,22 @@ public class AdminController(IStudioStore store, BookingService workflow, Paymen
         return RedirectToAction(nameof(Users));
     }
 
+    // Replaces the removed admin roster page: the owner disables or enables an Admin.
+    // A disabled Admin is signed out on the next request by the per-request cookie check.
+    [Authorize(Roles = "SuperAdmin")]
+    [HttpPost]
+    public IActionResult SetAdminActive(Guid id, bool active)
+    {
+        try
+        {
+            lock (store.Gate) store.SetAdminActive(id, active, UserId);
+            store.RecordAudit(UserId, active ? "Enabled an administrator account." : "Disabled an administrator account.");
+            TempData["Success"] = active ? "Administrator enabled." : "Administrator disabled. They are signed out on their next click.";
+        }
+        catch (InvalidOperationException e) { TempData["Error"] = e.Message; }
+        return RedirectToAction(nameof(Users));
+    }
+
     public IActionResult Index(string? status)
     {
         lock (store.Gate)
@@ -99,7 +117,7 @@ public class AdminController(IStudioStore store, BookingService workflow, Paymen
     {
         lock (store.Gate)
         {
-            var b = store.Bookings.FirstOrDefault(x => x.Id == id); if (b == null) return NotFound();
+            var b = store.FindBooking(id); if (b == null) return NotFound();
             if (!workflow.CanManageBooking(b, UserId)) return Forbid();
             if (store.IsPersistent && b.MixedPeople.Count > 0) return NotFound();
             ViewBag.Paid = workflow.Paid(b); ViewBag.Payments = store is IPersistentStudioStore persistent ? persistent.ReviewPayments(id) : store.Payments.Where(p => p.BookingId == id).ToList(); return View(b);
@@ -110,7 +128,7 @@ public class AdminController(IStudioStore store, BookingService workflow, Paymen
     {
         lock (store.Gate)
         {
-            var b = store.Bookings.FirstOrDefault(x => x.Id == id); if (b == null) return NotFound();
+            var b = store.FindBooking(id); if (b == null) return NotFound();
             if (!workflow.CanManageBooking(b, UserId)) return Forbid();
             if (store.IsPersistent && b.MixedPeople.Count > 0) return NotFound();
             try
@@ -132,9 +150,10 @@ public class AdminController(IStudioStore store, BookingService workflow, Paymen
                     TempData["Success"] = "Payment receipt verified. The appointment remains cancelled; refund arrangements are separate.";
                     return RedirectToAction("Details", new { id });
                 }
-                if ((operation is "cancel" or "complete") && (!User.IsInRole("SuperAdmin") || store.IsPersistent)) return Forbid();
-                if (operation == "reschedule" && (!User.IsInRole("SuperAdmin") || store.IsPersistent)) return Forbid();
-                if (operation == "reschedule" && (rescheduleQuoteId == null || b.PendingReschedule?.Quote.Id != rescheduleQuoteId)) throw new InvalidOperationException("The reschedule request changed. Reload before deciding.");
+                if ((operation is "cancel" or "complete") && !User.IsInRole("SuperAdmin")) return Forbid();
+                if (operation == "reschedule" && !User.IsInRole("SuperAdmin")) return Forbid();
+                // Demo keeps the consented quote; database mode only knows the requested start, checked below.
+                if (operation == "reschedule" && !store.IsPersistent && (rescheduleQuoteId == null || b.PendingReschedule?.Quote.Id != rescheduleQuoteId)) throw new InvalidOperationException("The reschedule request changed. Reload before deciding.");
                 if (!store.IsPersistent && b.MixedPeople.Count == 0 && operation == "verify")
                 {
                     var payments = store.Payments.Where(p => p.BookingId == b.Id).Take(2).ToArray();
@@ -148,7 +167,7 @@ public class AdminController(IStudioStore store, BookingService workflow, Paymen
                     if (!reviewed) throw new InvalidOperationException("Confirm that you checked the actual transfer and this payment proof before verifying.");
                     if ((payment.ProofPath == null || !System.IO.File.Exists(payment.ProofPath)) && payment.ProofKey == null) throw new InvalidOperationException("The submitted proof is unavailable. Request a replacement before verifying.");
                 }
-                if (b.MixedPeople.Count > 0 && (operation is "reschedule" or "decline") && (!requestedStart.HasValue || b.RequestedStart != requestedStart))
+                if ((b.MixedPeople.Count > 0 || store.IsPersistent) && (operation is "reschedule" or "decline") && (!requestedStart.HasValue || b.RequestedStart != requestedStart))
                     throw new InvalidOperationException("The requested time changed. Reload this booking before deciding.");
                 workflow.AdminAction(b, operation, UserId, reason, amount, reference, confirmed, paymentId, reviewRevision, reviewVersion); TempData["Success"] = operation == "cancel" ? "Appointment cancelled. Payment and refund arrangements require personal review." : operation == "complete" ? "Appointment marked completed. Payment status was not changed." : "Booking updated successfully.";
             }
@@ -163,7 +182,7 @@ public class AdminController(IStudioStore store, BookingService workflow, Paymen
         {
             var p = store.Payments.FirstOrDefault(x => x.Id == id);
             if (p == null) return NotFound();
-            var booking = store.Bookings.FirstOrDefault(b => b.Id == p.BookingId);
+            var booking = store.FindBooking(p.BookingId);
             if (booking == null || (bookingId.HasValue && bookingId != booking.Id)) return NotFound();
             if (!workflow.CanManageBooking(booking, UserId)) return Forbid();
             if (store.IsPersistent && booking.MixedPeople.Count > 0) return NotFound();
@@ -188,67 +207,6 @@ public class AdminController(IStudioStore store, BookingService workflow, Paymen
             Response.Headers["Content-Disposition"] = "inline";
             return PhysicalFile(p.ProofPath, p.ProofPath.EndsWith(".png") ? "image/png" : "image/jpeg");
         }
-    }
-
-    [HttpGet, Authorize(Roles = "SuperAdmin"), ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
-    public async Task<IActionResult> AdminRoster()
-    {
-        if (!HttpContext.RequestServices.GetRequiredService<IConfiguration>().GetValue("Authentication:DurableSessionEnforcement", false) ||
-            store is not PublicStudioStore) return NotFound();
-        try
-        {
-            var service = HttpContext.RequestServices.GetService<AdminRosterService>();
-            var roster = service == null ? null : await service.ReadAsync(User, HttpContext.RequestAborted);
-            return roster == null ? StatusCode(503, "Account roster is unavailable.") : Ok(roster);
-        }
-        catch (Exception) { return StatusCode(503, "Account roster is unavailable."); }
-    }
-
-    [HttpGet, Authorize(Roles = "SuperAdmin"), ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
-    public async Task<IActionResult> ManageAccounts()
-    {
-        if (!HttpContext.RequestServices.GetRequiredService<IConfiguration>().GetValue("Authentication:DurableSessionEnforcement", false) ||
-            store is not PublicStudioStore) return NotFound();
-        try
-        {
-            var service = HttpContext.RequestServices.GetService<AdminRosterService>();
-            var roster = service == null ? null : await service.ReadAsync(User, HttpContext.RequestAborted);
-            return roster == null ? StatusCode(503, "Account roster is unavailable. Refresh later before taking further action.")
-                : View(roster);
-        }
-        catch (Exception) { return StatusCode(503, "Account roster is unavailable. Refresh later before taking further action."); }
-    }
-
-    [HttpPost, Authorize(Roles = "SuperAdmin"), ValidateAntiForgeryToken]
-    public async Task<IActionResult> DisableAdminFromRoster(Guid id, long expectedGeneration)
-    {
-        var result = await DisableAdmin(id, expectedGeneration);
-        if (result is NoContentResult)
-            TempData["Success"] = "The disable request completed. Review the current status below.";
-        else if (result is ObjectResult { StatusCode: 409 or 503 })
-            TempData["Error"] = "The change could not be confirmed. Review the refreshed status before taking further action.";
-        else return result;
-        return RedirectToAction(nameof(ManageAccounts));
-    }
-
-    [HttpPost, Authorize(Roles = "SuperAdmin"), ValidateAntiForgeryToken]
-    public async Task<IActionResult> DisableAdmin(Guid id, long expectedGeneration)
-    {
-        // This candidate is unreachable in normal startup and never falls back to Demo.
-        if (!HttpContext.RequestServices.GetRequiredService<IConfiguration>().GetValue("Authentication:DurableSessionEnforcement", false) ||
-            store is not PublicStudioStore)
-            return NotFound();
-        if (!ModelState.IsValid || id == Guid.Empty || expectedGeneration <= 0) return BadRequest();
-        try
-        {
-            var service = HttpContext.RequestServices.GetService<AccountAuthorizationTransactionService>();
-            if (service == null) return StatusCode(503, "Account management is unavailable.");
-            if (await service.ChangeAsync(User, id, expectedGeneration, AccountAuthorizationAction.Disable, ct: HttpContext.RequestAborted))
-                return NoContent();
-        }
-        catch (Exception) { }
-        // A failed commit acknowledgement can mean the change committed: do not claim rollback.
-        return StatusCode(409, "The change could not be confirmed. Refresh account status before taking further action.");
     }
 
     [Authorize(Roles = "SuperAdmin")]
@@ -315,7 +273,9 @@ public class AdminController(IStudioStore store, BookingService workflow, Paymen
             if (item == null) return NotFound();
             if (!Request.Form.ContainsKey("groupPrice")) { groupPrice = item.GroupPrice; groupMinimumPeople = item.GroupMinimumPeople; }
             if (kind == "service" && groupPrice > price) { TempData["Error"] = "The regular price cannot be lower than the existing group price. Update the group rate first."; return RedirectToAction("Catalog"); }
-            item.Name = name.Trim(); item.Description = description ?? ""; item.Price = price; item.Minutes = minutes; item.Active = active; item.Archived = false;
+            // Editing never un-archives: an archived item keeps its booking history and stays
+            // hidden from customers. New items start not archived (the CatalogItem default).
+            item.Name = name.Trim(); item.Description = description ?? ""; item.Price = price; item.Minutes = minutes; item.Active = active && !item.Archived;
             item.VisualWord = (visualWord ?? "").Trim();
             item.GroupPrice = kind == "service" ? groupPrice : null;
             item.GroupMinimumPeople = groupMinimumPeople;
@@ -433,7 +393,7 @@ public class AdminController(IStudioStore store, BookingService workflow, Paymen
         return RedirectToAction("Settings");
     }
     [HttpPost]
-    public IActionResult Settings(int openHour, int closeHour, int bufferMinutes, decimal travelFee, decimal downPaymentPercent, string serviceAreas, string? paymentInstructions)
+    public IActionResult Settings(int openHour, int closeHour, int bufferMinutes, decimal travelFee, decimal downPaymentPercent, string serviceAreas, string? paymentInstructions, bool confirmAffected = false)
     {
         lock (store.Gate)
         {
@@ -442,16 +402,30 @@ public class AdminController(IStudioStore store, BookingService workflow, Paymen
             else if (!Roles.IsSuperAdmin(User) && (openHour != store.Settings.OpenHour || closeHour != store.Settings.CloseHour || bufferMinutes != store.Settings.BufferMinutes)) TempData["Error"] = "Only the SuperAdmin can change service hours or the preparation buffer.";
             else if (!store.IsPersistent && store.Settings.EarlyFeeEnabled && openHour <= store.Settings.EarlyStartHour) TempData["Error"] = "Opening hour must be later than the configured early start.";
             else if (!store.IsPersistent && store.Settings.LateFeeEnabled && (closeHour > store.Settings.LateEndHour || openHour > store.Settings.LateStartHour)) TempData["Error"] = "Regular opening must not be later than the late fee boundary, and regular closing must not be later than final closing.";
+            else if (workflow.BookingsOutsideHours(openHour, closeHour) is { Count: > 0 } outside && !confirmAffected)
+                TempData["Error"] = $"{Upcoming(outside)} {(outside.Count == 1 ? "falls" : "fall")} outside the new hours: {References(outside)}. Nothing was saved. Tick \"Save anyway\" to change the hours; these bookings keep their booked times.";
             else
             {
+                var affected = workflow.BookingsOutsideHours(openHour, closeHour);
                 var s = store.Settings; var oldPercent = s.DownPaymentPercent; s.OpenHour = openHour; s.CloseHour = closeHour; s.BufferMinutes = bufferMinutes; s.TravelFee = travelFee; s.DownPaymentPercent = downPaymentPercent; s.ServiceAreas = serviceAreas; s.PaymentInstructions = paymentInstructions ?? "";
                 var saved = false;
                 try { store.SaveSettings(s, UserId); saved = true; if (store is DemoStore settingsDemo) settingsDemo.RecordAdminActivity(UserId, "Business settings updated", "Settings", Guid.Empty); TempData["Success"] = "Settings saved. Existing appointments and prices are unchanged."; }
                 catch (InvalidOperationException e) { TempData["Error"] = e.Message; }
                 if (saved && oldPercent != downPaymentPercent) store.RecordAudit(UserId, $"Changed down payment policy from {oldPercent:N0}% to {downPaymentPercent:N0}%.");
+                if (saved && affected.Count > 0)
+                {
+                    TempData["Success"] = $"Settings saved. {Upcoming(affected)} {(affected.Count == 1 ? "is" : "are")} outside the new hours ({References(affected)}). They keep their booked times; contact the customers if anything must change.";
+                    store.RecordAudit(UserId, $"Changed service hours with {affected.Count} upcoming booking(s) outside them: {References(affected)}.");
+                }
             }
             return RedirectToAction("Settings");
         }
+    }
+    private static string Upcoming(IReadOnlyCollection<Booking> bookings) => $"{bookings.Count} upcoming {(bookings.Count == 1 ? "booking" : "bookings")}";
+    private static string References(IEnumerable<Booking> bookings)
+    {
+        var list = bookings.Select(b => b.Reference).ToList();
+        return string.Join(", ", list.Take(5)) + (list.Count > 5 ? $" and {list.Count - 5} more" : "");
     }
     [HttpPost, Authorize(Roles = "SuperAdmin")]
     public IActionResult Block(DateTime from, DateTime to, string reason)

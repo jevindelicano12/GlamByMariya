@@ -127,10 +127,12 @@ await templateCodes.RequestRegistrationCodeAsync("expired@example.test",
 using (var verification = JsonDocument.Parse(templateHandler.Body!))
 {
     var code = Regex.Match(verification.RootElement.GetProperty("textContent").GetString()!, @"\b\d{6}\b").Value;
-    const string key = "emailcode:code:expired@example.test";
+    // Codes now live in MemoryEmailCodeStore: (CodeHash, ExpiresAtUtc, Attempts, Payload).
+    const string key = "emailcode-store:registration:expired@example.test";
     var entry = templateCache.Get(key)!;
-    var hash = entry.GetType().GetProperty("CodeHash")!.GetValue(entry)!;
-    var expired = Activator.CreateInstance(entry.GetType(), hash, DateTime.UtcNow.AddSeconds(-1))!;
+    var type = entry.GetType();
+    var expired = Activator.CreateInstance(type, type.GetProperty("CodeHash")!.GetValue(entry), DateTime.UtcNow.AddSeconds(-1),
+        type.GetProperty("Attempts")!.GetValue(entry), type.GetProperty("Payload")!.GetValue(entry))!;
     templateCache.Set(key, expired, TimeSpan.FromMinutes(1));
     try { templateCodes.ConfirmRegistrationCode("expired@example.test", code); Check(false, "expired registration code is rejected"); }
     catch (InvalidOperationException e) { Check(e.Message.Contains("expired", StringComparison.OrdinalIgnoreCase), "expired registration code is rejected"); }

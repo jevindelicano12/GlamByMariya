@@ -1,0 +1,66 @@
+# Render Blueprint: the full booking system (demo) on Supabase, Xendit test mode and Brevo.
+# Values marked sync: false are secrets: Render asks for them when the Blueprint is created.
+# Database migrations are not run by Render; run them from your PC with
+#   .\tools\supabase-command.ps1 -Command --database-migrate -Login postgres
+services:
+  - type: web
+    name: glam-by-mariya
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    autoDeployTrigger: commit
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: AllowedHosts
+        # The Render hostname only, e.g. glam-by-mariya.onrender.com
+        sync: false
+      # Supabase PostgreSQL through the Session pooler, as the app login (not postgres).
+      - key: Database__Provider
+        value: PostgreSql
+      - key: Database__Schema
+        value: public
+      - key: Database__ProjectId
+        value: hqllkbjhufhvyooacajy
+      - key: Database__Host
+        value: aws-1-ap-northeast-1.pooler.supabase.com
+      - key: Database__Port
+        value: "5432"
+      - key: Database__Name
+        value: postgres
+      - key: Database__Username
+        value: glam_v2_backend.hqllkbjhufhvyooacajy
+      - key: Database__RootCertificate
+        value: /app/App_Data/Certificates/supabase-prod-ca-2021.crt
+      - key: Database__MaxPoolSize
+        value: "4"
+      - key: Database__Password
+        sync: false
+      # Supabase Storage (private app-files bucket) for catalog images and uploads.
+      - key: FileStorage__Provider
+        value: Supabase
+      - key: Supabase__Url
+        value: https://hqllkbjhufhvyooacajy.supabase.co
+      - key: SupabaseStorage__ServiceKey
+        sync: false
+      # Brevo: registration and password-reset email codes.
+      - key: Email__DeliveryDisabled
+        value: "false"
+      - key: Email__BrevoApiKey
+        sync: false
+      - key: Email__From
+        sync: false
+      # Xendit test mode: down payments. Webhook URL in the Xendit dashboard:
+      #   https://<your Render hostname>/payments/xendit/webhook
+      - key: Xendit__SecretKey
+        sync: false
+      - key: Xendit__CallbackToken
+        sync: false
+      # Login cookies and keys: create with .\tools\new-dataprotection-cert.ps1
+      - key: DataProtection__CertificatePfxBase64
+        sync: false
+      - key: DataProtection__CertificatePassword
+        sync: false

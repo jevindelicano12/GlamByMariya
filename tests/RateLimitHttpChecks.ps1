@@ -4,6 +4,7 @@ $root = Split-Path $PSScriptRoot -Parent
 $base = 'http://localhost:5099'
 $env:ASPNETCORE_ENVIRONMENT = 'Development'
 $env:Database__Provider = 'Demo'
+$env:DemoAccounts__Presentation = 'true'
 $env:Supabase__AnonKey = ' '
 $env:Email__SmtpHost = ' '
 $server = Start-Process dotnet -ArgumentList @('run','--no-build','-c','RateLimitHttp','--no-launch-profile','--urls',$base) -WorkingDirectory $root -PassThru -RedirectStandardOutput "$env:TEMP/rate-limit-http.log" -RedirectStandardError "$env:TEMP/rate-limit-http.err"
@@ -65,9 +66,9 @@ try {
     $anon = New-Object Microsoft.PowerShell.Commands.WebRequestSession
 
     # Role permissions first (each login also consumes the shared login window).
-    Post '/Account/Login' @{email='owner@glambymariya.demo';password='Owner123!'} $owner (Get-Token '/Account/Login' $owner) | Out-Null; $script:loginPosts++
-    Post '/Account/Login' @{email='admin@glambymariya.demo';password='Admin123!'} $admin (Get-Token '/Account/Login' $admin) | Out-Null; $script:loginPosts++
-    Post '/Account/Login' @{email='customer@glambymariya.demo';password='Customer123!'} $customer (Get-Token '/Account/Login' $customer) | Out-Null; $script:loginPosts++
+    Post '/Account/Login' @{email='presentation-owner@example.test';password='Owner123!'} $owner (Get-Token '/Account/Login' $owner) | Out-Null; $script:loginPosts++
+    Post '/Account/Login' @{email='presentation-admin@example.test';password='Admin123!'} $admin (Get-Token '/Account/Login' $admin) | Out-Null; $script:loginPosts++
+    Post '/Account/Login' @{email='presentation-customer@example.test';password='Customer123!'} $customer (Get-Token '/Account/Login' $customer) | Out-Null; $script:loginPosts++
     Check ((Invoke-WebRequest "$base/Admin/Users" -WebSession $owner -UseBasicParsing).StatusCode -eq 200) 'SuperAdmin can open Manage Administrators'
     Check (Denied $admin '/Admin/Users') 'plain Admin is denied Manage Administrators'
     Check (Denied $customer '/Admin/Users') 'Customer is denied Manage Administrators'
@@ -100,7 +101,7 @@ try {
     $inviteCount = 0
     $inviteBlocked = Assert-Limit 'administrator invitation issuance' 10 {
         $script:inviteCount++
-        $email = if ($script:inviteCount -eq 1) { "invite-$([guid]::NewGuid().ToString('N').Substring(0,10))@example.test" } else { 'customer@glambymariya.demo' }
+        $email = if ($script:inviteCount -eq 1) { "invite-$([guid]::NewGuid().ToString('N').Substring(0,10))@example.test" } else { 'presentation-customer@example.test' }
         Post '/Admin/Invite' @{email=$email} $owner $inviteToken
     }
 
@@ -115,7 +116,7 @@ try {
     $registerToken = Get-Token '/Account/Register' $anon
     Assert-Limit 'registration' 5 {
         $email = "reg-$([guid]::NewGuid().ToString('N').Substring(0,10))@example.test"
-        Post '/Account/Register' @{firstName='Rate';lastName='Limit';email=$email;age='25';gender='Others';address='123 Rate Limit Street';password='RateLimit123!'} $anon $registerToken
+        Post '/Account/Register' @{firstName='Rate';lastName='Limit';email=$email;age='25';gender='Others';address='123 Rate Limit Street';password='RateLimit123!';acceptTerms='true'} $anon $registerToken
     } | Out-Null
 
     # Email verification (registration OTP).

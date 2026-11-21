@@ -10,7 +10,7 @@ await mkdir(parent, { recursive: true });
 const temp = await mkdtemp(path.join(parent, 'booking-ui-audit-'));
 const binary = process.env.UI_CHECK_BUILD || path.join(project, 'Frontend/GlamByMariya.Web/bin/Release/net10.0');
 const server = spawn('dotnet', [path.join(binary, 'GlamByMariya.Web.dll'), '--urls=http://127.0.0.1:0', `--contentRoot=${temp}`,
-  `--webroot=${path.join(project, 'Frontend/GlamByMariya.Web/wwwroot')}`, '--Database:Provider=Demo', '--DemoAccounts:Presentation=false',
+  `--webroot=${path.join(project, 'Frontend/GlamByMariya.Web/wwwroot')}`, '--Database:Provider=Demo', '--DemoAccounts:Presentation=true',
   '--Authentication:DurableSessionEnforcement=false', '--DemoGallery:Enabled=false', '--DemoCatalog:Enabled=false',
   '--WebsiteContent:DemoTextEditing=false', '--WebsiteContent:DemoPersistentText=false', '--Supabase:Url=', '--Supabase:AnonKey=',
   '--Supabase:ServiceKey=', '--SupabaseStorage:ServiceKey=', '--FileStorage:Provider=Local', '--B2:Bucket=', '--B2:Endpoint=',
@@ -42,7 +42,7 @@ try {
   const anonymous=await fetch(base+'/Bookings/MixedAvailability',{method:'POST',headers:{'content-type':'application/json'},body:'{}',redirect:'manual'});
   assert.notEqual(anonymous.status,200);
   await navigate('/Account/Login');
-  await submit(`document.querySelector('[name=email]').value='customer@glambymariya.demo';document.querySelector('[name=password]').value='Customer123!';document.querySelector('#auth-form').requestSubmit()`);
+  await submit(`document.querySelector('[name=email]').value='presentation-customer@example.test';document.querySelector('[name=password]').value='Customer123!';document.querySelector('#auth-form').requestSubmit()`);
   await navigate('/Bookings/Create');
   const result=await evalJs(`(async()=>{
     const f=document.querySelector('#booking-form'),token=f.querySelector('[name=__RequestVerificationToken]').value;

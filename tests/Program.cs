@@ -3,8 +3,10 @@ using GlamByMariya.Core.Entities;
 using GlamByMariya.Infrastructure.Services;
 using Microsoft.Extensions.Configuration;
 using Npgsql;
+using System.Security.Claims;
+using Microsoft.AspNetCore.Mvc;
 
-var store = new DemoStore();
+var store = new DemoStore(presentationAccounts: true);
 var workflow = new BookingService(store, store, store, store, store);
 var customer = store.Users.First(u => u.Role == "Customer");
 var admin = store.Users.First(u => u.Role == "Admin");
@@ -13,6 +15,805 @@ var service = store.Services[0];
 int checks = 0;
 void Check(bool condition, string name) { if (!condition) throw new Exception(name); checks++; Console.WriteLine($"PASS: {name}"); }
 void Reject(Action action, string name) { try { action(); } catch (InvalidOperationException) { Check(true, name); return; } throw new Exception($"Expected rejection: {name}"); }
+if (args.Contains("--cancellation-policy-only"))
+{
+    var now = new DateTime(2026, 11, 18, 12, 0, 0);
+    var free = CancellationPolicy.Evaluate("Pending Payment", now.AddHours(2), now);
+    Check(free.Allowed && free.Fee == 0, "unpaid pending booking cancels free before it starts");
+    var early = CancellationPolicy.Evaluate("Confirmed", now.AddHours(25), now);
+    Check(early.Allowed && early.Fee == 200, "confirmed booking more than 24 hours away cancels with the PHP 200 fee");
+    var boundary = CancellationPolicy.Evaluate("Confirmed", now.AddHours(24), now);
+    Check(boundary.Allowed && boundary.Fee == 200, "exactly 24 hours before is still allowed");
+    var late = CancellationPolicy.Evaluate("Confirmed", now.AddHours(24).AddMinutes(-1), now);
+    Check(!late.Allowed && late.Reason!.Contains("24 hours"), "confirmed booking inside the 24-hour cut-off is blocked");
+    Check(!CancellationPolicy.Evaluate("Pending Payment", now, now).Allowed, "pending booking that already started is blocked");
+    Check(!CancellationPolicy.Evaluate("Confirmed", now.AddMinutes(-5), now).Allowed, "started confirmed booking is blocked");
+    foreach (var closed in new[] { "Cancelled", "Rejected", "Completed", "No-show", "Incomplete" })
+        Check(!CancellationPolicy.Evaluate(closed, now.AddDays(3), now).Allowed, $"{closed} booking cannot be cancelled again");
+    Check(CancellationPolicy.RefundDue(200, 150) == 0 && CancellationPolicy.RefundDue(200, 500) == 300 && CancellationPolicy.RefundDue(0, 0) == 0,
+        "refund is verified paid minus the fee, never negative");
+
+    var demo = new DemoStore(presentationAccounts: true); var flow = new BookingService(demo, demo, demo, demo, demo);
+    var owner = demo.Users.First(u => u.Role == Roles.Customer);
+    var pending = demo.Bookings.Single(); pending.Start = demo.Now.AddHours(3);
+    Check(pending.Status == "Pending Payment" && flow.HoldsReservation(pending), "seed booking starts pending and holds its slot");
+    flow.Cancel(pending, owner.Id, true);
+    Check(pending.Status == "Cancelled" && pending.CancellationFee == 0 && pending.RefundDue == 0 && !flow.HoldsReservation(pending),
+        "customer cancels an unpaid pending booking with no fee and the slot is released");
+
+    var demo2 = new DemoStore(presentationAccounts: true); var flow2 = new BookingService(demo2, demo2, demo2, demo2, demo2);
+    var owner2 = demo2.Users.First(u => u.Role == Roles.Customer);
+    var confirmed = demo2.Bookings.Single(); var deposit = demo2.Payments.Single(p => p.BookingId == confirmed.Id);
+    confirmed.Status = "Confirmed"; deposit.Verified = true; confirmed.Start = demo2.Now.AddHours(10);
+    Reject(() => flow2.Cancel(confirmed, owner2.Id, true), "confirmed booking 10 hours away cannot be cancelled");
+    Check(confirmed.Status == "Confirmed" && flow2.HoldsReservation(confirmed), "blocked cancellation keeps the confirmed reservation");
+    confirmed.Start = demo2.Now.AddDays(3);
+    flow2.Cancel(confirmed, owner2.Id, true);
+    Check(confirmed.Status == "Cancelled" && confirmed.CancellationFee == 200 && confirmed.RefundDue == Math.Max(0, deposit.Amount - 200),
+        "confirmed booking 3 days away cancels with PHP 200 fee and refund of verified paid minus fee");
+    Console.WriteLine($"All {checks} cancellation policy checks passed."); return;
+}
+if (args.Contains("--local-auth-only"))
+{
+    // Real AccountController, Demo store, memory email codes and a fake Brevo delivery: no external auth provider.
+    var demo = new DemoStore(presentationAccounts: true);
+    var cache = new Microsoft.Extensions.Caching.Memory.MemoryCache(new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions());
+    var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Email:BrevoApiKey"] = "synthetic-key", ["Email:From"] = "sender@example.test" }).Build();
+    var delivery = new CapturingBrevoDelivery();
+    var brevo = new BrevoEmailSender(delivery, config, Microsoft.Extensions.Logging.Abstractions.NullLogger<BrevoEmailSender>.Instance);
+    var codes = new EmailVerificationService(cache, config, Microsoft.Extensions.Logging.Abstractions.NullLogger<EmailVerificationService>.Instance, new SyntheticWebEnv(), brevo, new MemoryEmailCodeStore(cache));
+    var accountSettings = new AccountSettingsService(demo, Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions.BuildServiceProvider(new Microsoft.Extensions.DependencyInjection.ServiceCollection()), cache);
+    var auth = new RecordingAuthentication();
+    var limiter = new LoginAttemptLimiter();
+    (AccountController Controller, Microsoft.AspNetCore.Http.DefaultHttpContext Http) Account(ClaimsPrincipal? user = null, string? cookie = null)
+    {
+        var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+        Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton<Microsoft.AspNetCore.Authentication.IAuthenticationService>(services, auth);
+        var http = new Microsoft.AspNetCore.Http.DefaultHttpContext { RequestServices = Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions.BuildServiceProvider(services) };
+        if (user != null) http.User = user;
+        if (cookie != null) http.Request.Headers.Cookie = cookie;
+        var controller = new AccountController(demo, codes, accountSettings, null!, new MemoryInvitationService(TimeProvider.System), limiter)
+        { ControllerContext = new ControllerContext { HttpContext = http } };
+        controller.TempData = new Microsoft.AspNetCore.Mvc.ViewFeatures.TempDataDictionary(http, new NoTempData());
+        controller.Url = new Microsoft.AspNetCore.Mvc.Routing.UrlHelper(new ActionContext(http, new Microsoft.AspNetCore.Routing.RouteData(), new Microsoft.AspNetCore.Mvc.Abstractions.ActionDescriptor()));
+        return (controller, http);
+    }
+    string? Error(IActionResult result) => result is ViewResult view ? view.ViewData["Error"] as string : null;
+    // Runs the app's real per-request cookie check against a signed-in principal.
+    bool SessionStillValid(IStudioStore sessionStore, ClaimsPrincipal principal)
+    {
+        var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+        Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton(services, sessionStore);
+        var http = new Microsoft.AspNetCore.Http.DefaultHttpContext { RequestServices = Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions.BuildServiceProvider(services) };
+        var scheme = new Microsoft.AspNetCore.Authentication.AuthenticationScheme("Cookies", null, typeof(Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationHandler));
+        var context = new Microsoft.AspNetCore.Authentication.Cookies.CookieValidatePrincipalContext(http, scheme, new Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationOptions(),
+            new Microsoft.AspNetCore.Authentication.AuthenticationTicket(principal, "Cookies"));
+        GlamByMariya.Web.Security.StudioCookieAuthentication.ValidatePrincipalAsync(context).GetAwaiter().GetResult();
+        return context.Principal != null;
+    }
+
+    // Registration with email OTP, completed in the same browser.
+    var email = "local.customer@example.test";
+    var (register, registerHttp) = Account();
+    var started = await register.Register("Local", "Customer", email, 0, "Female", "24 Synthetic Street, Quezon City", "FirstPass123", birthday: new DateOnly(1995, 5, 5), acceptTerms: true);
+    var issued = System.Text.RegularExpressions.Regex.Match(registerHttp.Response.Headers.SetCookie.ToString(), EmailVerificationService.BrowserCookieName + "=([^;]+)");
+    Check(started is RedirectToActionResult { ActionName: "Verify" } && issued.Success && delivery.LastCode != null, "registration sends an email code and sets the browser cookie");
+    Check(demo.Users.All(u => u.Email != email), "no account exists before the email code is confirmed");
+    var browser = $"{EmailVerificationService.BrowserCookieName}={issued.Groups[1].Value}";
+    Check(Error(await Account().Controller.Verify(email, delivery.LastCode!, null)) is { } otherBrowser && otherBrowser.Contains("same browser"), "the code cannot be confirmed from a different browser");
+    var verified = await Account(cookie: browser).Controller.Verify(email, delivery.LastCode!, null);
+    var localCustomer = demo.Users.SingleOrDefault(u => u.Email == email);
+    Check(verified is RedirectResult { Url: "/Bookings" } && localCustomer is { Role: Roles.Customer, IsActive: true } && auth.LastPrincipal?.FindFirstValue(ClaimTypes.Email) == email,
+        "the same browser confirms the code, creates the customer and signs in");
+    Check(localCustomer!.Birthday == new DateOnly(1995, 5, 5) && localCustomer.Suffix == null && localCustomer.Age >= 30, "the registration birthday is saved and the age is computed from it");
+    var (oldBirthday, _) = Account();
+    Check(Error(await oldBirthday.Register("Very", "Old", "very.old@example.test", 0, "Male", "24 Synthetic Street, Quezon City", "OldPass123", birthday: new DateOnly(1899, 12, 31), acceptTerms: true))?.Contains("birthday") == true,
+        "a birthday before 1900 is rejected with a clear message");
+    var accountSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "Controllers", "AccountController.cs"));
+    var publicSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Backend", "GlamByMariya.Infrastructure", "Data", "PublicStudioStore.cs"));
+    Check(!accountSource.Contains("registration is temporarily unavailable", StringComparison.OrdinalIgnoreCase), "database mode no longer blocks customer registration");
+    Check(publicSource.Contains("password_hash, is_active, birthday, suffix)") && publicSource.Contains("{birthday}, {storedSuffix})"), "database registration saves the birthday and suffix");
+
+    // Login.
+    Check(Error(await Account().Controller.Login(email, "WrongPass123")) == "Email or password is incorrect.", "a wrong password is rejected");
+    Check(await Account().Controller.Login(email, "FirstPass123") is RedirectResult { Url: "/Bookings" }, "the right password signs in");
+    var session = auth.LastPrincipal!;
+
+    // Change password ends older sessions.
+    Check(Error(await Account().Controller.Login(email, "FirstPass123")) == null, "login works before the password change");
+    var (change, _) = Account(session);
+    await change.ChangePassword("NotMyPass123", "SecondPass456", "SecondPass456");
+    Check(Error(await Account().Controller.Login(email, "SecondPass456")) != null, "a wrong current password does not change the password");
+    var signOuts = auth.SignOutCalls;
+    Check(await Account(session).Controller.ChangePassword("FirstPass123", "SecondPass456", "SecondPass456") is RedirectToActionResult { ActionName: "Login" } && auth.SignOutCalls == signOuts + 1,
+        "the right current password changes the password and signs out");
+    Check(Error(await Account().Controller.Login(email, "FirstPass123")) != null && await Account().Controller.Login(email, "SecondPass456") is RedirectResult,
+        "only the new password works afterwards");
+    Check(!SessionStillValid(demo, session), "the session from before the password change is no longer accepted");
+    Check(SessionStillValid(demo, auth.LastPrincipal!), "the new session is accepted");
+
+    // Disabling an account ends its sessions and blocks login.
+    var current = auth.LastPrincipal!;
+    localCustomer!.IsActive = false;
+    Check(!SessionStillValid(demo, current) && Error(await Account().Controller.Login(email, "SecondPass456")) != null, "a disabled account is signed out and cannot log in");
+    localCustomer.IsActive = true;
+
+    // Forgot / reset password with the email code.
+    Check(await Account().Controller.ForgotPassword(email) is RedirectToActionResult { ActionName: "ResetPassword" } && delivery.LastCode != null, "forgot password emails a reset code");
+    var resetCode = delivery.LastCode!;
+    Check(Error(Account().Controller.ResetPassword(email, resetCode == "000000" ? "111111" : "000000", "ThirdPass789", "ThirdPass789")) == "That code is incorrect.", "a wrong reset code is rejected");
+    Check(Error(Account().Controller.ResetPassword(email, resetCode, "SecondPass456", "SecondPass456"))?.Contains("different password") == true, "reset cannot reuse the current password");
+
+    cache.Remove($"emailcode-cooldown:reset:{email}"); // skip the 60-second resend wait in the test
+    await Account().Controller.ForgotPassword(email);
+    Check(Account().Controller.ResetPassword(email, delivery.LastCode!, "ThirdPass789", "ThirdPass789") is RedirectToActionResult { ActionName: "Login" }, "a new reset code sets a new password");
+    Check(await Account().Controller.Login(email, "ThirdPass789") is RedirectResult && Error(await Account().Controller.Login(email, "SecondPass456")) != null, "only the reset password works");
+    Console.WriteLine($"All {checks} local authentication checks passed."); return;
+}
+if (args.Contains("--accounts-only"))
+{
+    // Step 7: owner setup, admin invitations and admin Disable/Enable, with local accounts only.
+    var root = Directory.GetCurrentDirectory();
+    var setupSource = File.ReadAllText(Path.Combine(root, "Backend", "GlamByMariya.Infrastructure", "Data", "DatabaseSetup.cs"));
+    Check(!setupSource.Contains("Provider-backed SuperAdmin setup is unavailable") && !setupSource.Contains("not ready for provider-backed deployment"),
+        "owner setup works with Supabase Storage settings present (local login only, no auth-provider block)");
+    Check(setupSource.Contains("SqlMigrator.ApplyAsync") && !setupSource.Contains("MigrateAsync") && !Directory.Exists(Path.Combine(root, "Backend", "GlamByMariya.Infrastructure", "Migrations", "Public")),
+        "migrate command uses the SQL migrator, not EF");
+
+    // Invitations: the link's own token picks the invitation, never an older expired one.
+    var clock = new ManualClock(new DateTimeOffset(2026, 11, 19, 8, 0, 0, TimeSpan.Zero));
+    var invites = new MemoryInvitationService(clock);
+    var inviter = Guid.NewGuid();
+    var (_, oldToken) = invites.InviteWithToken("new.admin@example.test", inviter);
+    clock.Now = clock.Now.AddHours(73);
+    var (_, freshToken) = invites.InviteWithToken("new.admin@example.test", inviter);
+    try { invites.Accept("new.admin@example.test", oldToken); throw new Exception("Expected rejection: expired invitation"); }
+    catch (InvalidOperationException e) { Check(e.Message.Contains("expired"), "an expired invitation link says it expired"); }
+    Check(invites.Accept("New.Admin@example.test ", freshToken).AcceptedAt != null, "a new invitation works even when an older expired one exists for the same email");
+    Reject(() => invites.Accept("new.admin@example.test", freshToken), "an invitation link is single use");
+    var (_, otherToken) = invites.InviteWithToken("someone@example.test", inviter);
+    Reject(() => invites.Accept("new.admin@example.test", otherToken), "an invitation token only works for its own email");
+    Reject(() => invites.Accept("someone@example.test", "WRONG"), "a wrong invitation token is rejected");
+
+    // Real AccountController accepts the invite and creates a local Admin account.
+    var demo = new DemoStore(presentationAccounts: true);
+    var owner = demo.CreateElevatedUser("Store", "Owner", "store.owner@example.test", "OwnerPass123", Roles.SuperAdmin, 35, "", "Address on file");
+    var cache = new Microsoft.Extensions.Caching.Memory.MemoryCache(new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions());
+    var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Email:BrevoApiKey"] = "synthetic-key", ["Email:From"] = "sender@example.test" }).Build();
+    var brevo = new BrevoEmailSender(new CapturingBrevoDelivery(), config, Microsoft.Extensions.Logging.Abstractions.NullLogger<BrevoEmailSender>.Instance);
+    var codes = new EmailVerificationService(cache, config, Microsoft.Extensions.Logging.Abstractions.NullLogger<EmailVerificationService>.Instance, new SyntheticWebEnv(), brevo, new MemoryEmailCodeStore(cache));
+    var accountSettings = new AccountSettingsService(demo, Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions.BuildServiceProvider(new Microsoft.Extensions.DependencyInjection.ServiceCollection()), cache);
+    var auth = new RecordingAuthentication();
+    var controllerInvites = new MemoryInvitationService(TimeProvider.System);
+    Microsoft.AspNetCore.Http.DefaultHttpContext Http(ClaimsPrincipal? user = null)
+    {
+        var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+        Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton<Microsoft.AspNetCore.Authentication.IAuthenticationService>(services, auth);
+        Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton<IStudioStore>(services, demo);
+        var http = new Microsoft.AspNetCore.Http.DefaultHttpContext { RequestServices = Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions.BuildServiceProvider(services) };
+        if (user != null) http.User = user;
+        return http;
+    }
+    T Wire<T>(T controller, Microsoft.AspNetCore.Http.DefaultHttpContext http) where T : Controller
+    {
+        controller.ControllerContext = new ControllerContext { HttpContext = http };
+        controller.TempData = new Microsoft.AspNetCore.Mvc.ViewFeatures.TempDataDictionary(http, new NoTempData());
+        controller.Url = new Microsoft.AspNetCore.Mvc.Routing.UrlHelper(new ActionContext(http, new Microsoft.AspNetCore.Routing.RouteData(), new Microsoft.AspNetCore.Mvc.Abstractions.ActionDescriptor()));
+        return controller;
+    }
+    AccountController Account() => Wire(new AccountController(demo, codes, accountSettings, null!, controllerInvites, new LoginAttemptLimiter()), Http());
+    ClaimsPrincipal As(AppUser u) => new(new ClaimsIdentity(new[] { new Claim(ClaimTypes.NameIdentifier, u.Id.ToString()), new Claim(ClaimTypes.Email, u.Email),
+        new Claim(ClaimTypes.Role, u.Role), new Claim("account_version", AccountSession.Version(u.PasswordHash)) }, "Cookies"));
+    AdminController Admin(AppUser u) => Wire(new AdminController(demo, null!, null!, null!, controllerInvites, null!), Http(As(u)));
+    bool SessionValid(ClaimsPrincipal principal)
+    {
+        var scheme = new Microsoft.AspNetCore.Authentication.AuthenticationScheme("Cookies", null, typeof(Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationHandler));
+        var context = new Microsoft.AspNetCore.Authentication.Cookies.CookieValidatePrincipalContext(Http(), scheme, new Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationOptions(),
+            new Microsoft.AspNetCore.Authentication.AuthenticationTicket(principal, "Cookies"));
+        GlamByMariya.Web.Security.StudioCookieAuthentication.ValidatePrincipalAsync(context).GetAwaiter().GetResult();
+        return context.Principal != null;
+    }
+
+    var (_, inviteToken) = controllerInvites.InviteWithToken("invited.admin@example.test", owner.Id);
+    var page = Account().AcceptInvite("invited.admin@example.test", inviteToken) as ViewResult;
+    Check(page != null && page.ViewData["AcceptanceUnavailable"] == null && page.ViewData["Error"] == null, "the invitation page shows the setup form");
+    var accepted = await Account().AcceptInvite("invited.admin@example.test", inviteToken, "Invited", "Admin", 30, "Female", "24 Synthetic Street, Quezon City", "AdminPass123");
+    var invited = demo.Users.SingleOrDefault(u => u.Email == "invited.admin@example.test");
+    Check(accepted is RedirectResult { Url: "/Admin" } && invited is { Role: Roles.Admin, IsActive: true } && auth.LastPrincipal?.FindFirstValue(ClaimTypes.Role) == Roles.Admin,
+        "accepting the invitation creates a local Admin account and signs in");
+    Check(await Account().Login("invited.admin@example.test", "AdminPass123") is RedirectResult, "the invited admin signs in with the local password");
+    var reuse = await Account().AcceptInvite("invited.admin@example.test", inviteToken, "Invited", "Admin", 30, "Female", "24 Synthetic Street, Quezon City", "AdminPass123");
+    Check(demo.Users.Count(u => u.Email == "invited.admin@example.test") == 1 && reuse is ViewResult, "a used invitation link cannot create a second account");
+    var badToken = await Account().AcceptInvite("other.admin@example.test", "WRONG", "Other", "Admin", 30, "Female", "24 Synthetic Street, Quezon City", "AdminPass123");
+    Check(badToken is ViewResult && demo.Users.All(u => u.Email != "other.admin@example.test"), "a wrong invitation token creates no account");
+
+    // Disable / Enable: SuperAdmin only, Admin targets only, takes effect on the next request.
+    var adminSession = auth.LastPrincipal!;
+    var setActive = typeof(AdminController).GetMethod(nameof(AdminController.SetAdminActive))!;
+    Check(setActive.GetCustomAttributes(typeof(Microsoft.AspNetCore.Authorization.AuthorizeAttribute), true).Cast<Microsoft.AspNetCore.Authorization.AuthorizeAttribute>().Any(a => a.Roles == Roles.SuperAdmin)
+        && setActive.GetCustomAttributes(typeof(HttpPostAttribute), true).Any(), "Disable/Enable is a POST action limited to SuperAdmin");
+    Check(SessionValid(adminSession), "the admin session is valid before disabling");
+    Admin(owner).SetAdminActive(invited!.Id, false);
+    Check(!invited.IsActive && !SessionValid(adminSession), "a disabled admin is signed out on the next request");
+    Check(await Account().Login("invited.admin@example.test", "AdminPass123") is ViewResult, "a disabled admin cannot sign in");
+    Admin(owner).SetAdminActive(invited.Id, true);
+    Check(invited.IsActive && await Account().Login("invited.admin@example.test", "AdminPass123") is RedirectResult, "an enabled admin can sign in again");
+    var accountCustomer = demo.Users.First(u => u.Role == Roles.Customer);
+    Reject(() => demo.SetAdminActive(owner.Id, false, owner.Id), "the owner cannot disable a SuperAdmin (including themself)");
+    Reject(() => demo.SetAdminActive(accountCustomer.Id, false, owner.Id), "Disable/Enable does not apply to customers");
+    Reject(() => demo.SetAdminActive(owner.Id, false, invited.Id), "an Admin cannot disable anyone");
+    Admin(owner).SetAdminActive(accountCustomer.Id, false);
+    Check(accountCustomer.IsActive, "a refused Disable changes nothing");
+    var usersView = File.ReadAllText(Path.Combine(root, "Frontend", "GlamByMariya.Web", "Views", "Admin", "Users.cshtml"));
+    Check(usersView.Contains("asp-action=\"SetAdminActive\"") && !usersView.Contains("Invitation acceptance is currently unavailable"), "the Users page has the Disable/Enable button and no longer says invites are closed");
+    // No seeded demo accounts: the owner comes from the setup command, admins by invite, customers register.
+    var empty = new DemoStore();
+    Check(empty.Users.Count == 0 && empty.Bookings.Count == 0 && empty.Payments.Count == 0, "a new Demo store starts with no accounts and no sample booking");
+    foreach (var file in new[] { "Backend/GlamByMariya.Infrastructure/Data/DemoStore.cs", "Backend/GlamByMariya.Infrastructure/Integrations/DemoAvatarStore.cs", "Frontend/GlamByMariya.Web/MakeupBookingDatabase.sql" })
+        Check(!File.ReadAllText(Path.Combine(root, file)).Contains("lumiere.demo"), $"{Path.GetFileName(file)} has no @lumiere.demo account");
+
+    // A double click on "Create account" posts the form twice. The second post must lead to the
+    // code page too, not back to an empty sign-up form with a "wait a minute" error.
+    async Task<IActionResult> SignUp() => await Account().Register("Double", "Click", "double.click@example.test", 0, "Female",
+        "24 Synthetic Street, Quezon City", "Secret123!", birthday: new DateOnly(1995, 5, 5), acceptTerms: true);
+
+    // Sign-up needs the customer to agree to the Terms and Conditions; the server checks it too.
+    var noTerms = await Account().Register("No", "Terms", "no.terms@example.test", 0, "Female",
+        "24 Synthetic Street, Quezon City", "Secret123!", birthday: new DateOnly(1995, 5, 5));
+    Check(noTerms is ViewResult && (string?)((ViewResult)noTerms).ViewData["Error"] is { } termsError && termsError.Contains("Terms and Conditions")
+        && !codes.HasPendingRegistration("no.terms@example.test"), "sign-up without agreeing to the Terms is refused and sends no code");
+    var signUpView = File.ReadAllText(Path.Combine(root, "Frontend", "GlamByMariya.Web", "Views", "Account", "Login.cshtml"));
+    Check(signUpView.Contains("name=\"acceptTerms\"") && signUpView.Contains("asp-action=\"Terms\""), "the sign-up form has the Terms checkbox and links to the Terms page");
+    var homeTerms = typeof(GlamByMariya.Web.Controllers.HomeController).GetMethod("Terms");
+    var termsView = Path.Combine(root, "Frontend", "GlamByMariya.Web", "Views", "Home", "Terms.cshtml");
+    Check(homeTerms != null && File.Exists(termsView), "there is a public Terms and Conditions page");
+    var termsText = File.Exists(termsView) ? File.ReadAllText(termsView) : "";
+    Check(new[] { "DownPaymentPercent", "30 minutes", "₱200", "24 hours", "Transportation" }.All(termsText.Contains), "the Terms page states the deposit, payment window, cancellation and transport rules");
+    Check(File.ReadAllText(Path.Combine(root, "Frontend", "GlamByMariya.Web", "Views", "Shared", "_PublicFooter.cshtml")).Contains("asp-action=\"Terms\"")
+        && File.ReadAllText(Path.Combine(root, "Frontend", "GlamByMariya.Web", "PublicOnlySite.cs")).Contains("\"/Home/Terms\""), "the footer links the Terms page and the public-only site allows it");
+    var firstPost = await SignUp();
+    var secondPost = await SignUp();
+    Check(firstPost is RedirectToActionResult { ActionName: "Verify" }, "signing up sends the customer to the code page");
+    Check(secondPost is RedirectToActionResult { ActionName: "Verify" }, "a repeated sign-up post right after the first also goes to the code page");
+    var siteJs = File.ReadAllText(Path.Combine(root, "Frontend", "GlamByMariya.Web", "wwwroot", "js", "site.js"));
+    Check(siteJs.Contains("data-submit-guard"), "site.js stops a form from being submitted twice");
+    Console.WriteLine($"All {checks} account checks passed."); return;
+}
+if (args.Contains("--catalog-settings-only"))
+{
+    // Step 8: catalog edits and business-hours changes, checked through the real AdminController.
+    var demo = new DemoStore(presentationAccounts: true);
+    var owner = demo.Users.Single(u => u.Role == Roles.SuperAdmin);
+    AdminController Admin(Dictionary<string, Microsoft.Extensions.Primitives.StringValues>? form = null)
+    {
+        var http = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+        http.User = new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim(ClaimTypes.NameIdentifier, owner.Id.ToString()), new Claim(ClaimTypes.Role, owner.Role) }, "Cookies"));
+        http.Request.Form = new Microsoft.AspNetCore.Http.FormCollection(form ?? new());
+        var controller = new AdminController(demo, new BookingService(demo, demo, demo, demo, demo), null!, null!, new MemoryInvitationService(TimeProvider.System), null!)
+        { ControllerContext = new ControllerContext { HttpContext = http } };
+        controller.TempData = new Microsoft.AspNetCore.Mvc.ViewFeatures.TempDataDictionary(http, new NoTempData());
+        return controller;
+    }
+
+    // 8a: editing an archived item keeps it archived.
+    var archived = demo.Services[1];
+    archived.Active = false; archived.Archived = true;
+    await Admin().SaveCatalog(archived.Id, "service", "Glamour Makeup (old)", "Updated note", archived.Price, archived.Minutes, false);
+    Check(archived.Name == "Glamour Makeup (old)" && archived.Archived && !archived.Active, "editing an archived item saves the change and keeps it archived");
+    await Admin().SaveCatalog(archived.Id, "service", "Glamour Makeup (old)", "Updated note", archived.Price, archived.Minutes, true);
+    Check(archived.Archived && demo.Services.Where(x => x.Active && !x.Archived).All(x => x.Id != archived.Id), "an archived item stays hidden from customers even if Active is ticked");
+    await Admin().SaveCatalog(null, "addon", "Brow shaping", "Neat brows", 150, 10, true);
+    var created = demo.AddOns.Single(x => x.Name == "Brow shaping");
+    Check(created.Active && !created.Archived, "a new item starts active and not archived");
+    // 8b: changing hours warns about upcoming bookings that would fall outside them.
+    demo.Settings.EarlyFeeEnabled = false; demo.Settings.LateFeeEnabled = false;
+    var held = demo.Bookings.Single(); // Pending Payment, two days ahead at 10:00, 60 minutes
+    var percent = demo.Settings.DownPaymentPercent; var areas = demo.Settings.ServiceAreas;
+    var refused = Admin();
+    refused.Settings(11, 18, demo.Settings.BufferMinutes, demo.Settings.TravelFee, percent, areas, "");
+    Check(demo.Settings.OpenHour == 8 && (refused.TempData["Error"] as string ?? "").Contains(held.Reference),
+        "new hours that leave an upcoming booking outside are not saved, and the booking is named");
+    var confirmed = Admin();
+    confirmed.Settings(11, 18, demo.Settings.BufferMinutes, demo.Settings.TravelFee, percent, areas, "", confirmAffected: true);
+    Check(demo.Settings.OpenHour == 11 && held.Start.Hour == 10 && (confirmed.TempData["Success"] as string ?? "").Contains("1 upcoming booking"),
+        "with Save anyway the hours change, the booking keeps its time, and the owner is told to contact the customer");
+    var harmless = Admin();
+    harmless.Settings(8, 17, demo.Settings.BufferMinutes, demo.Settings.TravelFee, percent, areas, "");
+    Check(demo.Settings.OpenHour == 8 && demo.Settings.CloseHour == 17 && harmless.TempData["Error"] == null, "hours that affect no booking save straight away");
+    held.Status = "Cancelled";
+    var closed = Admin();
+    closed.Settings(12, 17, demo.Settings.BufferMinutes, demo.Settings.TravelFee, percent, areas, "");
+    Check(demo.Settings.OpenHour == 12 && closed.TempData["Error"] == null, "cancelled bookings do not block an hours change");
+    Console.WriteLine($"All {checks} catalog and settings checks passed."); return;
+}
+if (args.Contains("--storage-key-only"))
+{
+    // A storage key pasted with a trailing new line (or spaces) still works.
+    var seen = new List<string>();
+    var storageConfig = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+    {
+        ["FileStorage:Provider"] = "Supabase", ["Supabase:Url"] = " https://example.supabase.co/\n", ["SupabaseStorage:ServiceKey"] = "sb_secret_example\r\n",
+    }).Build();
+    var factory = new RecordingHttpFactory(seen);
+    var files = new GlamByMariya.Infrastructure.Integrations.SupabaseAppFileStore(factory, storageConfig, Microsoft.Extensions.Logging.Abstractions.NullLogger<GlamByMariya.Infrastructure.Integrations.SupabaseAppFileStore>.Instance);
+    var saveError = "";
+    try { files.Save("CatalogImages/test.jpg", [1, 2, 3]); } catch (Exception e) { saveError = e.GetType().Name + ": " + e.Message; }
+    Check(saveError == "" && seen.Count == 1 && seen[0] == "https://example.supabase.co/storage/v1/object/app-files/CatalogImages/test.jpg apikey=sb_secret_example auth=",
+        "a file upload trims a pasted storage key and URL" + (saveError == "" ? "" : " (" + saveError + ")") + (seen.Count > 0 ? " [" + seen[0] + "]" : ""));
+    // A key split across lines when pasted (new line inside it) still works: real keys contain no whitespace.
+    seen.Clear();
+    var splitConfig = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+    {
+        ["FileStorage:Provider"] = "Supabase", ["Supabase:Url"] = "https://example.supabase.co", ["SupabaseStorage:ServiceKey"] = "sb_secret_exa\r\nmple ",
+    }).Build();
+    var splitFiles = new GlamByMariya.Infrastructure.Integrations.SupabaseAppFileStore(factory, splitConfig, Microsoft.Extensions.Logging.Abstractions.NullLogger<GlamByMariya.Infrastructure.Integrations.SupabaseAppFileStore>.Instance);
+    var splitError = "";
+    try { splitFiles.Save("CatalogImages/test.jpg", [1, 2, 3]); } catch (Exception e) { splitError = e.GetType().Name + ": " + e.Message; }
+    Check(splitError == "" && seen.Count == 1 && seen[0].EndsWith("apikey=sb_secret_example auth="), "a storage key with a new line inside it still uploads" + (splitError == "" ? "" : " (" + splitError + ")"));
+    Check(GlamByMariya.Infrastructure.Integrations.StorageKey.Clean(" sb_secret_a\nb\tc ") == "sb_secret_abc" && GlamByMariya.Infrastructure.Integrations.StorageKey.Clean(null) == "", "storage keys drop every whitespace character");
+    var avatarSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Backend", "GlamByMariya.Infrastructure", "Integrations", "AvatarStorageService.cs"));
+    Check(avatarSource.Contains("StorageKey.Clean(config[\"SupabaseStorage:ServiceKey\"])") && avatarSource.Contains("(config[\"Supabase:Url\"] ?? \"\").Trim().TrimEnd('/')"), "profile picture uploads trim the storage key and URL too");
+    Console.WriteLine($"All {checks} storage key checks passed."); return;
+}
+if (args.Contains("--website-content-live-only"))
+{
+    // Database mode registers the website content repository and services.
+    var programSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "Program.cs")).Replace("\r\n", "\n");
+    var dbStart = programSource.IndexOf("builder.Services.AddSingleton<PostgresWebsiteContentRepository>", StringComparison.Ordinal);
+    if (dbStart >= 0) dbStart = programSource.LastIndexOf("if (connection != null && schema == \"public\")\n{", dbStart, StringComparison.Ordinal);
+    Check(dbStart >= 0, "a database-only block registers PostgresWebsiteContentRepository");
+    var dbBlock = dbStart < 0 ? "" : programSource[dbStart..programSource.IndexOf("var app = builder.Build();", dbStart, StringComparison.Ordinal)];
+    foreach (var iface in new[] { "IWebsiteContentRepository", "IWebsiteImageRepository", "IWebsitePublishedAssetLookup", "IWebsiteDraftAssetLookup", "IWebsiteAssetWriter" })
+        Check(dbBlock.Contains("AddSingleton<" + iface + ">(sp => sp.GetRequiredService<PostgresWebsiteContentRepository>())"), iface + " is backed by the shared repository singleton");
+    Check(dbBlock.Contains("AddSingleton<WebsiteContentService>()") && dbBlock.Contains("AddSingleton<WebsiteImageService>()"), "content and image services are singletons");
+    Check(dbBlock.Contains("AddScoped<WebsitePublicImageService>()") && dbBlock.Contains("AddScoped<WebsiteDraftImageService>()"), "file-store image services are scoped");
+    Check(programSource.Contains("builder.Services.AddSingleton<IWebsiteContentRepository, DemoWebsiteContentRepository>();") && programSource.Contains("new DemoFileWebsiteContentRepository(fullRoot)"), "demo registrations are unchanged");
+    Check(dbBlock.Contains("AddScoped<WebsiteImageUploadService>()"), "the photo upload service is scoped (it uses the scoped file store)");
+
+    // Task 4: owner uploads and removes photos on the live draft.
+    var uploadOwner = new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim(ClaimTypes.NameIdentifier, Guid.NewGuid().ToString()), new Claim(ClaimTypes.Role, "SuperAdmin") }, "Cookies"));
+    var uploadAdmin = new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim(ClaimTypes.NameIdentifier, Guid.NewGuid().ToString()), new Claim(ClaimTypes.Role, "Admin") }, "Cookies"));
+    var photo = File.ReadAllBytes(Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "wwwroot", "images", "looks", "soft-glam.jpg"));
+    var keyPattern = new System.Text.RegularExpressions.Regex(@"\Awebsite-content/[0-9a-f]{32}\.(jpg|png)\z");
+    var draftId = Guid.NewGuid();
+    var cleanupLog = new CapturingLogger<GlamByMariya.Infrastructure.Integrations.WebsiteImageUploadService>();
+    (FakeWebsiteImages Images, FakeAssetWriter Assets, RecordingFileStore Files, GlamByMariya.Infrastructure.Integrations.WebsiteImageUploadService Upload) Uploads()
+    {
+        var fakeImages = new FakeWebsiteImages(); var fakeAssets = new FakeAssetWriter(); var fakeFiles = new RecordingFileStore();
+        return (fakeImages, fakeAssets, fakeFiles, new GlamByMariya.Infrastructure.Integrations.WebsiteImageUploadService(fakeImages, fakeAssets, fakeFiles, cleanupLog));
+    }
+    async Task<Exception?> Fails(Func<Task> action) { try { await action(); return null; } catch (Exception e) { return e; } }
+
+    var up = Uploads();
+    await up.Upload.Save(uploadOwner, draftId, up.Images.Revision, "hero", "Bride with soft glam", null, photo, default);
+    Check(up.Files.Saved.Count == 1 && keyPattern.IsMatch(up.Files.Saved[0]) && up.Images.List.Count(x => x.Role == "hero") == 1, "owner saves a hero photo under a website-content key");
+    Check(up.Assets.Added.Single().Key == up.Files.Saved[0] && up.Images.List.Single().AssetId == up.Assets.Added.Single().Id, "the hero points at the new asset");
+    await up.Upload.Save(uploadOwner, draftId, up.Images.Revision, "hero", "Second hero", "", photo, default);
+    Check(up.Images.List.Count(x => x.Role == "hero") == 1 && up.Images.List.Single(x => x.Role == "hero").AltText == "Second hero", "a second hero replaces the first");
+
+    up = Uploads();
+    Check(await Fails(() => up.Upload.Save(uploadAdmin, draftId, up.Images.Revision, "hero", "Alt", null, photo, default)) is UnauthorizedAccessException && up.Files.Saved.Count == 0, "an Admin who is not SuperAdmin cannot upload photos");
+    Check(await Fails(() => up.Upload.Save(uploadOwner, draftId, up.Images.Revision, "hero", "Alt", null, "not an image"u8.ToArray(), default)) != null && up.Files.Saved.Count == 0, "bytes that are not an image are refused before storage");
+
+    up = Uploads(); up.Images.FailReplace = true;
+    Check(await Fails(() => up.Upload.Save(uploadOwner, draftId, up.Images.Revision, "portrait", "Mariya", null, photo, default)) != null && up.Files.Saved.Count == 1 && up.Files.Deleted.SequenceEqual(up.Files.Saved), "a failed draft update deletes the stored file");
+
+    up = Uploads();
+    up.Images.List.AddRange(Enumerable.Range(0, 20).Select(i => new WebsiteImageReference(Guid.NewGuid(), Guid.NewGuid(), "gallery", $"Look {i}", "", i, true)));
+    var galleryFull = await Fails(() => up.Upload.Save(uploadOwner, draftId, up.Images.Revision, "gallery", "One more", null, photo, default));
+    Check(galleryFull is ArgumentException { Message: "The gallery already has 20 photos." } && up.Files.Saved.Count == 0, "a 21st gallery photo is refused before storage");
+
+    up = Uploads();
+    await up.Upload.Save(uploadOwner, draftId, up.Images.Revision, "gallery", "First look", "Caption one", photo, default);
+    await up.Upload.Save(uploadOwner, draftId, up.Images.Revision, "gallery", "Second look", "", photo, default);
+    var looks = up.Images.List.Where(x => x.Role == "gallery").OrderBy(x => x.SortOrder).ToList();
+    Check(looks.Count == 2 && looks[1].SortOrder == looks[0].SortOrder + 1 && looks[0].Caption == "Caption one", "gallery photos append in order with their captions");
+    await up.Upload.Remove(uploadOwner, draftId, up.Images.Revision, looks[0].Id, default);
+    Check(up.Images.List.Count == 1 && up.Images.List[0].Id == looks[1].Id, "Remove drops only the chosen photo");
+
+    // A storage outage shows a friendly message; text editing is unaffected.
+    up = Uploads(); up.Files.FailSave = true;
+    var uploadServices = Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions.BuildServiceProvider(
+        Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton(new Microsoft.Extensions.DependencyInjection.ServiceCollection(), up.Upload));
+    var uploadHttp = new Microsoft.AspNetCore.Http.DefaultHttpContext { User = uploadOwner, RequestServices = uploadServices };
+    var uploadController = new GlamByMariya.Web.Controllers.WebsiteContentController { ControllerContext = new ControllerContext { HttpContext = uploadHttp } };
+    uploadController.TempData = new Microsoft.AspNetCore.Mvc.ViewFeatures.TempDataDictionary(uploadHttp, new NoTempData());
+    uploadController.Url = new Microsoft.AspNetCore.Mvc.Routing.UrlHelper(new ActionContext(uploadHttp, new Microsoft.AspNetCore.Routing.RouteData(), new Microsoft.AspNetCore.Mvc.Abstractions.ActionDescriptor()));
+    var formFile = new Microsoft.AspNetCore.Http.FormFile(new MemoryStream(photo), 0, photo.Length, "image", "soft-glam.jpg");
+    var stored = await uploadController.SaveImage(draftId, up.Images.Revision, "hero", "Alt", null, formFile, default);
+    Check(stored is RedirectToActionResult { ActionName: "Index" } && (string?)uploadController.TempData["Error"] == "Photos can't be saved right now. Text changes still work.", "a storage outage shows the friendly photo message");
+
+    var viewSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "Views", "WebsiteContent", "Index.cshtml"));
+    var demoStart = viewSource.IndexOf("ViewData[\"DemoPersistentText\"] is true) {", viewSource.IndexOf("<partial name=\"_TextEditor\"", StringComparison.Ordinal), StringComparison.Ordinal);
+    var demoEnd = demoStart < 0 ? -1 : viewSource.IndexOf("website-image-preview.js", demoStart, StringComparison.Ordinal);
+    Check(demoEnd > 0 && viewSource.IndexOf("asp-action=\"SaveImage\"", demoEnd, StringComparison.Ordinal) > 0 && viewSource.IndexOf("asp-action=\"RemoveImage\"", demoEnd, StringComparison.Ordinal) > 0, "the live editor has photo save and remove forms outside the demo block");
+
+    // Review fixes: caching, unsaved-text guard, cleanup logging, message mapping.
+    up = Uploads(); up.Images.FailReplace = true; up.Files.FailDelete = true;
+    var cleanupErr = await Fails(() => up.Upload.Save(uploadOwner, draftId, up.Images.Revision, "portrait", "Mariya", null, photo, default));
+    Check(cleanupErr is InvalidOperationException { Message: "Simulated database failure." }, "a failed cleanup delete still rethrows the original error");
+    Check(cleanupLog.Entries.Any(e => e.Level == Microsoft.Extensions.Logging.LogLevel.Warning && e.Message.Contains(up.Files.Saved[0])), "a failed cleanup delete logs a warning with the object key");
+
+    var imagesSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "Controllers", "WebsiteImagesController.cs"));
+    Check(!imagesSource.Contains("NoStore") && imagesSource.Contains("public, max-age=86400") && imagesSource.Contains("nosniff"), "published images are cached publicly for a day and keep nosniff");
+    var contentSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "Controllers", "WebsiteContentController.cs"));
+    var draftAt = contentSource.IndexOf("Task<IActionResult> DraftImage", StringComparison.Ordinal);
+    Check(draftAt > 0 && contentSource[(draftAt - 140)..draftAt].Contains("NoStore = true"), "draft images stay no-store");
+
+    Check(viewSource.Contains("Save your text changes before adding or removing photos.") && viewSource.Contains("~/js/website-unsaved-text.js"), "the live photo area warns to save text first and loads the unsaved-text script");
+    var guardPath = Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "wwwroot", "js", "website-unsaved-text.js");
+    var guard = File.Exists(guardPath) ? File.ReadAllText(guardPath) : "";
+    Check(guard.Contains("beforeunload") && guard.Contains("website-content-editor") && guard.Contains("submit"), "the unsaved-text script warns on leave and clears on submit");
+
+    async Task<string?> SaveMessage(Func<GlamByMariya.Web.Controllers.WebsiteContentController, Task> act, RecordingFileStore f, FakeWebsiteImages im, FakeAssetWriter aw)
+    {
+        var svc = new GlamByMariya.Infrastructure.Integrations.WebsiteImageUploadService(im, aw, f, cleanupLog);
+        var sp = Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions.BuildServiceProvider(
+            Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton(new Microsoft.Extensions.DependencyInjection.ServiceCollection(), svc));
+        var http = new Microsoft.AspNetCore.Http.DefaultHttpContext { User = uploadOwner, RequestServices = sp };
+        var c = new GlamByMariya.Web.Controllers.WebsiteContentController { ControllerContext = new ControllerContext { HttpContext = http } };
+        c.TempData = new Microsoft.AspNetCore.Mvc.ViewFeatures.TempDataDictionary(http, new NoTempData());
+        c.Url = new Microsoft.AspNetCore.Mvc.Routing.UrlHelper(new ActionContext(http, new Microsoft.AspNetCore.Routing.RouteData(), new Microsoft.AspNetCore.Mvc.Abstractions.ActionDescriptor()));
+        await act(c);
+        return (string?)c.TempData["Error"];
+    }
+    Microsoft.AspNetCore.Http.FormFile Form() => new(new MemoryStream(photo), 0, photo.Length, "image", "soft-glam.jpg");
+    var mm1 = Uploads();
+    Check(await SaveMessage(c => c.SaveImage(draftId, mm1.Images.Revision + 5, "hero", "Alt", null, Form(), default), mm1.Files, mm1.Images, mm1.Assets) == "The draft changed. Reload and try again.", "a stale revision shows the draft-changed message");
+    var mm2 = Uploads(); mm2.Images.FailReplace = true;
+    Check(await SaveMessage(c => c.SaveImage(draftId, mm2.Images.Revision, "hero", "Alt", null, Form(), default), mm2.Files, mm2.Images, mm2.Assets) == "The photo could not be saved. Please try again.", "any other failure shows the generic photo message");
+    var mm3 = Uploads(); mm3.Files.FailSave = true;
+    Check(await SaveMessage(c => c.SaveImage(draftId, mm3.Images.Revision, "hero", "Alt", null, Form(), default), mm3.Files, mm3.Images, mm3.Assets) == "Photos can't be saved right now. Text changes still work.", "a storage outage shows the outage message");
+    var mm4 = Uploads(); mm4.Images.List.Add(new WebsiteImageReference(Guid.NewGuid(), Guid.NewGuid(), "gallery", "x", "", 0, true));
+    Check(await SaveMessage(c => c.RemoveImage(draftId, mm4.Images.Revision + 5, mm4.Images.List[0].Id, default), mm4.Files, mm4.Images, mm4.Assets) == "The draft changed. Reload and try again.", "removing with a stale revision shows the draft-changed message");
+    var mm5 = Uploads(); mm5.Images.List.Add(new WebsiteImageReference(Guid.NewGuid(), Guid.NewGuid(), "gallery", "x", "", 0, true)); mm5.Images.FailReplace = true;
+    Check(await SaveMessage(c => c.RemoveImage(draftId, mm5.Images.Revision, mm5.Images.List[0].Id, default), mm5.Files, mm5.Images, mm5.Assets) is { } removeMsg && !removeMsg.Contains("draft changed"), "removing with another failure does not claim the draft changed");
+    // With live photo editing on, the text editor must not claim photos are unavailable.
+    var textEditorView = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "Views", "WebsiteContent", "_TextEditor.cshtml"));
+    Check(textEditorView.Contains("ViewData[\"DraftImages\"] != null") && textEditorView.Contains("Add or replace photos below, after saving your text.")
+          && textEditorView.Contains("Add and remove gallery photos below."), "the live editor's notices point to the photo cards instead of saying photos are unavailable");
+    // The draft preview shows the draft's photos on the live site too, not only in the demo.
+    var previewController = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "Controllers", "WebsiteContentController.cs"));
+    var previewView = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "Views", "WebsiteContent", "Preview.cshtml"));
+    Check(previewController.Contains("ViewData[\"PreviewImages\"] = await images.DraftImages(User, draft.Id, cancellationToken)") && previewView.Contains("ViewData[\"PreviewImages\"]")
+          && previewView.Contains("\"gallery\" => \"Gallery photo\""), "the live draft preview shows hero, portrait and gallery photos");
+    Console.WriteLine($"All {checks} live website content checks passed."); return;
+}
+if (args.Contains("--package-label-only"))
+{
+    // Step 9a: the "Package" label only when the group rate was actually applied.
+    var soft = new CatalogItem { Name = "Soft Glam", Price = 600, GroupPrice = 525, GroupMinimumPeople = 4, Minutes = 60 };
+    Booking FromQuote(int people)
+    {
+        var q = BookingPricing.Calculate(soft, [], people, 0, "group");
+        return new Booking { Service = new(soft.Id, soft.Name, soft.Price, soft.Minutes), People = people, Package = "group",
+            GroupPrice = q.GroupPrice, GroupMinimumPeople = q.GroupMinimumPeople, AppliedPricePerPerson = q.AppliedPricePerPerson };
+    }
+    var small = FromQuote(2);
+    Check(small.AppliedPricePerPerson == 600 && small.BookingType == "Group booking (regular rate)", "2 people below the group minimum show the regular-rate label");
+    var atMinimum = FromQuote(4);
+    Check(atMinimum.AppliedPricePerPerson == 525 && atMinimum.BookingType == "Same-Service Package", "4 people at the group minimum show the package label");
+    Check(new Booking { People = 1, Package = "auto" }.BookingType == "Individual", "one person is still an Individual booking");
+    Check(GlamByMariya.Web.ViewModels.AdminPaymentLabels.PeopleCount(1) == "1 person" && GlamByMariya.Web.ViewModels.AdminPaymentLabels.PeopleCount(4) == "4 people", "party size reads 1 person / 4 people");
+    var adminViews = Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "Views", "Admin");
+    foreach (var view in new[] { "Payments.cshtml", "_AppointmentCalendar.cshtml", "_AppointmentList.cshtml", "_MixedBookingDetails.cshtml" })
+        Check(!File.ReadAllText(Path.Combine(adminViews, view)).Contains("People people"), $"{view} uses the party size label");
+    var adminDetails = File.ReadAllText(Path.Combine(adminViews, "Details.cshtml"));
+    Check(adminDetails.IndexOf("BOOKING REVIEW") < adminDetails.IndexOf("_BookingPriceDetails"), "admin booking details show the customer and status before the price table");
+    Console.WriteLine($"All {checks} package label checks passed."); return;
+}
+if (args.Contains("--booking-lookup-only"))
+{
+    // Step 9c: opening one booking reads that booking, not the whole Bookings list.
+    var demo = new DemoStore(presentationAccounts: true);
+    var counting = System.Reflection.DispatchProxy.Create<IStudioStore, CountingStore>();
+    ((CountingStore)(object)counting).Target = demo;
+    var counter = (CountingStore)(object)counting;
+    var flow = new BookingService(counting, counting, counting, counting, counting);
+    var booking = demo.Bookings.Single();
+    var lookupCustomer = demo.Users.Single(u => u.Role == Roles.Customer);
+    var lookupAdmin = demo.Users.Single(u => u.Role == Roles.Admin);
+    var other = demo.AddUser("Other", "Customer", "other.lookupCustomer@example.test", "OtherPass123", Roles.Customer, 30, "Others", "24 Synthetic Street");
+    T Wire<T>(T controller, AppUser user) where T : Controller
+    {
+        var http = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+        http.User = new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()), new Claim(ClaimTypes.Role, user.Role) }, "Cookies"));
+        controller.ControllerContext = new ControllerContext { HttpContext = http };
+        controller.TempData = new Microsoft.AspNetCore.Mvc.ViewFeatures.TempDataDictionary(http, new NoTempData());
+        return controller;
+    }
+    Check(demo.FindBooking(booking.Id) == booking && demo.FindBooking(Guid.NewGuid()) == null, "FindBooking returns the booking by id, or nothing");
+    counter.Reset();
+    var adminView = Wire(new AdminController(counting, flow, null!, null!, new MemoryInvitationService(TimeProvider.System), null!), lookupAdmin).Details(booking.Id);
+    Check(adminView is ViewResult { Model: Booking shown } && shown.Id == booking.Id && counter.Calls("get_Bookings") == 0, "admin booking details load one booking, not the whole list");
+    counter.Reset();
+    var mine = Wire(new BookingsController(counting, flow, null!, null!, null!, null!), lookupCustomer).Confirmation(booking.Id);
+    Check(mine is ViewResult && counter.Calls("get_Bookings") == 0, "customer booking confirmation loads one booking, not the whole list");
+    var notMine = Wire(new BookingsController(counting, flow, null!, null!, null!, null!), other).Confirmation(booking.Id);
+    Check(notMine is NotFoundResult, "a customer still cannot open another customer's booking");
+    foreach (var controllerFile in new[] { "AdminController.cs", "BookingsController.cs" })
+        Check(!File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "Controllers", controllerFile)).Contains("store.Bookings.FirstOrDefault("),
+            $"{controllerFile} no longer scans every booking to find one");
+    Console.WriteLine($"All {checks} booking lookup checks passed."); return;
+}
+if (args.Contains("--xendit-only"))
+{
+    // Xendit client and webhook without network or database: a fake HTTP handler and a fake store.
+    IConfiguration Settings(string key) => new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> {
+        ["Xendit:SecretKey"] = key, ["Xendit:CallbackToken"] = "callback-token-123" }).Build();
+    var xenditHttp = new CapturingXenditHttp();
+    var client = new XenditClient(xenditHttp, Settings("xnd_development_abc"));
+    var invoice = await client.CreateInvoiceAsync("LM-1234ABCD", 300m, "ana@example.test", "Down payment", "https://site.test/done", "https://site.test/done");
+    var sent = System.Text.Json.JsonDocument.Parse(xenditHttp.LastBody!).RootElement;
+    Check(xenditHttp.LastUri == "https://api.xendit.co/v2/invoices" && xenditHttp.LastAuth == "Basic " + Convert.ToBase64String(System.Text.Encoding.ASCII.GetBytes("xnd_development_abc:")),
+        "the invoice request goes to Xendit with the secret key as basic auth");
+    Check(sent.GetProperty("external_id").GetString() == "LM-1234ABCD" && sent.GetProperty("amount").GetDecimal() == 300m && sent.GetProperty("currency").GetString() == "PHP"
+        && sent.GetProperty("invoice_duration").GetInt32() == 1800, "the invoice is for the booking reference, the exact deposit in PHP, valid 30 minutes");
+    Check(invoice.Id == "inv_fake_1" && invoice.InvoiceUrl == "https://checkout-staging.xendit.co/web/inv_fake_1", "the checkout link comes back from Xendit");
+    Reject(() => new XenditClient(xenditHttp, Settings("xnd_production_abc")).CreateInvoiceAsync("LM-1", 1m, "a@example.test", "d", "https://s.test", "https://s.test").GetAwaiter().GetResult(),
+        "a live Xendit key is refused for the demo");
+    Check(client.CallbackTokenMatches("callback-token-123") && !client.CallbackTokenMatches("wrong") && !client.CallbackTokenMatches(null), "only the configured callback token is accepted");
+
+    var fakeStore = System.Reflection.DispatchProxy.Create<IPersistentStudioStore, XenditStoreProxy>();
+    var calls = (XenditStoreProxy)(object)fakeStore;
+    System.Text.Json.JsonElement Body(string json) => System.Text.Json.JsonDocument.Parse(json).RootElement;
+    var paid = GlamByMariya.Web.Controllers.XenditWebhookController.Apply(fakeStore, Body("""{"id":"inv_9","status":"PAID","paid_amount":300,"currency":"PHP"}"""));
+    Check(paid == (200, "confirmed") && calls.Last == "XenditPaid inv_9 300 inv_9:PAID", "a PAID callback confirms through the database with the paid amount");
+    var expired = GlamByMariya.Web.Controllers.XenditWebhookController.Apply(fakeStore, Body("""{"id":"inv_9","status":"EXPIRED","currency":"PHP"}"""));
+    Check(expired == (200, "noted") && calls.Last == "XenditExpired inv_9 inv_9:EXPIRED", "an EXPIRED callback is passed on");
+    Check(GlamByMariya.Web.Controllers.XenditWebhookController.Apply(fakeStore, Body("""{"id":"inv_9","status":"PAID","paid_amount":300,"currency":"USD"}""")).Status == 400,
+        "a non-PHP callback is refused");
+    Check(GlamByMariya.Web.Controllers.XenditWebhookController.Apply(fakeStore, Body("""{"status":"PAID","paid_amount":300}""")).Status == 400, "a callback without an invoice id is refused");
+
+    var webhook = new GlamByMariya.Web.Controllers.XenditWebhookController(fakeStore, client, Microsoft.Extensions.Logging.Abstractions.NullLogger<GlamByMariya.Web.Controllers.XenditWebhookController>.Instance);
+    var hook = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+    hook.Request.Body = new MemoryStream(System.Text.Encoding.UTF8.GetBytes("""{"id":"inv_9","status":"PAID","paid_amount":300}"""));
+    hook.Request.Headers["x-callback-token"] = "forged";
+    webhook.ControllerContext = new ControllerContext { HttpContext = hook };
+    Check(await webhook.Receive() is UnauthorizedResult && calls.Count == 2, "a webhook with a wrong token is refused before touching the database");
+
+    // MVC treats every non-nullable string parameter as [Required]. The Xendit booking form posts no
+    // payment reference or screenshot, so only fields it really sends may be non-nullable strings.
+    var createPost = typeof(GlamByMariya.Web.Controllers.BookingsController).GetMethods()
+        .Single(m => m.Name == "Create" && m.GetCustomAttributes(typeof(Microsoft.AspNetCore.Mvc.HttpPostAttribute), false).Length > 0);
+    var nullability = new System.Reflection.NullabilityInfoContext();
+    var requiredStrings = createPost.GetParameters()
+        .Where(p => p.ParameterType == typeof(string) && nullability.Create(p).WriteState == System.Reflection.NullabilityState.NotNull)
+        .Select(p => p.Name!).ToHashSet();
+    var xenditFormFields = new HashSet<string> { "address", "area", "method", "package" };
+    Check(requiredStrings.IsSubsetOf(xenditFormFields),
+        "the Xendit booking form posts every field MVC requires (required: " + string.Join(", ", requiredStrings) + ")");
+
+    // Customer-facing wording in Xendit mode: no manual-payment leftovers.
+    string View(params string[] parts) => File.ReadAllText(Path.Combine(new[] { Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "Views" }.Concat(parts).ToArray()));
+    var createView = View("Bookings", "Create.cshtml");
+    Check(createView.Contains("@if (ViewBag.XenditEnabled != true) { <partial name=\"_PaymentQr\"") && createView.Contains("Continue to secure payment"),
+        "the Xendit booking form hides the manual QR box and says it continues to secure payment");
+    Check(!View("Shared", "_AvailabilityCalendar.cshtml").Contains("not yet verified"), "the calendar note no longer shows an internal 'not yet verified' remark");
+    var receipt = View("Bookings", "Confirmation.cshtml");
+    Check(receipt.Contains("You’re booked!") && receipt.Contains("Complete payment") && receipt.Contains("PaidOnXendit"),
+        "the confirmation page matches the booking status and offers the payment link while unpaid");
+    var detailsView = View("Bookings", "Details.cshtml");
+    Check(detailsView.Contains("ViewBag.CheckoutUrl is string payUrl") && detailsView.Contains("ViewBag.PaidOnXendit != true"),
+        "booking details offer the Xendit link while unpaid and hide the screenshot upload for Xendit payments");
+    Check(detailsView.IndexOf("ViewBag.CheckoutUrl is string payUrl") < detailsView.IndexOf("Cancel your appointment"),
+        "the Xendit pay panel sits above the cancel section");
+    Check(createView.Contains("Never send money to a personal account") && createView.Contains("Next you pay the down payment on Xendit")
+          && !createView.Contains("Estimated departure") && !createView.Contains("route feasibility must be reviewed"),
+        "the Xendit booking form and review popup describe online payment, not manual review");
+    foreach (var script in new[] { "booking-steps.js", "booking-steps-phase2.js" })
+    {
+        var js = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "wwwroot", "js", script));
+        Check(!js.Contains("Route feasibility") && !js.Contains("claimed payment") && js.Contains("Down payment to pay now"), $"{script} review popup has no manual-review leftovers");
+    }
+    var controllerSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "Controllers", "BookingsController.cs"));
+    Check(controllerSource.Contains("Your booking is confirmed once the down payment goes through."), "the time check message in Xendit mode says payment confirms the booking");
+    string AdminView(string name) => File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "Views", "Admin", name));
+    var overview = AdminView("Index.cshtml"); var paymentsPage = AdminView("Payments.cshtml"); var reportsPage = AdminView("Reports.cshtml");
+    Check(overview.Contains("Waiting for Xendit checkout") && paymentsPage.Contains("Xendit marks a down payment verified") && reportsPage.Contains("Xendit down payments and cash balances"),
+        "the admin overview, payments and reports describe Xendit when it is on");
+    Check(new[] { overview, paymentsPage, reportsPage }.All(v => v.Contains("Xendit.Enabled && DataStore.IsPersistent")), "the admin wording follows whether Xendit is on");
+    // Unpaid bookings that ended (expired, cancelled, rejected) are not "awaiting review".
+    Booking Unpaid(string status) => new() { Status = status, PaymentStatus = "Pending Verification" };
+    var unpaidClaim = new Payment { Verified = false };
+    Check(GlamByMariya.Web.ViewModels.AdminPaymentLabels.Booking(Unpaid("Expired"), true) == "Not paid — checkout expired"
+          && GlamByMariya.Web.ViewModels.AdminPaymentLabels.Booking(Unpaid("Cancelled"), true) == "Not paid"
+          && GlamByMariya.Web.ViewModels.AdminPaymentLabels.Booking(Unpaid("Pending Payment"), true) == "Waiting for Xendit payment"
+          && GlamByMariya.Web.ViewModels.AdminPaymentLabels.Booking(new Booking { Status = "Confirmed", PaymentStatus = "Down Payment Verified" }, true) == "Down Payment Verified",
+        "the appointment list shows unpaid expired or cancelled bookings as not paid");
+    Check(GlamByMariya.Web.ViewModels.AdminPaymentLabels.Payment(unpaidClaim, Unpaid("Expired"), true) == "Not paid — checkout expired"
+          && GlamByMariya.Web.ViewModels.AdminPaymentLabels.Payment(unpaidClaim, Unpaid("Pending Payment"), true) == "Waiting for Xendit payment"
+          && GlamByMariya.Web.ViewModels.AdminPaymentLabels.Payment(unpaidClaim, Unpaid("Pending Payment"), false) == "Unverified — awaiting review"
+          && GlamByMariya.Web.ViewModels.AdminPaymentLabels.Payment(new Payment { Verified = true }, Unpaid("Expired"), true) == "Verified",
+        "the payments page shows an expired Xendit checkout as not paid, not awaiting review");
+    var calendarView = AdminView("_AppointmentCalendar.cshtml"); var listView = AdminView("_AppointmentList.cshtml");
+    Check(calendarView.Contains("AdminPaymentLabels.OnCalendar") && listView.Contains("AdminPaymentLabels.Booking") && paymentsPage.Contains("AdminPaymentLabels.Payment"),
+        "the calendar, list and payments pages use these labels");
+    Check(paymentsPage.Contains("p.Method == \"Cash\" ? \"Cash balance\""), "a cash balance recorded at completion is not called a down payment");
+    Check(!GlamByMariya.Web.ViewModels.AdminPaymentLabels.OnCalendar(Unpaid("Expired")) && !GlamByMariya.Web.ViewModels.AdminPaymentLabels.OnCalendar(Unpaid("Rejected"))
+          && GlamByMariya.Web.ViewModels.AdminPaymentLabels.OnCalendar(Unpaid("Pending Payment")) && GlamByMariya.Web.ViewModels.AdminPaymentLabels.OnCalendar(Unpaid("Cancelled")) == false,
+        "expired, rejected and cancelled bookings no longer count as appointments on the calendar");
+    // Business Settings on the live site (database + Xendit) only shows what applies there.
+    var settingsPage = AdminView("Settings.cshtml");
+    Check(settingsPage.Contains("Xendit.Enabled && DataStore.IsPersistent") && settingsPage.Contains("@if (!online)") && settingsPage.Contains("<input type=\"hidden\" name=\"paymentInstructions\""),
+        "with Xendit on, the GCash/Maya/bank QR uploads and payment instructions are hidden but kept");
+    Check(settingsPage.Contains("@(DataStore.IsPersistent ? $\"All times are in {Model.TimeZone}.\"") && settingsPage.Contains("@if (!DataStore.IsPersistent) { <text>Demo settings and bookings reset on restart. </text> }"),
+        "the live settings no longer say server local time or that settings reset on restart");
+    Check(settingsPage.Contains("Early and late fee settings can't be changed on the live site yet."), "the live settings explain the fee settings plainly");
+    Console.WriteLine($"All {checks} Xendit checks passed."); return;
+}
+if (args.Contains("--email-codes-only"))
+{
+    // Store rules, checked directly on the memory store (the Postgres store follows the same contract).
+    var codeStore = new MemoryEmailCodeStore(new Microsoft.Extensions.Caching.Memory.MemoryCache(new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions()));
+    var t0 = DateTime.UtcNow;
+    Check(codeStore.Consume("reset", "a@example.test", "H1", 5, t0).Result == EmailCodeCheck.Missing, "no code means Missing");
+    codeStore.Save("reset", " A@Example.TEST ", "H1", t0.AddMinutes(15), null);
+    Check(codeStore.Peek("reset", "a@example.test", t0) != null, "email is normalized (case and spaces)");
+    for (var i = 0; i < 5; i++) Check(codeStore.Consume("reset", "a@example.test", "WRONG", 5, t0).Result == EmailCodeCheck.Wrong, $"wrong code {i + 1} counts an attempt");
+    Check(codeStore.Consume("reset", "a@example.test", "H1", 5, t0).Result == EmailCodeCheck.Locked, "after 5 wrong codes even the right code is locked");
+    codeStore.Save("reset", "a@example.test", "H2", t0.AddMinutes(15), null);
+    Check(codeStore.Consume("reset", "a@example.test", "H2", 5, t0).Result == EmailCodeCheck.Ok, "a new code resets the attempt counter");
+    Check(codeStore.Consume("reset", "a@example.test", "H2", 5, t0).Result == EmailCodeCheck.Missing, "a correct code is single use");
+    codeStore.Save("registration", "a@example.test", "R1", t0.AddMinutes(15), "{}");
+    codeStore.Consume("registration", "a@example.test", "WRONG", 5, t0);
+    codeStore.Save("reset", "a@example.test", "H3", t0.AddMinutes(15), null);
+    Check(codeStore.Consume("registration", "a@example.test", "R1", 5, t0).Result == EmailCodeCheck.Ok && codeStore.Consume("reset", "a@example.test", "H3", 5, t0).Result == EmailCodeCheck.Ok,
+        "registration and reset codes have separate attempt counters");
+    codeStore.Save("reset", "a@example.test", "H4", t0.AddMinutes(1), null);
+    Check(codeStore.Consume("reset", "a@example.test", "H4", 5, t0.AddMinutes(2)).Result == EmailCodeCheck.Expired, "an old code is Expired");
+    Check(codeStore.TryStartCooldown("reset", "a@example.test", TimeSpan.FromSeconds(60), t0) && !codeStore.TryStartCooldown("reset", "a@example.test", TimeSpan.FromSeconds(60), t0),
+        "a second request inside the cooldown is refused");
+    Check(codeStore.TryStartCooldown("registration", "a@example.test", TimeSpan.FromSeconds(60), t0), "a reset cooldown does not block registration");
+    codeStore.ClearCooldown("reset", "a@example.test");
+    Check(codeStore.TryStartCooldown("reset", "a@example.test", TimeSpan.FromSeconds(60), t0), "a cleared cooldown allows an immediate retry");
+
+    // Service behaviour with a fake Brevo delivery that captures the emailed code.
+    var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { ["Email:BrevoApiKey"] = "synthetic-key", ["Email:From"] = "sender@example.test" }).Build();
+    var delivery = new CapturingBrevoDelivery();
+    var cache = new Microsoft.Extensions.Caching.Memory.MemoryCache(new Microsoft.Extensions.Caching.Memory.MemoryCacheOptions());
+    var serviceStore = new MemoryEmailCodeStore(cache);
+    var brevo = new BrevoEmailSender(delivery, config, Microsoft.Extensions.Logging.Abstractions.NullLogger<BrevoEmailSender>.Instance);
+    var codes = new EmailVerificationService(cache, config, Microsoft.Extensions.Logging.Abstractions.NullLogger<EmailVerificationService>.Instance, new SyntheticWebEnv(), brevo, serviceStore);
+    var email = "new.customer@example.test";
+    await codes.RequestRegistrationCodeAsync(email, new("New", "Customer", email, 30, "Others", "24 Synthetic Street", "Secret123!"));
+    var held = serviceStore.Peek("registration", email, DateTime.UtcNow)!;
+    Check(!held.Contains("Secret123!") && held.Contains("PasswordHash"), "the held registration stores a password hash, never the password");
+    Reject(() => codes.RequestRegistrationCodeAsync(email, new("New", "Customer", email, 30, "Others", "24 Synthetic Street", "Secret123!")).GetAwaiter().GetResult(), "a second registration email inside 60 seconds is refused");
+    Reject(() => codes.ConfirmRegistrationCode(email, "000000" == delivery.LastCode ? "111111" : "000000"), "a wrong registration code is rejected");
+    var pending = codes.ConfirmRegistrationCode(email, delivery.LastCode!);
+    Check(pending.Password == "" && pending.PasswordHash is { } hash &&
+        new Microsoft.AspNetCore.Identity.PasswordHasher<AppUser>().VerifyHashedPassword(new AppUser(), hash, "Secret123!") != Microsoft.AspNetCore.Identity.PasswordVerificationResult.Failed,
+        "the confirmed registration returns a hash that matches the original password");
+    var demo = new DemoStore(presentationAccounts: true);
+    var created = demo.AddCustomerWithPasswordHash(pending.FirstName, pending.LastName, pending.Email, pending.PasswordHash!, pending.Age, pending.Gender, pending.Address);
+    Check(created.Role == Roles.Customer && created.PasswordHash == pending.PasswordHash, "a customer account is created from the held hash");
+    Reject(() => demo.AddCustomerWithPasswordHash(pending.FirstName, pending.LastName, pending.Email, pending.PasswordHash!, pending.Age, pending.Gender, pending.Address), "the same email cannot be registered twice");
+    Reject(() => demo.AddCustomerWithPasswordHash("New", "Customer", "other@example.test", "", 30, "Others", "24 Synthetic Street"), "an empty password hash is rejected");
+
+    await codes.RequestPasswordResetCodeAsync(email);
+    Reject(() => codes.RequireResetVerified(email), "reset is not verified before the code is entered");
+    codes.ConfirmPasswordResetCode(email, delivery.LastCode!);
+    codes.RequireResetVerified(email);
+    Check(true, "a correct reset code marks the reset as verified");
+    codes.ClearResetVerified(email);
+    Reject(() => codes.RequireResetVerified(email), "clearing the reset verification works");
+
+    // Takeover attempt: someone else registers the same email from another browser.
+    var target = "target.customer@example.test";
+    var victimBrowser = EmailVerificationService.NewBrowserToken(); var attackerBrowser = EmailVerificationService.NewBrowserToken();
+    await codes.RequestRegistrationCodeAsync(target, new("Real", "Owner", target, 30, "Others", "24 Synthetic Street", "OwnerPass123!"), victimBrowser);
+    var victimCode = delivery.LastCode!;
+    serviceStore.ClearCooldown("registration", target); // skip the 60-second wait in the test
+    await codes.RequestRegistrationCodeAsync(target, new("Other", "Person", target, 30, "Others", "99 Synthetic Road", "Takeover123!"), attackerBrowser);
+    var attackerCode = delivery.LastCode!;
+    Check(codes.HasPendingRegistration(target, victimBrowser) && codes.HasPendingRegistration(target, attackerBrowser),
+        "each browser keeps its own pending registration; the second one does not replace the first");
+    Reject(() => codes.ConfirmRegistrationCode(target, attackerCode, victimBrowser), "the other browser's code does not complete this browser's registration");
+    Reject(() => codes.ConfirmRegistrationCode(target, victimCode, attackerBrowser), "a code cannot be completed from a different browser");
+    Reject(() => codes.ConfirmRegistrationCode(target, victimCode), "a code cannot be completed without the browser secret");
+    var owner = codes.ConfirmRegistrationCode(target, victimCode, victimBrowser);
+    var hasher = new Microsoft.AspNetCore.Identity.PasswordHasher<AppUser>();
+    Check(owner.FirstName == "Real" && hasher.VerifyHashedPassword(new AppUser(), owner.PasswordHash!, "OwnerPass123!") != Microsoft.AspNetCore.Identity.PasswordVerificationResult.Failed
+        && hasher.VerifyHashedPassword(new AppUser(), owner.PasswordHash!, "Takeover123!") == Microsoft.AspNetCore.Identity.PasswordVerificationResult.Failed,
+        "the owner's browser creates the account with the owner's own details and password");
+    Check(EmailVerificationService.NewBrowserToken() != EmailVerificationService.NewBrowserToken() && EmailVerificationService.NewBrowserToken().Length >= 40,
+        "browser secrets are long and random");
+
+    delivery.Fail = true;
+    var failing = "failing@example.test";
+    Reject(() => codes.RequestPasswordResetCodeAsync(failing).GetAwaiter().GetResult(), "a failed email send is reported");
+    delivery.Fail = false;
+    await codes.RequestPasswordResetCodeAsync(failing);
+    Check(delivery.LastCode != null, "after a failed send the customer can retry immediately");
+    Console.WriteLine($"All {checks} email code checks passed."); return;
+}
+if (args.Contains("--persistent-reschedule-only"))
+{
+    var persistent = System.Reflection.DispatchProxy.Create<IPersistentStudioStore, PersistentQuoteProxy>();
+    var proxy = (PersistentQuoteProxy)persistent;
+    proxy.TestServices = store.Services; proxy.TestUsers = store.Users;
+    var flow = new BookingService(persistent, persistent, persistent, persistent, persistent);
+    var current = DateTime.Today.AddDays(3).AddHours(10); var proposed = DateTime.Today.AddDays(4).AddHours(10);
+    var booking = new Booking { CustomerId = customer.Id, Status = "Confirmed", Start = current, Service = new(service.Id, service.Name, service.Price, service.Minutes), BufferMinutesSnapshot = 45, AppliedPricePerPerson = service.Price };
+    proxy.TestBookings.Add(booking);
+    var offer = flow.OfferReschedule(booking, customer.Id, proposed);
+    Check(offer.ProposedStart == proposed && offer.ProposedTotal == booking.Total && offer.EarlyFee == 0 && offer.LateFee == 0,
+        "database-mode reschedule quote keeps the same total (no early/late fees)");
+    Reject(() => flow.ConsentReschedule(booking, customer.Id, offer.Id, false, proposed, offer.ProposedTotal), "consent is required");
+    Reject(() => flow.ConsentReschedule(booking, customer.Id, offer.Id, true, null, offer.ProposedTotal), "the proposed time must be posted back");
+    Reject(() => flow.ConsentReschedule(booking, customer.Id, offer.Id, true, proposed, offer.ProposedTotal + 100), "a total that differs from the review page is rejected");
+    Reject(() => flow.ConsentReschedule(booking, admin.Id, offer.Id, true, proposed, offer.ProposedTotal), "only the booking customer can request");
+    var blocker = new Booking { CustomerId = Guid.NewGuid(), Status = "Confirmed", Start = proposed, Service = booking.Service, BufferMinutesSnapshot = 45 };
+    proxy.TestBookings.Add(blocker);
+    Reject(() => flow.ConsentReschedule(booking, customer.Id, offer.Id, true, proposed, offer.ProposedTotal), "a time taken after the review is rejected");
+    proxy.TestBookings.Remove(blocker);
+    Check(proxy.RescheduleArguments == null, "rejected requests never reach the database");
+    flow.ConsentReschedule(booking, customer.Id, offer.Id, true, proposed, offer.ProposedTotal);
+    Check(proxy.RescheduleArguments is { } sent && (Guid)sent[0]! == booking.Id && (Guid)sent[1]! == customer.Id && (DateTime)sent[2]! == proposed,
+        "a valid request is sent to the database with the booking, customer and new time");
+    var source = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Backend", "GlamByMariya.Infrastructure", "Services", "BookingService.cs"));
+    Check(!source.Contains("public void Reschedule("), "the unused Reschedule method is gone");
+    Console.WriteLine($"All {checks} persistent reschedule checks passed."); return;
+}
+if (args.Contains("--exact-deposit-only"))
+{
+    var demo = new DemoStore(presentationAccounts: true); var flow = new BookingService(demo, demo, demo, demo, demo);
+    var customerUser = demo.Users.First(u => u.Role == Roles.Customer); var ownerUser = demo.Users.First(u => u.Role == Roles.SuperAdmin);
+    var look = demo.Services.First(); var start = DateTime.Today.AddDays(29).AddHours(8);
+    var quote = flow.Quote(look.Id, [], 1, "auto", start);
+    Check(quote.RequiredDownPayment < quote.FinalTotal, "test service has a balance after the down payment");
+    var n = 0;
+    Booking Submit(decimal amount) => flow.Create(customerUser.Id, look.Id, [], start, "24 Synthetic Street", "Quezon City", amount, "GCash",
+        $"EXACT-REF-{++n}", "synthetic-proof.png", true, 1, "auto", true, quote.FinalTotal, quote.RequiredDownPayment);
+    var before = demo.Bookings.Count;
+    Reject(() => Submit(quote.RequiredDownPayment + 1), "a higher custom amount is rejected");
+    Reject(() => Submit(quote.FinalTotal), "full payment is rejected online");
+    Reject(() => Submit(quote.RequiredDownPayment - 1), "less than the down payment is rejected");
+    Check(demo.Bookings.Count == before, "rejected amounts create no booking");
+    var booking = Submit(quote.RequiredDownPayment);
+    Check(booking.Status == "Pending Payment" && demo.Payments.Single(p => p.BookingId == booking.Id).Amount == quote.RequiredDownPayment, "the exact down payment is accepted");
+    var claim = demo.Payments.Single(p => p.BookingId == booking.Id);
+    claim.Amount = quote.RequiredDownPayment + 50;
+    Reject(() => flow.AdminAction(booking, "verify", ownerUser.Id, "", 0, ""), "verification rejects a claim that is not the exact down payment");
+    claim.Amount = quote.RequiredDownPayment;
+    flow.AdminAction(booking, "verify", ownerUser.Id, "", 0, "");
+    Check(booking.Status == "Confirmed", "exact claim verifies and confirms");
+    PreparedPersistentBooking.ValidateClaim(quote.RequiredDownPayment, quote);
+    Check(true, "database-path claim check accepts the exact down payment");
+    Reject(() => PreparedPersistentBooking.ValidateClaim(quote.FinalTotal, quote), "database-path claim check rejects full payment");
+    Console.WriteLine($"All {checks} exact deposit checks passed."); return;
+}
+if (args.Contains("--payment-window-only"))
+{
+    var demo = new DemoStore(presentationAccounts: true); var flow = new BookingService(demo, demo, demo, demo, demo);
+    var customerUser = demo.Users.First(u => u.Role == Roles.Customer); var ownerUser = demo.Users.First(u => u.Role == Roles.SuperAdmin);
+    var look = demo.Services.First(); var start = DateTime.Today.AddDays(29).AddHours(8);
+    var quote = flow.Quote(look.Id, [], 1, "auto", start);
+    var booking = flow.Create(customerUser.Id, look.Id, [], start, "24 Synthetic Street", "Quezon City", quote.RequiredDownPayment, "GCash",
+        "WINDOW-REF-1", "synthetic-proof.png", true, 1, "auto", true, quote.FinalTotal, quote.RequiredDownPayment);
+    Check(booking.PaymentDueAt is { } due && Math.Abs((due - demo.Now - PaymentWindow.Length).TotalSeconds) < 5, "new booking gets a payment deadline 30 minutes from now");
+    Check(flow.HoldsReservation(booking), "booking inside its payment window holds the slot");
+    Reject(() => flow.CheckSlot(start, quote.DurationMinutes), "another customer cannot take a slot that is still inside its payment window");
+    Check(flow.ExpireOverduePayments() == 0 && booking.Status == "Pending Payment", "nothing expires before the deadline");
+
+    booking.PaymentDueAt = demo.Now.AddMinutes(-1);
+    Check(PaymentWindow.IsExpired(booking, demo.Now) && !flow.HoldsReservation(booking), "overdue unpaid booking no longer holds its slot");
+    flow.CheckSlot(start, quote.DurationMinutes);
+    Check(true, "slot is free for another customer once the payment window ends");
+    Reject(() => flow.AdminAction(booking, "verify", ownerUser.Id, "", 0, ""), "overdue booking cannot be verified");
+    Reject(() => flow.CorrectProof(booking, customerUser.Id, "WINDOW-REF-2", null), "overdue booking cannot get a payment correction");
+    Check(flow.ExpireOverduePayments() == 1 && booking.Status == PaymentWindow.ExpiredStatus && booking.History.Last().Action == "Payment window expired",
+        "overdue booking is marked Expired with a history entry");
+    Check(flow.ExpireOverduePayments() == 0, "expiry runs only once per booking");
+    Check(!CancellationPolicy.Evaluate(booking.Status, booking.Start, demo.Now).Allowed, "expired booking cannot be cancelled again");
+
+    var legacy = new Booking { Status = "Pending Payment", PaymentDueAt = null, Start = start };
+    Check(!PaymentWindow.IsExpired(legacy, demo.Now.AddDays(1)), "older bookings without a deadline never expire automatically");
+    var confirmedLate = new Booking { Status = "Confirmed", PaymentDueAt = demo.Now.AddHours(-5), Start = start };
+    Check(!PaymentWindow.IsExpired(confirmedLate, demo.Now) && flow.HoldsReservation(confirmedLate), "confirmed bookings are never expired by the payment window");
+    Console.WriteLine($"All {checks} payment window checks passed."); return;
+}
 if (args.Contains("--mixed-read-model-only"))
 {
     var bookingId = Guid.NewGuid(); var ownerId = Guid.NewGuid();
@@ -194,10 +995,18 @@ if (args.Contains("--persistent-quote-only"))
     var quote = workflow.Quote(service.Id, []);
     var persistent = System.Reflection.DispatchProxy.Create<IPersistentStudioStore, PersistentQuoteProxy>();
     var proxy = (PersistentQuoteProxy)persistent;
+    proxy.TestServices = store.Services;
     var persistentFlow = new BookingService(persistent, persistent, persistent, persistent, persistent);
-    Reject(() => persistentFlow.Create(customer.Id, service.Id, [], DateTime.Today.AddDays(1), "Test address", "Quezon City", 1, "GCash", "REF", null, true, travelAcknowledged: true), "persistent submission requires a reviewed quote");
+    var persistentStart = DateTime.Today.AddDays(2).AddHours(10);
+    Reject(() => persistentFlow.Create(customer.Id, service.Id, [], persistentStart, "Test address", "Quezon City", 1, "GCash", "REF", null, true, travelAcknowledged: true), "persistent submission requires a reviewed quote");
     Check(proxy.Arguments == null, "missing quote never reaches persistent repository");
-    persistentFlow.Create(customer.Id, service.Id, [], DateTime.Today.AddDays(1), "Test address", "Quezon City", 1, "GCash", "REF", null, true, travelAcknowledged: true, expectedTotal: quote.FinalTotal, expectedMinimum: quote.RequiredDownPayment);
+    var taken = new Booking { CustomerId = Guid.NewGuid(), Status = "Confirmed", Start = persistentStart, Service = new(service.Id, service.Name, service.Price, service.Minutes), BufferMinutesSnapshot = 45 };
+    proxy.TestBookings.Add(taken);
+    Reject(() => persistentFlow.Create(customer.Id, service.Id, [], persistentStart, "Test address", "Quezon City", 1, "GCash", "REF", null, true, travelAcknowledged: true, expectedTotal: quote.FinalTotal, expectedMinimum: quote.RequiredDownPayment),
+        "persistent submission for an already reserved time is rejected before the database insert");
+    Check(proxy.Arguments == null, "overlapping submission never reaches persistent repository");
+    proxy.TestBookings.Remove(taken);
+    persistentFlow.Create(customer.Id, service.Id, [], persistentStart, "Test address", "Quezon City", 1, "GCash", "REF", null, true, travelAcknowledged: true, expectedTotal: quote.FinalTotal, expectedMinimum: quote.RequiredDownPayment);
     Check(proxy.Arguments != null && (decimal?)proxy.Arguments[14] == quote.FinalTotal && (decimal?)proxy.Arguments[15] == quote.RequiredDownPayment, "persistent workflow forwards both reviewed amounts to repository");
     BookingService.ValidateExpectedQuote(quote, quote.FinalTotal, quote.RequiredDownPayment);
     Check(true, "matching reviewed total and minimum accepted");
@@ -223,7 +1032,7 @@ if (args.Contains("--mixed-retry-only"))
 {
     foreach (var scenario in new[] { "service", "schedule", "addons", "quantity", "person order", "address", "method", "reference", "proof", "agreement", "travel consent", "policy", "travel version", "amount", "expected total", "expected minimum" })
     {
-        var demo = new DemoStore(); var flow = new BookingService(demo, demo, demo, demo, demo);
+        var demo = new DemoStore(presentationAccounts: true); var flow = new BookingService(demo, demo, demo, demo, demo);
         var actor = demo.Users.First(x => x.Role == Roles.Customer); var services = demo.Services.Take(2).ToArray(); var addons = demo.AddOns.Take(2).ToArray();
         var start = DateTime.Today.AddDays(27).AddHours(8); var id = Guid.NewGuid();
         var people = new[] { new MixedPersonSelection(services[0].Id, [addons[0].Id, addons[1].Id]), new MixedPersonSelection(services[1].Id, []) };
@@ -260,7 +1069,7 @@ if (args.Contains("--mixed-retry-only"))
         Check(retry.Id == initialMixed.Id && demo.Bookings.Count == bookingCount && demo.Payments.Count == retryPaymentCount, $"{scenario}: identical normalized retry survives policy and profile changes");
     }
     {
-        var demo = new DemoStore(); var flow = new BookingService(demo, demo, demo, demo, demo);
+        var demo = new DemoStore(presentationAccounts: true); var flow = new BookingService(demo, demo, demo, demo, demo);
         var actor = demo.Users.First(x => x.Role == Roles.Customer); var item = demo.Services.First();
         var start = DateTime.Today.AddDays(25).AddHours(8); var people = new[] { new MixedPersonSelection(item.Id, []), new MixedPersonSelection(item.Id, []) };
         var quote = flow.QuoteMixed(people, start); var id = Guid.NewGuid();
@@ -278,7 +1087,7 @@ if (args.Contains("--mixed-retry-only"))
         Check(demo.Bookings.Count == before + 1 && demo.Payments.Count == paymentBefore + 1 && demo.Payments.Single(x => x.BookingId == initialImage.Id).ProofPath == "staged-a", "image retries preserve initial payment and record counts");
     }
     {
-        var demo = new DemoStore(); var flow = new BookingService(demo, demo, demo, demo, demo);
+        var demo = new DemoStore(presentationAccounts: true); var flow = new BookingService(demo, demo, demo, demo, demo);
         var actor = demo.Users.First(x => x.Role == Roles.Customer); var item = demo.Services.First();
         var start = DateTime.Today.AddDays(24).AddHours(8);
         var selected = new[] { new MixedPersonSelection(item.Id, []), new MixedPersonSelection(item.Id, []) };
@@ -319,7 +1128,7 @@ if (args.Contains("--mixed-retry-only"))
 if (args.Contains("--boundary-regression-only"))
 {
     // A fresh in-memory fixture per run; never exercises a database or HTTP authorization.
-    var demo = new DemoStore(); var flow = new BookingService(demo, demo, demo, demo, demo);
+    var demo = new DemoStore(presentationAccounts: true); var flow = new BookingService(demo, demo, demo, demo, demo);
     var boundaryCustomer = demo.Users.First(u => u.Role == Roles.Customer);
     var other = demo.AddUser("Other", "Customer", "other@example.test", "Synthetic123!", Roles.Customer);
     var boundaryAdmin = demo.Users.First(u => u.Role == Roles.Admin);
@@ -401,7 +1210,7 @@ if (args.Contains("--boundary-regression-only"))
 }
 if (args.Contains("--staff-cancellation-completion-only"))
 {
-    var demo = new DemoStore(); var flow = new BookingService(demo, demo, demo, demo, demo);
+    var demo = new DemoStore(presentationAccounts: true); var flow = new BookingService(demo, demo, demo, demo, demo);
     var owner = demo.Users.First(u => u.Role == Roles.SuperAdmin); var staff = demo.Users.First(u => u.Role == Roles.Admin); var user = demo.Users.First(u => u.Role == Roles.Customer);
     var initial = demo.Bookings.Single(); var payment = demo.Payments.Single(p => p.BookingId == initial.Id); payment.ProofPath = "synthetic-proof.png";
     var staffPaymentCount = demo.Payments.Count; var reference = payment.Reference;
@@ -445,19 +1254,24 @@ if (args.Contains("--staff-cancellation-completion-only"))
     // to be reachable through normal booking verification or persistent SQL.
     foreach (var scenario in new[] { "unpaid", "partial", "full" })
     {
-        var local = new DemoStore(); var testFlow = new BookingService(local, local, local, local, local);
+        var local = new DemoStore(presentationAccounts: true); var testFlow = new BookingService(local, local, local, local, local);
         var client = local.Users.First(u => u.Role == Roles.Customer);
         var testOwner = local.Users.First(u => u.Role == Roles.SuperAdmin);
         var serviceItem = local.Services.First();
         var start = DateTime.Today.AddDays(25).AddHours(8);
         var quoted = testFlow.Quote(serviceItem.Id, [], 1, "auto", start);
-        var submitted = scenario == "full" ? quoted.FinalTotal : quoted.RequiredDownPayment;
-        var appointment = testFlow.Create(client.Id, serviceItem.Id, [], start, "Synthetic service address", "Quezon City", submitted, "GCash", "FINANCE-" + scenario, "synthetic-proof.png", true, 1, "auto", true, quoted.FinalTotal, quoted.RequiredDownPayment);
+        // Online payment is always the exact down payment; "full" adds the balance collected afterwards.
+        var appointment = testFlow.Create(client.Id, serviceItem.Id, [], start, "Synthetic service address", "Quezon City", quoted.RequiredDownPayment, "GCash", "FINANCE-" + scenario, "synthetic-proof.png", true, 1, "auto", true, quoted.FinalTotal, quoted.RequiredDownPayment);
         var deposit = local.Payments.Single(p => p.BookingId == appointment.Id);
         Reject(() => testFlow.AdminAction(appointment, "verify", client.Id, "", 0, ""), $"{scenario}: Customer cannot verify payment");
         Check(!deposit.Verified && testFlow.Paid(appointment) == 0, $"{scenario}: unverified claim is not collected");
         if (scenario == "unpaid") appointment.Status = "Confirmed";
         else testFlow.AdminAction(appointment, "verify", testOwner.Id, "", 0, "");
+        if (scenario == "full")
+        {
+            local.Payments.Add(new() { BookingId = appointment.Id, Amount = quoted.FinalTotal - quoted.RequiredDownPayment, Method = "Cash", Reference = "FINANCE-full-balance", Verified = true });
+            appointment.VerifiedPaid = testFlow.Paid(appointment);
+        }
         var originalTotal = appointment.Total; var originalPaid = testFlow.Paid(appointment);
         var originalCount = local.Payments.Count; var originalRef = deposit.Reference; var wasVerified = deposit.Verified;
         appointment.Start = DateTime.Today.AddDays(-2).AddHours(8);
@@ -471,11 +1285,19 @@ if (args.Contains("--staff-cancellation-completion-only"))
         Check(local.Payments.Count == originalCount, $"{scenario}: duplicate completion creates no finance record");
     }
     Check(demo.AdminActivity().Any(a => a.TargetId == initial.Id && a.Action == "Appointment cancelled by SuperAdmin") && demo.AdminActivity().Any(a => a.TargetId == complete.Id && a.Action == "Appointment completed"), "activity contains cancellation and completion");
+    // Database mode (the live site): the owner sees and may use both actions.
+    var webRoot = Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web");
+    var actionsView = File.ReadAllText(Path.Combine(webRoot, "Views", "Shared", "_StaffBookingActions.cshtml"));
+    var adminSource = File.ReadAllText(Path.Combine(webRoot, "Controllers", "AdminController.cs"));
+    var serviceSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Backend", "GlamByMariya.Infrastructure", "Services", "BookingService.cs"));
+    Check(!actionsView.Contains("!DataStore.IsPersistent && User.IsInRole(\"SuperAdmin\")") && actionsView.Contains("balance in cash"), "the owner sees Cancel and Mark as completed in database mode, with the cash balance");
+    Check(!adminSource.Contains("(operation is \"cancel\" or \"complete\") && (!User.IsInRole(\"SuperAdmin\") || store.IsPersistent)") && !serviceSource.Contains("Staff cancellation and manual completion are available in the isolated Demo only"), "database mode no longer refuses owner cancellation and completion");
+    Check(serviceSource.Contains("store.IsPersistent && action == \"cancel\" && !confirmed") && serviceSource.Contains("store.IsPersistent && action == \"complete\" && !confirmed"), "database mode still requires confirming a cancellation or completion");
     Console.WriteLine($"All {checks} staff cancellation and completion service checks passed."); return;
 }
 if (args.Contains("--reschedule-policy-only"))
 {
-    var demo = new DemoStore(); var flow = new BookingService(demo, demo, demo, demo, demo);
+    var demo = new DemoStore(presentationAccounts: true); var flow = new BookingService(demo, demo, demo, demo, demo);
     var user = demo.Users.First(u => u.Role == Roles.Customer); var owner = demo.Users.First(u => u.Role == Roles.SuperAdmin); var staff = demo.Users.First(u => u.Role == Roles.Admin);
     var day = DateTime.Today.AddDays(30); demo.Settings.EarlyFeeEnabled = true; demo.Settings.EarlyStartHour = 5; demo.Settings.EarlyFee = 200;
     var policyService = demo.Services.First(); var initial = flow.Quote(policyService.Id, [], 1, "auto", day.AddHours(8));
@@ -503,7 +1325,7 @@ if (args.Contains("--reschedule-policy-only"))
 }
 if (args.Contains("--mixed-admin-only"))
 {
-    var demo = new DemoStore(); var flow = new BookingService(demo, demo, demo, demo, demo);
+    var demo = new DemoStore(presentationAccounts: true); var flow = new BookingService(demo, demo, demo, demo, demo);
     var member = demo.Users.Single(u => u.Role == Roles.Customer); var staff = demo.Users.Single(u => u.Role == Roles.Admin); var owner = demo.Users.Single(u => u.Role == Roles.SuperAdmin);
     var look = demo.Services.First(); MixedPersonSelection[] selection = [new(look.Id, []), new(look.Id, []), new(look.Id, [])];
     var date = DateTime.Today.AddDays(30).AddHours(8);
@@ -568,7 +1390,7 @@ if (args.Contains("--mixed-admin-only"))
 }
 if (args.Contains("--mixed-pricing-only"))
 {
-    var mixedStore = new DemoStore(); var mixedFlow = new BookingService(mixedStore, mixedStore, mixedStore, mixedStore, mixedStore);
+    var mixedStore = new DemoStore(presentationAccounts: true); var mixedFlow = new BookingService(mixedStore, mixedStore, mixedStore, mixedStore, mixedStore);
     var softMixed = mixedStore.Services.Single(s => s.Name == "Soft Glam");
     var glamourMixed = mixedStore.Services.Single(s => s.Name == "Glamour Makeup");
     var bridalMixed = mixedStore.Services.Single(s => s.Name == "Bridal Makeup");
@@ -632,8 +1454,10 @@ if (args.Contains("--mixed-pricing-only"))
     {
         var paymentStart = bookingDay.AddDays(index);
         var paymentQuote = mixedFlow.QuoteMixed(threeMixed, paymentStart);
-        var paidMixed = mixedFlow.CreateMixed(mixedCustomer.Id, threeMixed, paymentStart, "Synthetic address", "Quezon City", amount, "GCash", "MIXED-AMOUNT-" + index, "synthetic-proof.png", true, true, paymentQuote.FinalTotal, paymentQuote.RequiredDownPayment, policyVersion: mixedStore.Settings.PolicyVersion, travelReminderVersion: mixedStore.Settings.TravelReminderVersion);
-        Check(mixedStore.Payments.Single(p => p.BookingId == paidMixed.Id).Amount == amount && mixedFlow.Paid(paidMixed) == 0, index == 1 ? "custom mixed payment remains an unverified claim" : "full mixed payment remains an unverified claim");
+        var paymentsBefore = mixedStore.Payments.Count;
+        Reject(() => mixedFlow.CreateMixed(mixedCustomer.Id, threeMixed, paymentStart, "Synthetic address", "Quezon City", amount, "GCash", "MIXED-AMOUNT-" + index, "synthetic-proof.png", true, true, paymentQuote.FinalTotal, paymentQuote.RequiredDownPayment, policyVersion: mixedStore.Settings.PolicyVersion, travelReminderVersion: mixedStore.Settings.TravelReminderVersion),
+            index == 1 ? "custom mixed payment is rejected; only the exact down payment is accepted" : "full mixed payment is rejected; only the exact down payment is accepted");
+        Check(mixedStore.Payments.Count == paymentsBefore, "rejected mixed payment amount creates no payment");
     }
     var replayKey = Guid.NewGuid();
     var replayDay = bookingDay.AddDays(5);
@@ -652,7 +1476,7 @@ if (args.Contains("--mixed-pricing-only"))
 }
 if (args.Contains("--late-fees-only"))
 {
-    var demo = new DemoStore(); var flow = new BookingService(demo, demo, demo, demo, demo);
+    var demo = new DemoStore(presentationAccounts: true); var flow = new BookingService(demo, demo, demo, demo, demo);
     var user = demo.Users.First(u => u.Role == Roles.Customer); var reviewer = demo.Users.First(u => u.Role == Roles.Admin);
     var day = DateTime.Today.AddDays(20); var item = demo.Services[0]; var extra = demo.AddOns[0];
     demo.Settings.BufferMinutes = 15;
@@ -664,7 +1488,9 @@ if (args.Contains("--late-fees-only"))
     var before = flow.Quote(item.Id, [extra.Id], 1, "auto", day.AddHours(17).AddMinutes(-1));
     var exact = flow.Quote(item.Id, [], 1, "auto", day.AddHours(17));
     var late = flow.Quote(item.Id, [], 1, "auto", day.AddHours(19));
-    Check(normal.LateFee == 0 && before.LateFee == 0 && exact.LateFee == 275, "individual late fee includes the exact configured start boundary");
+    var beforeShort = flow.Quote(item.Id, [], 1, "auto", day.AddHours(17).AddMinutes(-1));
+    Check(normal.LateFee == 0 && beforeShort.LateFee == 0 && exact.LateFee == 275, "individual late fee includes the exact configured start boundary");
+    Check(before.LateFee == 275, "an individual booking that runs past regular closing pays the late fee, the same as a group");
     Check(late.FinalTotal == normal.FinalTotal + 275 && late.RequiredDownPayment == Money.Percentage(late.FinalTotal, demo.Settings.DownPaymentPercent), "late fee charged once in total and down payment");
     var group = flow.Quote(item.Id, [extra.Id, extra.Id], 4, "group", day.AddHours(17));
     Check(group.LateFee == 275 && group.DurationMinutes == item.Minutes * 4 + extra.Minutes * 2, "group duration includes add-on quantities and fee applies once");
@@ -678,7 +1504,9 @@ if (args.Contains("--late-fees-only"))
     var lateGroupBooking = flow.Create(user.Id, item.Id, [], groupStart, "Synthetic address", "Quezon City", crossesClose.RequiredDownPayment, "GCash", "LATE-GROUP-SNAPSHOT", null, true, 4, "group", true, crossesClose.FinalTotal, crossesClose.RequiredDownPayment);
     Check(lateGroupBooking.LateFeeSnapshot == 275 && lateGroupBooking.Total == crossesClose.FinalTotal, "duration-based fee is preserved in the booking snapshot");
     flow.AdminAction(lateGroupBooking, "verify", reviewer.Id, "", 0, "");
-    Reject(() => flow.Reschedule(lateGroupBooking, user.Id, day.AddDays(3).AddHours(13)), "rescheduling cannot silently remove a duration-based late fee");
+    var lateGroupOffer = flow.OfferReschedule(lateGroupBooking, user.Id, day.AddDays(3).AddHours(13));
+    Check(lateGroupOffer.LateFee == 0 && lateGroupOffer.ProposedTotal == lateGroupOffer.CurrentTotal - 275 && lateGroupBooking.RequestedStart == null && lateGroupBooking.LateFeeSnapshot == 275,
+        "removing a duration-based late fee is shown in a quote that needs customer consent; nothing changes yet");
     flow.CheckSlot(day.AddHours(20).AddMinutes(45), 60);
     Reject(() => flow.CheckSlot(day.AddHours(21), 60), "buffer may not exceed final closing");
     Reject(() => flow.CheckSlot(day.AddHours(21), 120), "9 PM two-hour service is rejected by 10 PM closing");
@@ -701,12 +1529,14 @@ if (args.Contains("--late-fees-only"))
     demo.Settings.LateFee = 500; demo.Settings.LateFeeEnabled = false;
     Check(booking.Total == late.FinalTotal && booking.LateFeeSnapshot == 275, "policy changes preserve booking snapshot");
     flow.AdminAction(booking, "verify", reviewer.Id, "", 0, "");
-    Reject(() => flow.Reschedule(booking, user.Id, day.AddDays(1).AddHours(15)), "reschedule cannot silently remove late fee");
+    var lateOffer = flow.OfferReschedule(booking, user.Id, day.AddDays(1).AddHours(15));
+    Check(lateOffer.LateFee == 0 && lateOffer.ProposedTotal == lateOffer.CurrentTotal - 275 && booking.RequestedStart == null && booking.LateFeeSnapshot == 275,
+        "removing a late fee is shown in a quote that needs customer consent; nothing changes yet");
     Console.WriteLine($"All {checks} late fee checks passed."); return;
 }
 if (args.Contains("--fees-only"))
 {
-    var demo = new DemoStore(); var flow = new BookingService(demo, demo, demo, demo, demo);
+    var demo = new DemoStore(presentationAccounts: true); var flow = new BookingService(demo, demo, demo, demo, demo);
     var user = demo.Users.First(u => u.Role == Roles.Customer); var reviewer = demo.Users.First(u => u.Role == Roles.Admin);
     var start = DateTime.Today.AddDays(20).AddHours(5);
     demo.Settings.EarlyStartHour = 5; demo.Settings.EarlyFee = 321; demo.Settings.EarlyFeeEnabled = true;
@@ -725,7 +1555,9 @@ if (args.Contains("--fees-only"))
     Check(booking.EarlyFeeSnapshot == 321 && booking.Total == quote.FinalTotal, "booking retains historical fee and total");
     flow.AdminAction(booking, "verify", reviewer.Id, "", 0, "");
     Check(booking.Status == "Confirmed", "existing pending booking can be verified after policy change");
-    Reject(() => flow.Reschedule(booking, user.Id, start.AddDays(1).Date.AddHours(10)), "reschedule cannot silently change fee");
+    var feeOffer = flow.OfferReschedule(booking, user.Id, start.AddDays(1).Date.AddHours(10));
+    Check(feeOffer.ProposedTotal != feeOffer.CurrentTotal && booking.RequestedStart == null,
+        "a fee change from rescheduling is shown in a quote that needs customer consent; nothing changes yet");
     Console.WriteLine($"All {checks} Demo fee checks passed."); return;
 }
 if (args.Contains("--travel-only"))
@@ -750,7 +1582,7 @@ if (args.Contains("--travel-only"))
     Check(planning.Review(anchor, stop, next with { LocationReference = "SYNTHETIC:UNKNOWN" }, true, RouteMode.Driving, TimeSpan.Zero).Result.Status == TravelReviewStatus.Unavailable, "unknown route never becomes zero-minute travel");
     Check(planning.Review(anchor, stop, null, false, RouteMode.Driving, TimeSpan.Zero).Result.Status == TravelReviewStatus.InvalidRequest, "unknown next appointment state fails closed");
     Check(estimator.Estimate(new RouteRequest("real address", "SYNTHETIC:A", null, start, RouteMode.Driving, TimeSpan.Zero)).Result.Status == RouteEstimateStatus.InvalidRequest, "fake estimator rejects nonsynthetic locations");
-    var demo = new DemoStore(); var serviceForTravel = new BookingService(demo, demo, demo, demo, demo);
+    var demo = new DemoStore(presentationAccounts: true); var serviceForTravel = new BookingService(demo, demo, demo, demo, demo);
     var serviceItem = demo.Services[0]; var addOn = demo.AddOns[0];
     var travelQuote = serviceForTravel.Quote(serviceItem.Id, [addOn.Id, addOn.Id], 4, "group");
     Check(travelQuote.DurationMinutes == serviceItem.Minutes * 4 + addOn.Minutes * 2, "travel-planning input can use existing quantity-based service duration");
@@ -759,7 +1591,7 @@ if (args.Contains("--travel-only"))
 }
 if (args.Contains("--reservation-only"))
 {
-    var demo = new DemoStore();
+    var demo = new DemoStore(presentationAccounts: true);
     demo.Settings.BufferMinutes = 15;
     var flow = new BookingService(demo, demo, demo, demo, demo);
     var user = demo.Users.First(u => u.Role == Roles.Customer);
@@ -817,15 +1649,15 @@ if (args.Contains("--reservation-only"))
 }
 var oldAvatars = new DemoAvatarStore("unused");
 var presentationAvatars = new DemoAvatarStore("unused", true);
-foreach (var (role, oldEmail, newEmail) in new[] { ("Customer", "customer@glambymariya.demo", "presentation-customer@example.test"), ("Admin", "admin@glambymariya.demo", "presentation-admin@example.test"), ("SuperAdmin", "owner@glambymariya.demo", "presentation-owner@example.test") })
+foreach (var (role, oldEmail, newEmail) in new[] { ("Customer", "removed-customer@example.test", "presentation-customer@example.test"), ("Admin", "removed-admin@example.test", "presentation-admin@example.test"), ("SuperAdmin", "removed-owner@example.test", "presentation-owner@example.test") })
 {
     var oldUser = new AppUser { Role = role, Email = oldEmail };
     var newUser = new AppUser { Role = role, Email = newEmail };
-    Check(oldAvatars.Supports(oldUser) && !oldAvatars.Supports(newUser) && presentationAvatars.Supports(newUser) && !presentationAvatars.Supports(oldUser), $"{role} avatar mapping is restricted to the active seeded identity");
+    Check(!oldAvatars.Supports(oldUser) && !oldAvatars.Supports(newUser) && presentationAvatars.Supports(newUser) && !presentationAvatars.Supports(oldUser), $"{role} avatar mapping is restricted to the active seeded identity");
 }
 // Focused Demo-only regression; also runs as part of the full workflow suite.
 {
-    var demo = new DemoStore();
+    var demo = new DemoStore(presentationAccounts: true);
     var bookingService = new BookingService(demo, demo, demo, demo, demo);
     var user = demo.Users.First(u => u.Role == "Customer");
     var look = demo.Services[0];
@@ -873,7 +1705,7 @@ foreach (var (role, oldEmail, newEmail) in new[] { ("Customer", "customer@glamby
 }
 if (args.Contains("--transportation-only"))
 {
-    var demo = new DemoStore();
+    var demo = new DemoStore(presentationAccounts: true);
     var serviceCheck = new BookingService(demo, demo, demo, demo, demo);
     var person = demo.Users.First(u => u.Role == "Customer");
     var look = demo.Services[0]; var extra = demo.AddOns[0];
@@ -881,14 +1713,14 @@ if (args.Contains("--transportation-only"))
     Check(quote.ExtrasTotal == extra.Price * 2 && quote.DurationMinutes == look.Minutes * 4 + extra.Minutes * 2, "quantity pricing and duration use two add-ons");
     Reject(() => serviceCheck.Quote(look.Id, [extra.Id, extra.Id], 1, "auto"), "add-on quantity cannot exceed party size");
     demo.Settings.OpenHour = 0; demo.Settings.CloseHour = 23; demo.Settings.BufferMinutes = 0;
-    var booking = serviceCheck.Create(person.Id, look.Id, [extra.Id, extra.Id], DateTime.Today.AddDays(10), "Synthetic address", "Quezon City", quote.FinalTotal, "GCash", "SYNTHETIC-QUANTITY", null, true, 4, "group", true);
+    var booking = serviceCheck.Create(person.Id, look.Id, [extra.Id, extra.Id], DateTime.Today.AddDays(10), "Synthetic address", "Quezon City", quote.RequiredDownPayment, "GCash", "SYNTHETIC-QUANTITY", null, true, 4, "group", true);
     Check(booking.Total == quote.FinalTotal && booking.End == booking.Start.AddMinutes(quote.DurationMinutes) && booking.AddOns.Single().Quantity == 2, "booking snapshots quantity and duration");
-    Check(serviceCheck.Paid(booking) == 0 && demo.Payments.Single(p => p.BookingId == booking.Id).Amount == quote.FinalTotal, "full claimed amount remains unverified");
+    Check(serviceCheck.Paid(booking) == 0 && demo.Payments.Single(p => p.BookingId == booking.Id).Amount == quote.RequiredDownPayment, "exact down payment claim remains unverified");
     Reject(() => serviceCheck.Create(person.Id, look.Id, [], DateTime.Today.AddDays(11), "Synthetic address", "Quezon City", 0, "GCash", "SYNTHETIC-LOW", null, true, 1, "auto", true), "below-minimum claim rejected");
     var individual = serviceCheck.Quote(look.Id, []);
     Reject(() => serviceCheck.Create(person.Id, look.Id, [], DateTime.Today.AddDays(11), "Synthetic address", "Quezon City", individual.FinalTotal + 1, "GCash", "SYNTHETIC-HIGH", null, true, 1, "auto", true), "above-total claim rejected");
     serviceCheck.AdminAction(booking, "verify", demo.Users.First(u => u.Role == "Admin").Id, "", 0, "");
-    Check(serviceCheck.Paid(booking) == quote.FinalTotal && booking.Status == "Confirmed", "explicit review verifies full claimed payment");
+    Check(serviceCheck.Paid(booking) == quote.RequiredDownPayment && booking.Status == "Confirmed", "explicit review verifies the exact down payment");
     Console.WriteLine($"All {checks} focused Demo transportation checks passed.");
     return;
 }
@@ -1000,7 +1832,7 @@ workflow.CheckSlot(b.Start, (int)(b.End - b.Start).TotalMinutes);
 Check(true, "Cancelled appointment releases reserved slot");
 Reject(() => workflow.Cancel(b, customer.Id, true), "Repeated cancellation rejected");
 Check(store.Notifications.Any(n => n.UserId == customer.Id) && store.AuditLogs.Any(), "Notifications and audit events created");
-var availabilityStore = new DemoStore();
+var availabilityStore = new DemoStore(presentationAccounts: true);
 availabilityStore.Bookings.Clear();
 availabilityStore.Payments.Clear();
 var availability = new BookingService(availabilityStore, availabilityStore, availabilityStore, availabilityStore, availabilityStore);
@@ -1071,7 +1903,7 @@ Reject(() => BookingPricing.Calculate(sampleService, [], 1, 0, "auto", 101), "10
 Reject(() => BookingPricing.Calculate(sampleService, [], 1, 0, "auto", 40.5m), "Fractional down payment percentage rejected");
 Check(BookingPricing.Calculate(new CatalogItem { Name = "Glamour Makeup", Price = 750, Minutes = 90 }, [], 1, 0, "auto", 40).RequiredDownPayment == 300, "Glamour Makeup â‚±750 at 40% requires â‚±300 down");
 Check(BookingPricing.Calculate(new CatalogItem { Name = "Bridal Makeup", Price = 1500, Minutes = 120 }, [], 1, 0, "auto", 50).RequiredDownPayment == 750, "Bridal Makeup â‚±1,500 at 50% requires â‚±750 down");
-var paymentStore = new DemoStore();
+var paymentStore = new DemoStore(presentationAccounts: true);
 paymentStore.Bookings.Clear(); paymentStore.Payments.Clear(); paymentStore.Settings.TravelFee = 0;
 var paymentWorkflow = new BookingService(paymentStore, paymentStore, paymentStore, paymentStore, paymentStore);
 var pService = paymentStore.Services[0]; pService.Minutes = 30;
@@ -1112,7 +1944,7 @@ Check(groupBooking.RequiredDownPayment == 2625 && groupBooking.DownPaymentPercen
 paymentStore.Settings.DownPaymentPercent = 50;
 Check(paymentWorkflow.Quote(pService.Id, [], 10, "group").RequiredDownPayment == 3500, "Restoring 50% applies to new quotations again");
 // Exercise the configured Demo catalog without inventing or modifying any prices.
-var matrixStore = new DemoStore();
+var matrixStore = new DemoStore(presentationAccounts: true);
 var matrixWorkflow = new BookingService(matrixStore, matrixStore, matrixStore, matrixStore, matrixStore);
 var matrixAddOns = matrixStore.AddOns.Where(x => x.Active && !x.Archived).ToArray();
 foreach (var item in matrixStore.Services.Where(x => x.Active && !x.Archived))
@@ -1253,19 +2085,159 @@ Console.WriteLine($"All {checks} workflow, availability, payment QR, catalog ima
 public class PersistentQuoteProxy : System.Reflection.DispatchProxy
 {
     public object?[]? Arguments { get; private set; }
+    public object?[]? RescheduleArguments { get; set; }
     public List<AppUser> TestUsers { get; set; } = [];
     public List<Booking> TestBookings { get; set; } = [];
     public List<Payment> TestPayments { get; set; } = [];
+    public List<CatalogItem> TestServices { get; set; } = new DemoStore(presentationAccounts: true).Services;
+    public List<CatalogItem> TestAddOns { get; set; } = [];
+    public BusinessSettings TestSettings { get; set; } = new();
     private readonly object gate = new();
     protected override object? Invoke(System.Reflection.MethodInfo? method, object?[]? args)
     {
         if (method?.Name == "get_IsPersistent") return true;
         if (method?.Name == "get_Gate") return gate;
+        if (method?.Name == "get_Now") return DateTime.Now;
+        if (method?.Name == "get_Services") return TestServices;
+        if (method?.Name == "get_AddOns") return TestAddOns;
+        if (method?.Name == "get_Settings") return TestSettings;
+        if (method?.Name == "get_Blocks") return new List<AvailabilityBlock>();
+        if (method?.Name == nameof(IPersistentStudioStore.RequestReschedule)) { RescheduleArguments = args; return null; }
         if (method?.Name == "get_Users") return TestUsers;
         if (method?.Name == "get_Bookings") return TestBookings;
+        if (method?.Name == nameof(IStudioStore.FindBooking)) return TestBookings.FirstOrDefault(b => b.Id == (Guid)args![0]!);
         if (method?.Name == "get_Payments") return TestPayments;
         if (method?.Name != nameof(IPersistentStudioStore.SubmitBooking)) throw new InvalidOperationException("Unexpected repository call.");
         Arguments = args;
         return new Booking();
     }
+}
+// Fake Brevo delivery for email code checks: captures the 6-digit code instead of sending.
+public sealed class CapturingBrevoDelivery : HttpMessageHandler, IHttpClientFactory
+{
+    public string? LastCode { get; private set; }
+    public bool Fail { get; set; }
+    public HttpClient CreateClient(string name) => new(this, disposeHandler: false);
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        if (Fail) return new HttpResponseMessage(System.Net.HttpStatusCode.ServiceUnavailable);
+        using var json = System.Text.Json.JsonDocument.Parse(await request.Content!.ReadAsStringAsync(cancellationToken));
+        var match = System.Text.RegularExpressions.Regex.Match(json.RootElement.GetProperty("textContent").GetString()!, @"\b\d{6}\b");
+        LastCode = match.Success ? match.Value : null;
+        return new HttpResponseMessage(System.Net.HttpStatusCode.Created);
+    }
+}
+public sealed class SyntheticWebEnv : Microsoft.AspNetCore.Hosting.IWebHostEnvironment
+{
+    public string WebRootPath { get; set; } = Path.GetTempPath();
+    public Microsoft.Extensions.FileProviders.IFileProvider WebRootFileProvider { get; set; } = new Microsoft.Extensions.FileProviders.NullFileProvider();
+    public string ApplicationName { get; set; } = "WorkflowChecks";
+    public Microsoft.Extensions.FileProviders.IFileProvider ContentRootFileProvider { get; set; } = new Microsoft.Extensions.FileProviders.NullFileProvider();
+    public string ContentRootPath { get; set; } = Path.GetTempPath();
+    public string EnvironmentName { get; set; } = "Production";
+}
+public sealed class RecordingAuthentication : Microsoft.AspNetCore.Authentication.IAuthenticationService
+{
+    public ClaimsPrincipal? LastPrincipal { get; private set; }
+    public int SignOutCalls { get; private set; }
+    public Task<Microsoft.AspNetCore.Authentication.AuthenticateResult> AuthenticateAsync(Microsoft.AspNetCore.Http.HttpContext context, string? scheme) => Task.FromResult(Microsoft.AspNetCore.Authentication.AuthenticateResult.NoResult());
+    public Task ChallengeAsync(Microsoft.AspNetCore.Http.HttpContext context, string? scheme, Microsoft.AspNetCore.Authentication.AuthenticationProperties? properties) => Task.CompletedTask;
+    public Task ForbidAsync(Microsoft.AspNetCore.Http.HttpContext context, string? scheme, Microsoft.AspNetCore.Authentication.AuthenticationProperties? properties) => Task.CompletedTask;
+    public Task SignInAsync(Microsoft.AspNetCore.Http.HttpContext context, string? scheme, ClaimsPrincipal principal, Microsoft.AspNetCore.Authentication.AuthenticationProperties? properties) { LastPrincipal = principal; return Task.CompletedTask; }
+    public Task SignOutAsync(Microsoft.AspNetCore.Http.HttpContext context, string? scheme, Microsoft.AspNetCore.Authentication.AuthenticationProperties? properties) { SignOutCalls++; return Task.CompletedTask; }
+}
+public class CountingStore : System.Reflection.DispatchProxy
+{
+    public IStudioStore Target { get; set; } = null!;
+    private readonly Dictionary<string, int> calls = new();
+    public int Calls(string name) => calls.GetValueOrDefault(name);
+    public void Reset() => calls.Clear();
+    protected override object? Invoke(System.Reflection.MethodInfo? method, object?[]? args)
+    {
+        calls[method!.Name] = Calls(method.Name) + 1;
+        try { return method.Invoke(Target, args); }
+        catch (System.Reflection.TargetInvocationException e) when (e.InnerException != null) { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(e.InnerException).Throw(); throw; }
+    }
+}
+public sealed class CapturingXenditHttp : HttpMessageHandler, IHttpClientFactory
+{
+    public string? LastUri, LastAuth, LastBody;
+    public HttpClient CreateClient(string name) => new(this, disposeHandler: false);
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        LastUri = request.RequestUri!.ToString(); LastAuth = request.Headers.Authorization?.ToString(); LastBody = await request.Content!.ReadAsStringAsync(cancellationToken);
+        return new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent("""{"id":"inv_fake_1","invoice_url":"https://checkout-staging.xendit.co/web/inv_fake_1","status":"PENDING"}""") };
+    }
+}
+public class XenditStoreProxy : System.Reflection.DispatchProxy
+{
+    public string Last = ""; public int Count;
+    protected override object? Invoke(System.Reflection.MethodInfo? method, object?[]? args)
+    {
+        Count++; Last = method!.Name + " " + string.Join(" ", args!.Select(a => Convert.ToString(a, System.Globalization.CultureInfo.InvariantCulture)));
+        return method.Name switch { "XenditPaid" => "confirmed", "XenditExpired" => "noted", _ => throw new InvalidOperationException("Unexpected call " + method.Name) };
+    }
+}
+public sealed class ManualClock(DateTimeOffset now) : TimeProvider
+{
+    public DateTimeOffset Now { get; set; } = now;
+    public override DateTimeOffset GetUtcNow() => Now;
+}
+public sealed class NoTempData : Microsoft.AspNetCore.Mvc.ViewFeatures.ITempDataProvider
+{
+    public IDictionary<string, object> LoadTempData(Microsoft.AspNetCore.Http.HttpContext context) => new Dictionary<string, object>();
+    public void SaveTempData(Microsoft.AspNetCore.Http.HttpContext context, IDictionary<string, object> values) { }
+}
+
+sealed class RecordingHttpFactory(List<string> seen) : IHttpClientFactory
+{
+    public HttpClient CreateClient(string name) => new(new Recorder(seen));
+    sealed class Recorder(List<string> seen) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            seen.Add($"{request.RequestUri} apikey={string.Join(",", request.Headers.TryGetValues("apikey", out var k) ? k : [])} auth={request.Headers.Authorization}");
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK));
+        }
+    }
+}
+
+sealed class FakeWebsiteImages : IWebsiteImageRepository
+{
+    public List<WebsiteImageReference> List { get; } = [];
+    public long Revision { get; private set; } = 1;
+    public bool FailReplace { get; set; }
+    public Task<IReadOnlyList<WebsiteImageReference>> ReadDraftImages(Guid draftId, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<WebsiteImageReference>>(List.ToList());
+    public Task<IReadOnlyList<WebsiteImageReference>> ReadPublishedImages(CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<WebsiteImageReference>>([]);
+    public Task ReplaceDraftImages(Guid actor, Guid draftId, long expectedRevision, IReadOnlyList<WebsiteImageReference> images, CancellationToken cancellationToken)
+    {
+        if (FailReplace) throw new InvalidOperationException("Simulated database failure.");
+        if (expectedRevision != Revision) throw new InvalidOperationException("The draft changed.");
+        List.Clear(); List.AddRange(images); Revision++; return Task.CompletedTask;
+    }
+}
+
+sealed class FakeAssetWriter : IWebsiteAssetWriter
+{
+    public List<(Guid Id, string Key)> Added { get; } = [];
+    public Task<Guid> AddAsset(Guid actor, string objectKey, string contentType, int byteLength, CancellationToken ct) { var id = Guid.NewGuid(); Added.Add((id, objectKey)); return Task.FromResult(id); }
+}
+
+sealed class RecordingFileStore : GlamByMariya.Infrastructure.Integrations.IAppFileStore
+{
+    public List<string> Saved { get; } = [];
+    public List<string> Deleted { get; } = [];
+    public bool FailSave { get; set; }
+    public bool FailDelete { get; set; }
+    public void Save(string key, byte[] bytes) { if (FailSave) throw new InvalidOperationException("Cloud file storage is temporarily unavailable. Please try again."); Saved.Add(key); }
+    public (byte[] Bytes, string ContentType)? Read(string? key) => null;
+    public void Delete(string? key) { if (FailDelete) throw new IOException("delete failed"); if (key != null) Deleted.Add(key); }
+}
+
+sealed class CapturingLogger<T> : Microsoft.Extensions.Logging.ILogger<T>
+{
+    public List<(Microsoft.Extensions.Logging.LogLevel Level, string Message)> Entries { get; } = [];
+    public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+    public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel level) => true;
+    public void Log<TState>(Microsoft.Extensions.Logging.LogLevel level, Microsoft.Extensions.Logging.EventId id, TState state, Exception? ex, Func<TState, Exception?, string> fmt) => Entries.Add((level, fmt(state, ex)));
 }

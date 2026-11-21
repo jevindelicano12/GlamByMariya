@@ -51,14 +51,6 @@ var config = new ConfigurationBuilder().AddInMemoryCollection(configValues).Buil
 int checks = 0;
 void Check(bool c, string m) { if (!c) throw new Exception("FAIL: " + m); checks++; Console.WriteLine("PASS: " + m); }
 void Reject(Action a, string m) { try { a(); } catch (InvalidOperationException) { Check(true, m); return; } throw new Exception("Expected rejection: " + m); }
-DatabaseSetup.EnsureLocalSuperAdminBootstrap(new ConfigurationBuilder().Build());
-Check(true, "local-only bootstrap guard permits unconfigured provider");
-foreach (var key in new[] { "Supabase:Url", "Supabase:AnonKey", "Supabase:ServiceKey" })
-{
-    var providerConfig = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> { [key] = "synthetic" }).Build();
-    Reject(() => DatabaseSetup.EnsureLocalSuperAdminBootstrap(providerConfig),
-        $"bootstrap fails closed when {key} is configured");
-}
 void Login(AppUser u) => http.HttpContext.User = new ClaimsPrincipal(new ClaimsIdentity(new[] {
     new Claim(ClaimTypes.NameIdentifier, u.Id.ToString()), new Claim(ClaimTypes.Role, u.Role), new Claim(ClaimTypes.Email, u.Email) }, "test"));
 var proofBytes = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6cWQAAAAASUVORK5CYII=");

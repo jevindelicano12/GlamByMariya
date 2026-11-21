@@ -22,8 +22,7 @@ internal static class PreparedPersistentBooking
 
     internal static void ValidateClaim(decimal amount, BookingQuote quote)
     {
-        if (Money.Round(amount) != amount || amount < quote.RequiredDownPayment || amount > quote.FinalTotal)
-            throw new InvalidOperationException($"Choose an amount from ₱{quote.RequiredDownPayment:N2} to ₱{quote.FinalTotal:N2}, with at most two decimal places.");
+        Money.RequireExactDeposit(amount, quote.RequiredDownPayment);
     }
 
     // Pure preparation only: callers must obtain actor and catalog mapping from

@@ -16,6 +16,8 @@ public interface IStudioStore : IServiceRepository, IAddOnRepository, IBookingRe
     List<AvailabilityBlock> Blocks { get; }
     BusinessSettings Settings { get; }
     AppUser AddUser(string firstName, string lastName, string email, string password, string role = "Customer", int age = 0, string gender = "", string address = "");
+    // Customer registration after the email code: the password was validated and hashed before it was held.
+    AppUser AddCustomerWithPasswordHash(string firstName, string lastName, string email, string passwordHash, int age, string gender, string address, DateOnly? birthday = null, string? suffix = null);
     // Elevated roles only (Admin, SuperAdmin). Never called with Customer and
     // never with browser-supplied role input; callers are bootstrap/invite flows.
     AppUser CreateElevatedUser(string firstName, string lastName, string email, string password, string role, int age, string gender, string address);
@@ -25,6 +27,11 @@ public interface IStudioStore : IServiceRepository, IAddOnRepository, IBookingRe
     void AddBlock(AvailabilityBlock block, Guid actor);
     void RemoveBlock(Guid id, Guid actor);
     void RecordAudit(Guid actor, string message);
+    // SuperAdmin-only Disable/Enable of an Admin account. Never a SuperAdmin or a customer.
+    void SetAdminActive(Guid admin, bool active, Guid actor);
+    // One booking by id (customers only see their own in database mode). Use this
+    // instead of scanning Bookings, which loads every reservation in database mode.
+    Booking? FindBooking(Guid id);
 }
 
 public interface IPersistentStudioStore : IStudioStore
@@ -33,6 +40,14 @@ public interface IPersistentStudioStore : IStudioStore
         decimal deposit, string method, string reference, string? proof, bool agreed, bool travelAcknowledged, int people, string package,
         decimal? expectedTotal = null, decimal? expectedMinimum = null);
     void CancelBooking(Guid booking, Guid customer, bool confirmed);
+    // Marks unpaid bookings whose 30-minute window ended as Expired; returns how many.
+    int ExpireOverduePayments();
+    // Xendit: link the deposit row to its invoice; apply webhook events (see 0010_xendit.sql).
+    void AttachInvoice(Guid booking, string invoiceId, string checkoutUrl);
+    string XenditPaid(string invoiceId, decimal amount, string eventKey);
+    string XenditExpired(string invoiceId, string eventKey);
+    // The Xendit payment page of a booking still waiting for its down payment, or null.
+    string? PendingCheckoutUrl(Guid booking);
     void ManageBooking(Guid booking, string action, Guid admin, string reason, decimal amount, string reference, Guid? paymentId = null, long? reviewRevision = null, string? reviewVersion = null);
     List<Payment> ReviewPayments(Guid booking);
     void RequestReschedule(Guid booking, Guid customer, DateTime start);
@@ -46,43 +61,3 @@ public interface IPersistentStudioStore : IStudioStore
     (byte[] Bytes, string ContentType)? ReadAsset(string? key);
 }
 
-public interface ISupabaseIdentityStore
-{
-    bool IdentityLinkingEnabled { get; }
-    bool RestrictLegacyFallback { get; }
-    bool LegacyFallbackAllowed(string email, bool restrictUnknown);
-    void LinkSupabaseIdentity(string email, Guid supabaseUserId);
-}
-
-// Implementations must resolve an existing subject binding, never link by email.
-public interface IVerifiedProviderCustomerStore
-{
-    AppUser? FindVerifiedCustomer(Guid subject, string email);
-    AppUser CreateVerifiedCustomer(Guid subject, EmailVerificationService.PendingRegistration pending);
-}
-
-public enum AdminProvisioningState
-{
-    NotApplicable,
-    Pending,
-    NotAttempted,
-    Rejected,
-    Unknown,
-    Confirmed
-}
-
-public sealed record AdminProvisioningSnapshot(
-    Guid AccountId, Guid InvitationId, AdminProvisioningState State, Guid? SupabaseUserId);
-
-// Invitation-specific, fail-closed provisioning state. Historical accounts do
-// not enter this state machine and retain their existing authentication behavior.
-public interface IAdminProvisioningStore
-{
-    AppUser CreatePendingInvitedAdmin(string firstName, string lastName, string email,
-        string password, int age, string gender, string address, Guid invitationId);
-    void MarkAdminProvisioningOutcome(Guid accountId, AdminProvisioningState outcome);
-    // invitationId must identify the already-consumed invite; the persistent
-    // store verifies accepted_at and all normalized email links. The caller
-    // must pass the structured provider result; an arbitrary UUID is not proof.
-    void ConfirmAdminProvisioning(Guid accountId, Guid invitationId, string email, SupabaseProvisioningResult provisioningResult);
-}

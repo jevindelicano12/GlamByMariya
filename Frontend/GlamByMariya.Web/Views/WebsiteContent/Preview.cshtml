@@ -2,8 +2,8 @@
 @{ ViewData["Title"] = "Draft preview"; }
 <link rel="stylesheet" href="~/css/website-content.css" asp-append-version="true" />
 <div class="website-content-page"><p class="website-content-notice" role="status">Private draft preview — not published.</p>
-@{ var images = ViewData["DemoDraftImages"] as IReadOnlyList<GlamByMariya.Infrastructure.Services.WebsiteImageReference> ?? []; }
-@foreach (var image in images) { <section><h2>@(image.Role == "hero" ? "Hero image" : "About Me portrait")</h2><img class="demo-content-preview" src="@Url.Action("DraftImage", "WebsiteContent", new { id = image.Id })" alt="@image.AltText" /></section> }
+@{ var images = ViewData["PreviewImages"] as IReadOnlyList<GlamByMariya.Infrastructure.Services.WebsiteImageReference> ?? []; }
+@foreach (var image in images) { <section><h2>@(image.Role switch { "hero" => "Hero image", "gallery" => "Gallery photo", _ => "About Me portrait" })</h2><img class="demo-content-preview" src="@Url.Action("DraftImage", "WebsiteContent", new { id = image.Id })" alt="@image.AltText" /></section> }
 <h1>@Model.Text.HeroHeadline</h1><p>@Model.Text.HeroDescription</p>
 <section><h2>@Model.Text.AboutHeading</h2><p>@Model.Text.AboutBiography</p></section>
 <section><h2>Home service</h2><p>@Model.Text.HomeServiceDescription</p><p>@Model.Text.ServiceAreaInformation</p></section>

@@ -42,9 +42,14 @@ model.HeroHeadline = "Unsaved text";
 var conflict = await controller.SaveForm(model, default) as ViewResult;
 Check(conflict != null && ((WebsiteContentEditorModel)conflict.Model!).HeroHeadline == "Unsaved text" && !controller.ModelState.IsValid, "stale revision preserves submitted text");
 controller.ModelState.Clear();
-Check(await controller.PublishForm(model.DraftId, oldRevision, default) is ConflictObjectResult, "stale publish rejected using mock");
+var stalePublish = await controller.PublishForm(model.DraftId, oldRevision, default);
+Check(stalePublish is RedirectToActionResult && (controller.TempData["Error"] as string ?? "").Contains("already published or changed"), "stale or repeated publish returns to the editor with a clear message");
+controller.TempData.Clear();
 Check(await controller.Preview(default) is ViewResult, "draft preview using mock");
-Check(await controller.PublishForm(repo.Draft!.Id, repo.Draft.Revision, default) is RedirectToActionResult && repo.Published?.Status == "published", "publish uses saved revision with mock");
+var publishId = repo.Draft!.Id; var publishRevision = repo.Draft.Revision;
+Check(await controller.PublishForm(publishId, publishRevision, default) is RedirectToActionResult && repo.Published?.Status == "published" && (controller.TempData["Success"] as string ?? "").StartsWith("Published."), "publish uses saved revision and confirms it with mock");
+controller.TempData.Clear();
+Check(await controller.PublishForm(publishId, publishRevision, default) is RedirectToActionResult && (controller.TempData["Error"] as string ?? "").Contains("already published or changed"), "pressing Publish again after success shows a clear message, not an error page");
 var outsider = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, Guid.NewGuid().ToString()), new Claim(ClaimTypes.Role, "Admin")], "test"));
 try { await services.GetRequiredService<WebsiteContentService>().CreateDraft(outsider); throw new Exception("Admin accepted"); }
 catch (UnauthorizedAccessException) { Console.WriteLine("PASS service denies Admin using mock"); }
@@ -114,6 +119,6 @@ sealed class FakeRepository : IWebsiteContentRepository
     public Task<WebsiteContentVersion> Publish(Guid actor, Guid id, long revision, CancellationToken ct)
     {
         if (Draft == null || Draft.Id != id || Draft.Revision != revision) throw new InvalidOperationException("Conflict");
-        Published = Draft with { Status = "published" }; return Task.FromResult(Published);
+        Published = Draft with { Status = "published" }; Draft = null; return Task.FromResult(Published); // like the database: the draft becomes the published version
     }
 }

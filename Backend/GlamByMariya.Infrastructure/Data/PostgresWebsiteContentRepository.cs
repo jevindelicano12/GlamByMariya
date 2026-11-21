@@ -5,7 +5,7 @@ using Npgsql;
 namespace GlamByMariya.Infrastructure.Data;
 
 // Preparation only: not registered until the schema, grants and isolation have been tested.
-public sealed class PostgresWebsiteContentRepository(NpgsqlDataSource source) : IWebsiteContentRepository, IWebsiteImageRepository, IWebsitePublishedAssetLookup, IWebsiteDraftAssetLookup
+public sealed class PostgresWebsiteContentRepository(NpgsqlDataSource source) : IWebsiteContentRepository, IWebsiteImageRepository, IWebsitePublishedAssetLookup, IWebsiteDraftAssetLookup, IWebsiteAssetWriter
 {
     private const long WriteLock = 513672914021;
 
@@ -138,6 +138,17 @@ public sealed class PostgresWebsiteContentRepository(NpgsqlDataSource source) : 
         await tx.CommitAsync(ct);
     }
 
+    public async Task<Guid> AddAsset(Guid actor, string objectKey, string contentType, int byteLength, CancellationToken ct)
+    {
+        var id = Guid.NewGuid();
+        await using var connection = await source.OpenConnectionAsync(ct);
+        await using var command = new NpgsqlCommand("INSERT INTO public.website_content_assets(id,object_key,content_type,byte_length,uploaded_by) VALUES(@id,@key,@type,@length,@actor)", connection);
+        command.Parameters.AddWithValue("id", id); command.Parameters.AddWithValue("key", objectKey); command.Parameters.AddWithValue("type", contentType);
+        command.Parameters.AddWithValue("length", byteLength); command.Parameters.AddWithValue("actor", actor);
+        await command.ExecuteNonQueryAsync(ct);
+        return id;
+    }
+
     public async Task<WebsiteContentVersion> CreateDraft(Guid actor, CancellationToken ct)
     {
         await using var connection = await source.OpenConnectionAsync(ct);
@@ -228,11 +239,10 @@ public sealed class PostgresWebsiteContentRepository(NpgsqlDataSource source) : 
         if (draft == null || draft.Id != draftId || draft.Revision != expectedRevision) throw new InvalidOperationException("The draft changed. Reload before publishing.");
         var error = WebsiteContentRules.Validate(draft.Text, true);
         if (error != null) throw new ArgumentException(error);
-        // Until image references and storage availability are checked, image-bearing drafts cannot be published.
-        await using (var images = new NpgsqlCommand("SELECT EXISTS(SELECT 1 FROM public.website_content_images WHERE version_id=@id)", connection, tx))
+        await using (var images = new NpgsqlCommand("SELECT EXISTS(SELECT 1 FROM public.website_content_images i WHERE i.version_id=@id AND NOT EXISTS(SELECT 1 FROM public.website_content_assets a WHERE a.id=i.asset_id))", connection, tx))
         {
             images.Parameters.AddWithValue("id", draftId);
-            if ((bool)(await images.ExecuteScalarAsync(ct))!) throw new InvalidOperationException("Website image publishing is not available.");
+            if ((bool)(await images.ExecuteScalarAsync(ct))!) throw new InvalidOperationException("A website image is missing. Remove it and publish again.");
         }
         await using (var archive = new NpgsqlCommand("UPDATE public.website_content_versions SET status='archived' WHERE status='published'", connection, tx)) await archive.ExecuteNonQueryAsync(ct);
         await using (var publish = new NpgsqlCommand("UPDATE public.website_content_versions SET status='published',published_by=@actor,published_at=now(),updated_by=@actor,updated_at=now() WHERE id=@id AND status='draft' AND revision=@revision", connection, tx))

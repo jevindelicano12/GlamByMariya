@@ -9,45 +9,27 @@ namespace GlamByMariya.Web.Security;
 /// <summary>Shared application cookie registration and local account validation.</summary>
 public static class StudioCookieAuthentication
 {
-    internal static bool HasDurableValidation(CookieAuthenticationOptions options) =>
-        options.EventsType == null && options.Events.GetType() == typeof(CookieAuthenticationEvents)
-        && options.Events.OnValidatePrincipal == ValidateDurablePrincipalAsync;
-
-    public static IServiceCollection AddStudioCookieAuthentication(
-        this IServiceCollection services, bool isDevelopment, bool durableEnforcement = false)
+    public static IServiceCollection AddStudioCookieAuthentication(this IServiceCollection services, bool isDevelopment)
     {
         services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
             .AddCookie(options =>
             {
                 options.LoginPath = "/Account/Login";
                 options.AccessDeniedPath = "/Account/AccessDenied";
-                if (durableEnforcement) options.SlidingExpiration = false;
                 if (!isDevelopment)
                 {
                     options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
                     options.Cookie.SameSite = SameSiteMode.Lax;
                     options.Cookie.HttpOnly = true;
                 }
-                options.Events.OnValidatePrincipal = durableEnforcement ? ValidateDurablePrincipalAsync : ValidatePrincipalAsync;
+                options.Events.OnValidatePrincipal = ValidatePrincipalAsync;
             });
         return services;
     }
 
-    private static async Task ValidateDurablePrincipalAsync(CookieValidatePrincipalContext context)
-    {
-        // Missing services and repository failures must never fall back to old cookies.
-        try
-        {
-            var configuration = context.HttpContext.RequestServices.GetRequiredService<IConfiguration>();
-            var guard = context.HttpContext.RequestServices.GetService<VersionedSessionAuthorization>();
-            if (context.HttpContext.RequestServices.GetService<IStudioStore>()?.IsPersistent == true &&
-                CustomerAuthIntegrationProfile.AllowedEmail(configuration, context.Principal?.FindFirstValue(ClaimTypes.Email)) &&
-                guard != null && await guard.ValidateCookie(context.Principal, context.HttpContext.RequestAborted)) return;
-        }
-        catch (Exception) { }
-        context.RejectPrincipal();
-    }
-
+    // Every request re-checks the account: it must still exist, be active, keep the same
+    // role, and keep the same password hash. Disabling an account or changing its password
+    // therefore ends all of its existing sessions on their next request.
     public static Task ValidatePrincipalAsync(CookieValidatePrincipalContext context)
     {
         var principal = context.Principal;
@@ -82,24 +64,7 @@ public static class StudioCookieAuthentication
         if (user == null || !user.IsActive || user.Id != accountId
             || !string.Equals(user.Role, roles[0].Value, StringComparison.Ordinal)
             || !string.Equals(AccountSession.Version(user.PasswordHash), versions[0].Value, StringComparison.Ordinal))
-        {
             context.RejectPrincipal();
-            return Task.CompletedTask;
-        }
-
-        var subjects = principal?.FindAll(DurableSessionAuthorization.SubjectClaim).ToArray() ?? [];
-        var provider = context.HttpContext.RequestServices.GetService<SupabaseAuthService>();
-        if (provider == null) { context.RejectPrincipal(); return Task.CompletedTask; }
-        var providerConfigured = provider.IsConfigured;
-        if (providerConfigured)
-        {
-            if (store.IsPersistent || store is not IVerifiedProviderCustomerStore bindings || subjects.Length != 1 ||
-                !Guid.TryParseExact(subjects[0].Value, "D", out var subject) || subject == Guid.Empty ||
-                bindings.FindVerifiedCustomer(subject, emails[0].Value)?.Id != accountId)
-                context.RejectPrincipal();
-        }
-        else if (subjects.Length != 0) context.RejectPrincipal();
-
         return Task.CompletedTask;
     }
 }

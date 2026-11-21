@@ -20,7 +20,7 @@ using ImageMagick;
 var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Temp", "opencode", "proof-storage-checks-" + Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(root);
 var env = new TestEnvironment { ContentRootPath = root };
-var store = new DemoStore();
+var store = new DemoStore(presentationAccounts: true);
 var customer = store.Users.Single(x => x.Role == "Customer");
 var other = store.AddUser("Other", "Customer", "other@example.test", "Customer123!", "Customer", 28, "Others", "24 Other Street");
 var admin = store.Users.Single(x => x.Role == "Admin");
@@ -344,6 +344,7 @@ public class ProofReviewProxy : System.Reflection.DispatchProxy
         "get_IsPersistent" => true,
         "get_Users" => new List<AppUser> { Admin },
         "get_Bookings" => new List<Booking> { Booking },
+        "FindBooking" => (Guid)args![0]! == Booking.Id ? Booking : null,
         "get_Payments" => new List<Payment> { Payment },
         nameof(IPersistentStudioStore.ReviewPayments) => new List<Payment> { Payment },
         nameof(IPersistentStudioStore.ReadAsset) when (string?)args![0] == Payment.ProofKey => (ProofBytes, "image/png"),

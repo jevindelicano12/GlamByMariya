@@ -10,6 +10,8 @@ RUN dotnet restore Frontend/GlamByMariya.Web/GlamByMariya.Web.csproj
 # Limit source inputs; local tools, fixtures and deployment secrets are not build inputs.
 COPY Backend/ Backend/
 COPY Frontend/ Frontend/
+# Ordered SQL migrations, published next to the app for --database-migrate.
+COPY database/migrations/ database/migrations/
 RUN dotnet publish Frontend/GlamByMariya.Web/GlamByMariya.Web.csproj -c Release -o /app/publish --no-restore \
     /p:DebugType=None /p:DebugSymbols=false
 

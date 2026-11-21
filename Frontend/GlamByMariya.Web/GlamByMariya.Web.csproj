@@ -19,6 +19,7 @@
   <ItemGroup>
     <Content Update="App_Data\**\*" CopyToPublishDirectory="Never" />
     <Content Include="MakeupBookingDatabase.sql" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\database\migrations\*.sql" Link="database\migrations\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\Backend\GlamByMariya.Infrastructure\Data\Sql\*.sql" Link="Data\Sql\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

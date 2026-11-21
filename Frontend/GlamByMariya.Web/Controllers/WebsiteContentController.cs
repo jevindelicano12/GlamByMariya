@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using GlamByMariya.Infrastructure.Services;
 using GlamByMariya.Core.Entities;
 using GlamByMariya.Infrastructure.Data;
+using GlamByMariya.Infrastructure.Integrations;
 using System.Security.Claims;
 
 namespace GlamByMariya.Web.Controllers;
@@ -19,8 +20,60 @@ public sealed class WebsiteContentController : Controller
         if (service == null) return View(new WebsiteContentEditorModel());
         ViewData["DemoTextEditing"] = HttpContext.RequestServices.GetService<IWebsiteContentRepository>() is DemoWebsiteContentRepository;
         ViewData["DemoPersistentText"] = HttpContext.RequestServices.GetService<IWebsiteContentRepository>() is DemoFileWebsiteContentRepository;
-        try { if (HttpContext.RequestServices.GetService<IWebsiteContentRepository>() is DemoFileWebsiteContentRepository local) ViewData["DemoDraftImages"] = local.Images(true); return View(WebsiteContentEditorModel.FromDraft(await service.Preview(User, cancellationToken))); }
+        try
+        {
+            if (HttpContext.RequestServices.GetService<IWebsiteContentRepository>() is DemoFileWebsiteContentRepository local) ViewData["DemoDraftImages"] = local.Images(true);
+            var draft = await service.Preview(User, cancellationToken);
+            if (draft != null) await LoadDraftImages(draft.Id, cancellationToken);
+            return View(WebsiteContentEditorModel.FromDraft(draft));
+        }
         catch (Exception e) when (e is not OperationCanceledException) { return StatusCode(503, "Website content is temporarily unavailable."); }
+    }
+
+    // Live photo cards appear only when uploads are registered (database mode).
+    private async Task LoadDraftImages(Guid draftId, CancellationToken cancellationToken)
+    {
+        if (HttpContext.RequestServices.GetService<WebsiteImageUploadService>() == null || HttpContext.RequestServices.GetService<WebsiteImageService>() is not { } images) return;
+        ViewData["DraftImages"] = await images.DraftImages(User, draftId, cancellationToken);
+    }
+
+    private const string StaleDraft = "The draft changed. Reload and try again.";
+    private const string PhotoStorageDown = "Photos can't be saved right now. Text changes still work.";
+
+    [HttpPost, ValidateAntiForgeryToken, RequestSizeLimit(5_100_000)]
+    public async Task<IActionResult> SaveImage(Guid draftId, long revision, string role, string? altText, string? caption, IFormFile? image, CancellationToken cancellationToken)
+    {
+        var uploads = HttpContext.RequestServices.GetService<WebsiteImageUploadService>();
+        if (uploads == null) return NotFound();
+        if (image == null || image.Length <= 0 || image.Length > WebsiteContentRules.MaxImageBytes) { TempData["Error"] = "Choose a JPG or PNG image up to 5 MB."; return RedirectToAction(nameof(Index)); }
+        try
+        {
+            await using var buffer = new MemoryStream(); await image.CopyToAsync(buffer, cancellationToken);
+            await uploads.Save(User, draftId, revision, role, altText, caption, buffer.ToArray(), cancellationToken);
+            TempData["Success"] = "Photo saved to the draft. Publish the draft to make it public.";
+        }
+        catch (ArgumentException e) { TempData["Error"] = e.Message; }
+        catch (WebsiteImageStorageException) { TempData["Error"] = PhotoStorageDown; }
+        catch (InvalidOperationException e) when (e.Message.StartsWith("The draft changed", StringComparison.Ordinal)) { TempData["Error"] = StaleDraft; }
+        catch (Exception e) when (e is not OperationCanceledException and not UnauthorizedAccessException) { TempData["Error"] = "The photo could not be saved. Please try again."; }
+        return RedirectToAction(nameof(Index));
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> RemoveImage(Guid draftId, long revision, Guid imageId, CancellationToken cancellationToken)
+    {
+        var uploads = HttpContext.RequestServices.GetService<WebsiteImageUploadService>();
+        if (uploads == null) return NotFound();
+        try
+        {
+            await uploads.Remove(User, draftId, revision, imageId, cancellationToken);
+            TempData["Success"] = "Photo removed from the draft. Publish the draft to update the website.";
+        }
+        catch (ArgumentException e) { TempData["Error"] = e.Message; }
+        catch (WebsiteImageStorageException) { TempData["Error"] = PhotoStorageDown; }
+        catch (InvalidOperationException e) when (e.Message.StartsWith("The draft changed", StringComparison.Ordinal)) { TempData["Error"] = StaleDraft; }
+        catch (Exception e) when (e is not OperationCanceledException and not UnauthorizedAccessException) { TempData["Error"] = "The photo could not be removed. Please try again."; }
+        return RedirectToAction(nameof(Index));
     }
 
     private WebsiteContentService? ContentService => HttpContext.RequestServices.GetService<WebsiteContentService>();
@@ -95,6 +148,7 @@ public sealed class WebsiteContentController : Controller
         catch (Exception e) when (e is not OperationCanceledException) { ModelState.AddModelError("", "Saving failed. Your submitted text remains below; try again."); }
         input.Links ??= []; input.Faqs ??= [];
         input.AddEmptySlots();
+        try { await LoadDraftImages(input.DraftId, cancellationToken); } catch (Exception e) when (e is not OperationCanceledException) { }
         return View("Index", input);
     }
 
@@ -113,10 +167,13 @@ public sealed class WebsiteContentController : Controller
     {
         var service = ContentService;
         if (service == null) return StatusCode(503, "Website publishing is not available.");
-        try { await service.Publish(User, draftId, revision, cancellationToken); RecordDemoPublication(draftId); return RedirectToAction(nameof(Index)); }
-        catch (ArgumentException e) { return BadRequest(e.Message); }
-        catch (InvalidOperationException) { return Conflict("The draft changed or could not be published. Reload and try again."); }
-        catch (Exception e) when (e is not OperationCanceledException) { return StatusCode(503, "Publishing could not be confirmed. Check published content before retrying."); }
+        // Always come back to the editor with a message: a second click on Publish (or Back + Publish)
+        // finds no draft, which used to show a bare error page even though publishing had worked.
+        try { await service.Publish(User, draftId, revision, cancellationToken); RecordDemoPublication(draftId); TempData["Success"] = "Published. Visitors now see these changes."; }
+        catch (ArgumentException e) { TempData["Error"] = e.Message; }
+        catch (InvalidOperationException) { TempData["Error"] = "This draft was already published or changed in another tab. The page below shows the latest version; check the website to see what is live."; }
+        catch (Exception e) when (e is not OperationCanceledException) { TempData["Error"] = "Publishing could not be confirmed. Check the website before trying again."; }
+        return RedirectToAction(nameof(Index));
     }
 
     [HttpPost, ValidateAntiForgeryToken]
@@ -134,8 +191,15 @@ public sealed class WebsiteContentController : Controller
         var service = ContentService;
         if (service == null) return StatusCode(503, "Website preview is not available.");
         var draft = await service.Preview(User, cancellationToken);
-        if (HttpContext.RequestServices.GetService<IWebsiteContentRepository>() is DemoFileWebsiteContentRepository local) ViewData["DemoDraftImages"] = local.Images(true);
-        return draft == null ? NotFound() : View(draft);
+        if (draft == null) return NotFound();
+        if (HttpContext.RequestServices.GetService<IWebsiteContentRepository>() is DemoFileWebsiteContentRepository local) ViewData["PreviewImages"] = local.Images(true);
+        else if (HttpContext.RequestServices.GetService<WebsiteImageService>() is { } images)
+        {
+            // Live site: show the draft's photos too; a failed read only hides them from the preview.
+            try { ViewData["PreviewImages"] = await images.DraftImages(User, draft.Id, cancellationToken); }
+            catch (Exception e) when (e is not OperationCanceledException) { ViewData["PreviewImages"] = null; }
+        }
+        return View(draft);
     }
 
     [HttpPost, ValidateAntiForgeryToken]

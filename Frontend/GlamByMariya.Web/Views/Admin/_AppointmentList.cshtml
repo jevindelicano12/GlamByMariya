@@ -1,9 +1,10 @@
 @model List<Booking>
-@{ var all = (List<Booking>)ViewBag.All; var selected = (string?)ViewBag.Status ?? ""; var corrections = ViewBag.CorrectionBookingIds as HashSet<Guid> ?? []; var fullPage = ViewContext.RouteData.Values["action"]?.ToString() == "Appointments" || Context.Request.Query["view"] == "appointments"; }
+@inject XenditClient Xendit
+@{ var all = (List<Booking>)ViewBag.All; var selected = (string?)ViewBag.Status ?? ""; var corrections = ViewBag.CorrectionBookingIds as HashSet<Guid> ?? []; var online = Xendit.Enabled && DataStore.IsPersistent; var fullPage = ViewContext.RouteData.Values["action"]?.ToString() == "Appointments" || Context.Request.Query["view"] == "appointments"; }
 <section class="admin-appointments" id="appointments">
     @if (!fullPage) { <div class="appointments-heading"><div><div class="eyebrow">BOOKING MANAGEMENT</div><h2>Appointment requests</h2><p>Manage booking requests, approvals and status.</p></div><a class="button secondary" asp-controller="Admin" asp-action="Appointments">All appointments</a></div> }
     <nav class="appointment-filters" aria-label="Filter appointments by status">
-    @foreach (var filter in new[] { "", "Pending Payment", "Confirmed", "Completed", "Cancelled", "Rejected" }) {
+    @foreach (var filter in new[] { "", "Pending Payment", "Confirmed", "Completed", "Cancelled", "Rejected", "Expired" }) {
         var count = filter == "" ? all.Count : all.Count(b => b.Status == filter);
         <a class="@(selected == filter ? "active" : "")" aria-current="@(selected == filter ? "page" : null)" asp-controller="Admin" asp-action="Appointments" asp-route-mode="list" asp-route-status="@filter">@(filter == "" ? "All" : filter) (@count)</a>
     }
@@ -18,9 +19,9 @@
         <div class="admin-appointment-head" aria-hidden="true"><span>Reference</span><span>Customer</span><span>Booking</span><span>Date &amp; time</span><span>Payment</span><span>Status</span><span>Total</span><span>Action</span></div>
         @foreach (var b in Model) {
         <article class="admin-appointment-row" aria-label="Appointment @b.Reference" data-appointment-row data-date="@b.Start.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)" data-search-text="@b.Reference @b.CustomerName @b.ServiceDescription @b.BookingType @string.Join(" ", b.MixedPeople.Select(p => p.Service.Name)) @b.Area">
-            <div><span class="appointment-field-label">Reference</span><strong>@b.Reference</strong></div><div><span class="appointment-field-label">Customer</span>@b.CustomerName</div><div><span class="appointment-field-label">Booking</span>@b.ServiceDescription<small>@b.BookingType · @b.People @(b.People == 1 ? "person" : "people")</small></div>
+            <div><span class="appointment-field-label">Reference</span><strong>@b.Reference</strong></div><div><span class="appointment-field-label">Customer</span>@b.CustomerName</div><div><span class="appointment-field-label">Booking</span>@b.ServiceDescription<small>@b.BookingType · @AdminPaymentLabels.PeopleCount(b.People)</small></div>
             <div><span class="appointment-field-label">Date &amp; time</span>@b.Start.ToString("MMM dd, yyyy")<small>@b.Start.ToString("h:mm tt") – @b.End.ToString("h:mm tt")</small><small>@((int)(b.End - b.Start).TotalMinutes) min makeup + @(b.BufferMinutesSnapshot ?? DataStore.Settings.BufferMinutes) min preparation</small></div>
-            <div><span class="appointment-field-label">Payment</span><span class="badge @(corrections.Contains(b.Id) ? "payment-correction" : null)">@(corrections.Contains(b.Id) ? "Correction requested" : b.PaymentStatus)</span></div><div><span class="appointment-field-label">Status</span><span class="badge @b.Status.ToLowerInvariant()">@b.Status</span>@if (!DataStore.IsPersistent && b.Status == "Pending Payment") { <small>Time reserved</small> }@if (b.RequestedStart != null) { <small>Reschedule requested</small> }</div>
+            <div><span class="appointment-field-label">Payment</span><span class="badge @(corrections.Contains(b.Id) ? "payment-correction" : null)">@(corrections.Contains(b.Id) ? "Correction requested" : AdminPaymentLabels.Booking(b, online))</span></div><div><span class="appointment-field-label">Status</span><span class="badge @b.Status.ToLowerInvariant()">@b.Status</span>@if (!DataStore.IsPersistent && b.Status == "Pending Payment") { <small>Time reserved</small> }@if (b.RequestedStart != null) { <small>Reschedule requested</small> }</div>
             <div><span class="appointment-field-label">Total</span>₱@b.Total.ToString("N2")</div><div>@if (b.MixedPeople.Count == 0 || User.IsInRole("SuperAdmin")) { <a class="button secondary appointment-details" asp-action="Details" asp-route-id="@b.Id" aria-label="View @b.Reference">View details</a> } else { <small>SuperAdmin review required</small> }</div>
         </article>
         }

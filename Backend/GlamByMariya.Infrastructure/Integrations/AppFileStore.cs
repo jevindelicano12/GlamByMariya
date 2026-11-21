@@ -125,16 +125,17 @@ public sealed class SupabaseAppFileStore(IHttpClientFactory factory, IConfigurat
     public const string Bucket = "app-files";
 
     private bool Ready => string.Equals(config["FileStorage:Provider"], "Supabase", StringComparison.OrdinalIgnoreCase)
-        && Uri.TryCreate((config["Supabase:Url"] ?? "").TrimEnd('/'), UriKind.Absolute, out var url) && url.Scheme == "https"
+        && Uri.TryCreate((config["Supabase:Url"] ?? "").Trim().TrimEnd('/'), UriKind.Absolute, out var url) && url.Scheme == "https"
         && !string.IsNullOrWhiteSpace(config["SupabaseStorage:ServiceKey"]);
 
     private HttpClient Client()
     {
         if (!Ready) throw new InvalidOperationException("Supabase file storage is not configured.");
         var client = factory.CreateClient();
-        client.BaseAddress = new Uri((config["Supabase:Url"] ?? "").TrimEnd('/') + "/storage/v1/");
+        client.BaseAddress = new Uri((config["Supabase:Url"] ?? "").Trim().TrimEnd('/') + "/storage/v1/");
         client.Timeout = TimeSpan.FromSeconds(30);
-        var key = config["SupabaseStorage:ServiceKey"]!;
+        // A key pasted into the host settings may carry a trailing new line, which HTTP headers refuse.
+        var key = StorageKey.Clean(config["SupabaseStorage:ServiceKey"]);
         client.DefaultRequestHeaders.Add("apikey", key);
         if (!key.StartsWith("sb_secret_", StringComparison.Ordinal)) client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", key);
         return client;
@@ -142,7 +143,7 @@ public sealed class SupabaseAppFileStore(IHttpClientFactory factory, IConfigurat
 
     public static bool IsConfigured(IConfiguration config) =>
         string.Equals(config["FileStorage:Provider"], "Supabase", StringComparison.OrdinalIgnoreCase)
-        && Uri.TryCreate((config["Supabase:Url"] ?? "").TrimEnd('/'), UriKind.Absolute, out var url) && url.Scheme == "https"
+        && Uri.TryCreate((config["Supabase:Url"] ?? "").Trim().TrimEnd('/'), UriKind.Absolute, out var url) && url.Scheme == "https"
         && !string.IsNullOrWhiteSpace(config["SupabaseStorage:ServiceKey"]);
 
     public void Save(string key, byte[] bytes) => SaveAsync(key, bytes).GetAwaiter().GetResult();

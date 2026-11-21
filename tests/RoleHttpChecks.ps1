@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $base = 'http://127.0.0.1:5096'
-$credentialKeys = @('GLAM_DEMO_ADMIN_PASSWORD', 'GLAM_DEMO_OWNER_PASSWORD', 'GLAM_DEMO_CUSTOMER_PASSWORD', 'PORT')
+$credentialKeys = @('GLAM_DEMO_ADMIN_PASSWORD', 'GLAM_DEMO_OWNER_PASSWORD', 'GLAM_DEMO_CUSTOMER_PASSWORD', 'DemoAccounts__Presentation', 'PORT')
 $previousCredentials = @{}
 foreach ($key in $credentialKeys) { $previousCredentials[$key] = [Environment]::GetEnvironmentVariable($key, 'Process') }
 $env:GLAM_DEMO_ADMIN_PASSWORD = 'fixtureAdmin' + [guid]::NewGuid().ToString('N')
@@ -10,6 +10,7 @@ $env:GLAM_DEMO_CUSTOMER_PASSWORD = 'fixtureCustomer' + [guid]::NewGuid().ToStrin
 $env:PORT = ''
 $env:ASPNETCORE_ENVIRONMENT = 'Development'
 $env:Database__Provider = 'Demo'
+$env:DemoAccounts__Presentation = 'true'
 $env:Supabase__AnonKey = ' '
 $env:Email__SmtpHost = ' '
 $server = $null
@@ -35,9 +36,9 @@ try {
     $owner = New-Object Microsoft.PowerShell.Commands.WebRequestSession
     $customer = New-Object Microsoft.PowerShell.Commands.WebRequestSession
     $admin = New-Object Microsoft.PowerShell.Commands.WebRequestSession
-    Submit '/Account/Login' '/Account/Login' @{email='owner@glambymariya.demo';password=$env:GLAM_DEMO_OWNER_PASSWORD} $owner | Out-Null
-    Submit '/Account/Login' '/Account/Login' @{email='customer@glambymariya.demo';password=$env:GLAM_DEMO_CUSTOMER_PASSWORD} $customer | Out-Null
-    Submit '/Account/Login' '/Account/Login' @{email='admin@glambymariya.demo';password=$env:GLAM_DEMO_ADMIN_PASSWORD} $admin | Out-Null
+    Submit '/Account/Login' '/Account/Login' @{email='presentation-owner@example.test';password=$env:GLAM_DEMO_OWNER_PASSWORD} $owner | Out-Null
+    Submit '/Account/Login' '/Account/Login' @{email='presentation-customer@example.test';password=$env:GLAM_DEMO_CUSTOMER_PASSWORD} $customer | Out-Null
+    Submit '/Account/Login' '/Account/Login' @{email='presentation-admin@example.test';password=$env:GLAM_DEMO_ADMIN_PASSWORD} $admin | Out-Null
     Check ((Get-Page '/Admin/Users' $owner).StatusCode -eq 200) 'SuperAdmin opens Manage Administrators'
     Check ((Get-Page '/Admin/Users' $owner).Content -match 'Invite an administrator') 'invite form renders'
     function Denied($session, $path) {
@@ -50,16 +51,16 @@ try {
     Check (Denied $customer '/Admin/Users') 'customer denied from Manage Administrators'
 
     # Existing account: duplicate invitation must not change role/password/auth.
-    $duplicateResult = (Submit '/Admin/Invite' '/Admin/Users' @{email='customer@glambymariya.demo'} $owner).Content
+    $duplicateResult = (Submit '/Admin/Invite' '/Admin/Users' @{email='presentation-customer@example.test'} $owner).Content
     Check ($duplicateResult -match 'already registered') 'existing account invitation is rejected clearly'
-    Check ($duplicateResult -notmatch 'Invitation sent to customer@glambymariya.demo') 'existing account receives no invitation'
+    Check ($duplicateResult -notmatch 'Invitation sent to presentation-customer@example.test') 'existing account receives no invitation'
     $customerAgain = New-Object Microsoft.PowerShell.Commands.WebRequestSession
-    Submit '/Account/Login' '/Account/Login' @{email='customer@glambymariya.demo';password=$env:GLAM_DEMO_CUSTOMER_PASSWORD} $customerAgain | Out-Null
+    Submit '/Account/Login' '/Account/Login' @{email='presentation-customer@example.test';password=$env:GLAM_DEMO_CUSTOMER_PASSWORD} $customerAgain | Out-Null
     Check ((Get-Page '/Bookings' $customerAgain).BaseResponse.ResponseUri -match '/Bookings') 'existing customer still logs in after rejected invitation'
 
     # Tampered registration role is ignored: everyone becomes Customer.
     $evil = New-Object Microsoft.PowerShell.Commands.WebRequestSession
-    Submit '/Account/Register' '/Account/Register' @{firstName='Evil';lastName='User';email='evil@example.test';age='25';gender='Others';address='123 Evil Street';password='Evil1234!';role='SuperAdmin'} $evil | Out-Null
+    Submit '/Account/Register' '/Account/Register' @{firstName='Evil';lastName='User';email='evil@example.test';age='25';gender='Others';address='123 Evil Street';password='Evil1234!';acceptTerms='true';role='SuperAdmin'} $evil | Out-Null
     $verify = Get-Page '/Account/Verify?email=evil%40example.test' $evil
     Check ($verify.Content -match 'six-digit code') 'tampered registration still gated by email code'
     $safe = 'evil_example_test'

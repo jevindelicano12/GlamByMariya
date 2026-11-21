@@ -64,7 +64,8 @@ public static class ContentSecurityPolicy
             $"font-src 'self' {GoogleFontFilesOrigin}",
             $"img-src {images}",
             "connect-src 'self'",
-            "form-action 'self'",
+            // The booking form redirects to Xendit's hosted checkout for the down payment.
+            "form-action 'self' https://checkout.xendit.co https://checkout-staging.xendit.co",
             "base-uri 'self'",
             "object-src 'none'",
             "frame-src 'none'",

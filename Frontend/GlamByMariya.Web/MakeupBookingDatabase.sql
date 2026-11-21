@@ -110,7 +110,7 @@ CREATE TABLE catalog_images (
 );
 CREATE INDEX ix_catalog_images_asset ON catalog_images(asset_id);
 
--- 3. Business settings. Opening/closing are integer hours to preserve 24:00 closing.
+-- 3. Studio settings. Opening/closing are integer hours to preserve 24:00 closing.
 CREATE TABLE business_settings (
     id smallint PRIMARY KEY DEFAULT 1 CHECK (id = 1),
     business_name varchar(100) NOT NULL DEFAULT 'Glam by Mariya',
@@ -153,7 +153,7 @@ CREATE INDEX ix_method_qr ON payment_methods(qr_asset_id);
 -- There is no separately sold package catalog or per-guest form in the actual UI.
 CREATE TABLE bookings (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    reference varchar(12) GENERATED ALWAYS AS ('GBM-' || upper(substr(replace(id::text,'-',''),1,8))) STORED UNIQUE,
+    reference varchar(11) GENERATED ALWAYS AS ('LM-' || upper(substr(replace(id::text,'-',''),1,8))) STORED UNIQUE,
     customer_id uuid NOT NULL REFERENCES app_users(id) ON DELETE RESTRICT,
     artist_id uuid NOT NULL REFERENCES app_users(id) ON DELETE RESTRICT,
     customer_name_snapshot varchar(101) NOT NULL,
@@ -450,7 +450,7 @@ BEGIN
     IF p_start <= clock_timestamp() OR p_duration NOT BETWEEN 1 AND 1440
        OR local_start < date_trunc('day',local_start) + make_interval(hours => s.open_hour)
        OR local_end > date_trunc('day',local_start) + make_interval(hours => s.close_hour) THEN
-        RAISE EXCEPTION 'Appointment must be future and fit service hours including travel buffer';
+        RAISE EXCEPTION 'Appointment must be future and fit studio hours including travel buffer';
     END IF;
     IF EXISTS (SELECT 1 FROM artist_schedule_entries e WHERE e.artist_id=p_artist
                AND (e.booking_id IS NULL OR e.booking_id IS DISTINCT FROM p_exclude)
@@ -849,17 +849,13 @@ DO $$ DECLARE t record; BEGIN
     END LOOP;
 END $$;
 
--- 9. Baseline settings/catalog and realistic demonstration records.
--- DEMONSTRATION ONLY: accounts are DISABLED, with deliberately unusable hashes.
--- No plaintext passwords or usable demo credentials are installed by this SQL.
--- Activate/replace hashes using ASP.NET PasswordHasher<AppUser> during integration.
+-- 9. Baseline settings/catalog. No accounts, bookings or payments are seeded:
+-- the owner is created with --database-create-superadmin, admins come by invite,
+-- and customers register themselves.
 INSERT INTO roles(id,name) VALUES
 ('10000000-0000-0000-0000-000000000001','Admin'),
 ('10000000-0000-0000-0000-000000000002','Customer'),
 ('10000000-0000-0000-0000-000000000003','SuperAdmin');
-INSERT INTO app_users(id,role_id,first_name,last_name,age_at_registration,gender,address,email,password_hash) VALUES
-('20000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001','Glam by Mariya','Admin',35,'Others','Address on file','admin@glambymariya.demo','DISABLED-DEMO-NOT-A-PASSWORD-HASH'),
-('20000000-0000-0000-0000-000000000002','10000000-0000-0000-0000-000000000002','Alex','Morgan',28,'Others','24 Sample Street, Demo Barangay','customer@glambymariya.demo','DISABLED-DEMO-NOT-A-PASSWORD-HASH');
 INSERT INTO catalog_categories(id,name) VALUES
 ('30000000-0000-0000-0000-000000000001','The everyday edit'),
 ('30000000-0000-0000-0000-000000000002','The occasion edit'),
@@ -888,49 +884,6 @@ INSERT INTO payment_methods(id,name,accepts_deposits) VALUES
 ('70000000-0000-0000-0000-000000000003','Bank Transfer',true),
 ('70000000-0000-0000-0000-000000000004','Cash',false);
 
--- Samples created in one transaction: booking -> add-on snapshots -> deposit.
-INSERT INTO bookings(id,customer_id,artist_id,service_id,starts_at,address,area_id,
-    booking_type,people,addons_total_snapshot,addons_minutes_snapshot,
-    policy_accepted_at,policy_version,travel_reminder_acknowledged_at,travel_reminder_version) VALUES
-('81000001-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000002','20000000-0000-0000-0000-000000000001',
- '40000000-0000-0000-0000-000000000001',((current_timestamp AT TIME ZONE 'Asia/Manila')::date+2+time '10:00') AT TIME ZONE 'Asia/Manila',
- '24 Sample Street, Demo Barangay','60000000-0000-0000-0000-000000000001','individual',1,0,0,now(),'booking-v1',now(),'travel-v1'),
-('81000002-0000-0000-0000-000000000002','20000000-0000-0000-0000-000000000002','20000000-0000-0000-0000-000000000001',
- '40000000-0000-0000-0000-000000000001',((current_timestamp AT TIME ZONE 'Asia/Manila')::date+3+time '08:00') AT TIME ZONE 'Asia/Manila',
- '24 Sample Street, Demo Barangay','60000000-0000-0000-0000-000000000001','package',4,250,15,now(),'booking-v1',now(),'travel-v1');
-INSERT INTO booking_addons(booking_id,addon_id) VALUES
-('81000002-0000-0000-0000-000000000002','50000000-0000-0000-0000-000000000001');
-INSERT INTO payments(booking_id,method_id,purpose,amount,reference,submitted_by) VALUES
-('81000001-0000-0000-0000-000000000001','70000000-0000-0000-0000-000000000001','down_payment',300,'DEMO-REFERENCE-001','20000000-0000-0000-0000-000000000002'),
-('81000002-0000-0000-0000-000000000002','70000000-0000-0000-0000-000000000002','down_payment',1175,'DEMO-GROUP-002','20000000-0000-0000-0000-000000000002');
-SELECT confirm_booking('81000002-0000-0000-0000-000000000002','20000000-0000-0000-0000-000000000001');
-INSERT INTO reschedule_requests(booking_id,requested_by,original_start,requested_start)
-SELECT id,customer_id,starts_at,starts_at+interval '1 day' FROM bookings WHERE id='81000002-0000-0000-0000-000000000002';
-INSERT INTO notifications(user_id,booking_id,kind,message,scheduled_at,deduplication_key)
-SELECT customer_id,id,'reminder','Your Glam by Mariya appointment is tomorrow. Please prepare a well-lit space.',starts_at-interval '24 hours',id::text||':24h:'||starts_at::text
-FROM bookings WHERE id='81000002-0000-0000-0000-000000000002';
--- A third booking demonstrates a confirmed cancellation and actual manual refund.
-INSERT INTO bookings(id,customer_id,artist_id,service_id,starts_at,address,area_id,
-    policy_accepted_at,policy_version,travel_reminder_acknowledged_at,travel_reminder_version)
-SELECT '81000003-0000-0000-0000-000000000003',customer_id,artist_id,service_id,starts_at+interval '4 days',address,area_id,
-    now(),'booking-v1',now(),'travel-v1' FROM bookings WHERE id='81000001-0000-0000-0000-000000000001';
-INSERT INTO payments(booking_id,method_id,purpose,amount,reference,submitted_by) VALUES
-('81000003-0000-0000-0000-000000000003','70000000-0000-0000-0000-000000000001','down_payment',300,'DEMO-CANCEL-003','20000000-0000-0000-0000-000000000002');
-SELECT confirm_booking('81000003-0000-0000-0000-000000000003','20000000-0000-0000-0000-000000000001');
-SELECT set_config('makeup.actor_id','20000000-0000-0000-0000-000000000002',true);
-UPDATE bookings SET status='Cancelled',cancellation_confirmed_at=now(),note='Customer confirmed cancellation and the PHP 200 deduction.'
-WHERE id='81000003-0000-0000-0000-000000000003';
-SELECT set_config('makeup.actor_id','20000000-0000-0000-0000-000000000001',true);
-INSERT INTO refunds(closure_id,method_id,amount,transfer_reference,sent_at,recorded_by)
-SELECT id,'70000000-0000-0000-0000-000000000001',100,'DEMO-REFUND-003',now(),'20000000-0000-0000-0000-000000000001'
-FROM booking_closures WHERE booking_id='81000003-0000-0000-0000-000000000003';
-INSERT INTO artist_schedule_entries(artist_id,kind,starts_at,ends_at,reason,created_by)
-SELECT '20000000-0000-0000-0000-000000000001','block',
-    ((current_timestamp AT TIME ZONE 'Asia/Manila')::date+5+time '12:00') AT TIME ZONE 'Asia/Manila',
-    ((current_timestamp AT TIME ZONE 'Asia/Manila')::date+5+time '13:00') AT TIME ZONE 'Asia/Manila',
-    'Artist lunch / personal appointment','20000000-0000-0000-0000-000000000001';
--- Confirmed records remain valid if the accounts are later disabled.
-UPDATE app_users SET is_active=false;
 COMMIT;
 
 -- 10. Common read operations (safe, read-only examples; replace UUIDs with parameters).
@@ -938,7 +891,7 @@ COMMIT;
 SELECT reference,service_name_snapshot,starts_at,people,booking_type,original_total,group_discount,
        addons_total_snapshot,final_total,required_down_payment,verified_paid,remaining_balance,status,payment_status,requested_start
 FROM makeup.booking_financial_summary
-WHERE customer_id='20000000-0000-0000-0000-000000000002' ORDER BY starts_at DESC;
+WHERE customer_id=:customer_id ORDER BY starts_at DESC;
 
 -- Artist review queue and manual proof/reference review (server/admin only).
 SELECT b.reference,b.customer_name_snapshot,b.starts_at,p.amount,m.name AS method,p.reference,p.status,p.proof_asset_id
@@ -963,7 +916,7 @@ slots AS (SELECT d.*,g AS local_start FROM d CROSS JOIN LATERAL generate_series(
     local_day+make_interval(hours=>open_hour),
     local_day+make_interval(hours=>close_hour)-make_interval(mins=>60+buffer_minutes),interval '15 minutes') g)
 SELECT local_start,NOT EXISTS (SELECT 1 FROM makeup.artist_schedule_entries e
-    WHERE e.artist_id='20000000-0000-0000-0000-000000000001'
+    WHERE e.artist_id=:artist_id
       AND tstzrange(e.starts_at,e.ends_at,'[)') && tstzrange(local_start AT TIME ZONE time_zone,
           (local_start+make_interval(mins=>60+buffer_minutes)) AT TIME ZONE time_zone,'[)')) AS available
 FROM slots WHERE local_start AT TIME ZONE time_zone > now() ORDER BY local_start;
@@ -981,7 +934,7 @@ SELECT (SELECT coalesce(sum(amount),0) FROM makeup.payments WHERE status='Verifi
        (SELECT coalesce(sum(final_total),0) FROM makeup.bookings WHERE status='Completed') AS completed_service_value;
 SELECT reference,cancellation_fee,refund_due,refunded,refund_outstanding FROM makeup.booking_financial_summary WHERE refund_due>0;
 SELECT * FROM makeup.reschedule_requests WHERE status='Pending' ORDER BY created_at;
-SELECT * FROM makeup.notifications WHERE user_id='20000000-0000-0000-0000-000000000002' ORDER BY created_at DESC LIMIT 6;
+SELECT * FROM makeup.notifications WHERE user_id=:user_id ORDER BY created_at DESC LIMIT 6;
 SELECT * FROM makeup.notifications WHERE delivery_status='Pending' AND scheduled_at<=now() ORDER BY scheduled_at;
 SELECT * FROM makeup.audit_logs ORDER BY created_at DESC LIMIT 30;
 

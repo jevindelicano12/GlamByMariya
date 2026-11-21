@@ -64,7 +64,6 @@ internal static class MvcBookingHttpChecks
         builder.Services.AddScoped<IAppFileStore>(sp => new LocalAppFileStore(sp.GetRequiredService<IWebHostEnvironment>()));
         builder.Services.AddScoped(sp => new PaymentQrService(root, sp.GetRequiredService<PublicStudioStore>()));
         builder.Services.AddScoped(sp => new CatalogImageService(root, sp.GetRequiredService<PublicStudioStore>()));
-        builder.Services.AddSingleton(new SupabaseAuthService(new DenyHttp(), builder.Configuration, NullLogger<SupabaseAuthService>.Instance));
         builder.Services.AddControllersWithViews(o => o.Filters.Add(new AutoValidateAntiforgeryTokenAttribute()))
             .AddApplicationPart(typeof(BookingsController).Assembly);
         builder.Services.AddSingleton<IControllerActivator, BookingControllers>();

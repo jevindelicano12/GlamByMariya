@@ -15,10 +15,8 @@ public sealed class PublicStudioStore(
     IHttpContextAccessor httpAccessor,
     IWebHostEnvironment env,
     IConfiguration config,
-    IAppFileStore files) : PostgresStudioStore(pdb, httpAccessor, env, config, files), ISupabaseIdentityStore, IAdminProvisioningStore
+    IAppFileStore files) : PostgresStudioStore(pdb, httpAccessor, env, config, files)
 {
-    public bool IdentityLinkingEnabled => config.GetValue("Authentication:IdentityLinkingEnabled", false);
-    public bool RestrictLegacyFallback => config.GetValue("Authentication:RestrictLegacyFallback", false);
     private Guid? ActorId => Guid.TryParse(httpAccessor.HttpContext?.User.FindFirstValue(ClaimTypes.NameIdentifier), out var id) ? id : null;
 
     // shortcut: requires unfiltered table visibility; replace with a reviewed scoped database contract before activation.
@@ -94,258 +92,6 @@ public sealed class PublicStudioStore(
         pdb.Database.SqlQueryRaw<long>("SELECT id AS \"Value\" FROM public.reservations WHERE app_id = {0}", appId).SingleOrDefault()
         is long id && id != 0 ? id : throw new InvalidOperationException("Booking not found.");
 
-    public void LinkSupabaseIdentity(string email, Guid supabaseUserId) => Transaction(null, () =>
-    {
-        var existing = pdb.Database.SqlQueryRaw<Guid?>("SELECT supabase_user_id AS \"Value\" FROM public.account_identities WHERE lower(btrim(login))=lower(btrim({0}))", email).SingleOrDefault();
-        var state = pdb.Database.SqlQueryRaw<string>("SELECT auth_state AS \"Value\" FROM public.account_identities WHERE lower(btrim(login))=lower(btrim({0}))", email).SingleOrDefault();
-        AuthenticationIdentityPolicy.ValidateLink(existing, state, supabaseUserId);
-        if (existing != supabaseUserId || state != AuthenticationIdentityPolicy.Supabase)
-            throw new InvalidOperationException("The account identity could not be verified. Contact support.");
-        if (pdb.Database.SqlQueryRaw<Guid>("SELECT supabase_user_id AS \"Value\" FROM public.account_identities WHERE supabase_user_id={0} AND lower(btrim(login))<>lower(btrim({1}))", supabaseUserId, email).Any())
-            throw new InvalidOperationException("This Supabase identity is already linked to another account.");
-    });
-
-    public bool LegacyFallbackAllowed(string email, bool restrictUnknown)
-    {
-        try
-        {
-            var state = pdb.Database.SqlQueryRaw<string>("SELECT auth_state AS \"Value\" FROM public.account_identities WHERE lower(btrim(login))=lower(btrim({0}))", email).SingleOrDefault();
-            var supabaseUserId = pdb.Database.SqlQueryRaw<Guid?>("SELECT supabase_user_id AS \"Value\" FROM public.account_identities WHERE lower(btrim(login))=lower(btrim({0}))", email).SingleOrDefault();
-            return AuthenticationIdentityPolicy.CanUseLegacyFallback(state, supabaseUserId, restrictUnknown);
-        }
-        catch (PostgresException)
-        {
-            // Before activation preserve transitional behavior; when the
-            // restrictive policy is enabled, missing metadata fails closed.
-            return !restrictUnknown;
-        }
-    }
-
-    public AppUser CreatePendingInvitedAdmin(string firstName, string lastName, string email,
-        string password, int age, string gender, string address, Guid invitationId)
-    {
-        if (invitationId == Guid.Empty) throw new InvalidOperationException("The invitation is invalid.");
-        var error = RegistrationRules.Validate(firstName, lastName, email, age, gender, address, password);
-        if (error != null) throw new InvalidOperationException(error);
-        email = email.Trim();
-        if (email.Length > 50) throw new InvalidOperationException("Admin email must be 50 characters or fewer (legacy username limit).");
-        var user = new AppUser
-        {
-            FirstName = firstName.Trim(), LastName = lastName.Trim(), Name = $"{firstName.Trim()} {lastName.Trim()}",
-            Email = email, Age = age, Gender = gender, Address = address.Trim(), Role = Roles.Admin, IsActive = false
-        };
-        user.PasswordHash = new PasswordHasher<AppUser>().HashPassword(user, password);
-        Transaction(ActorId, () =>
-        {
-            pdb.Database.ExecuteSqlInterpolated($"""
-                INSERT INTO public.admin_users(app_id, username, email, first_name, last_name, age_at_registration, gender, address, password_hash, role, is_active)
-                VALUES({user.Id}, {user.Email}, {user.Email}, {user.FirstName}, {user.LastName}, {age}, {gender}, {user.Address}, {user.PasswordHash}, 'Admin', false)
-                """);
-            if (pdb.Database.ExecuteSqlInterpolated($"""
-                UPDATE public.account_identities
-                SET admin_provisioning_state='Pending', admin_invitation_id={invitationId}, updated_at=now()
-                WHERE id={user.Id} AND admin_id=(SELECT id FROM public.admin_users WHERE app_id={user.Id} AND role='Admin' AND is_active=false)
-                  AND supabase_user_id IS NULL AND auth_state='Unknown' AND admin_provisioning_state='NotApplicable'
-                """) != 1)
-                throw new InvalidOperationException("Pending Admin provisioning could not be recorded.");
-        });
-        return user;
-    }
-
-    public void MarkAdminProvisioningOutcome(Guid accountId, AdminProvisioningState outcome)
-    {
-        var state = outcome switch
-        {
-            AdminProvisioningState.NotAttempted => "NotAttempted",
-            AdminProvisioningState.Rejected => "Rejected",
-            AdminProvisioningState.Unknown => "Unknown",
-            _ => throw new InvalidOperationException("Invalid Admin provisioning outcome.")
-        };
-        Transaction(null, () =>
-        {
-            if (pdb.Database.ExecuteSqlInterpolated($"""
-                UPDATE public.account_identities SET admin_provisioning_state={state}, updated_at=now()
-                WHERE id={accountId} AND admin_id IS NOT NULL AND admin_provisioning_state='Pending'
-                  AND auth_state='Unknown' AND supabase_user_id IS NULL
-                """) != 1)
-                throw new InvalidOperationException("Pending Admin provisioning was not found.");
-        });
-    }
-
-    public void ConfirmAdminProvisioning(Guid accountId, Guid invitationId, string email, SupabaseProvisioningResult provisioningResult)
-    {
-        if (accountId == Guid.Empty || invitationId == Guid.Empty || string.IsNullOrWhiteSpace(email)
-            || provisioningResult is null || !provisioningResult.IsConfirmed
-            || provisioningResult.ProviderUserId is not { } supabaseUserId || supabaseUserId == Guid.Empty)
-            throw new InvalidOperationException("A confirmed Supabase identity is required.");
-        email = email.Trim();
-        Transaction(null, () =>
-        {
-            EnsureAdminProvisioningConstraints();
-
-            // Lock in a fixed invitation -> identity -> local Admin order.
-            // The first lock serializes competing claims on the same invite.
-            var invitationLocks = pdb.Database.SqlQueryRaw<Guid>(
-                "SELECT id AS \"Value\" FROM public.admin_invitations WHERE id={0} FOR UPDATE", invitationId).ToList();
-            if (invitationLocks.Count != 1)
-                throw new InvalidOperationException("The consumed Admin invitation was not found.");
-
-            var identityLocks = pdb.Database.SqlQueryRaw<Guid>(
-                "SELECT id AS \"Value\" FROM public.account_identities WHERE id={0} FOR UPDATE", accountId).ToList();
-            if (identityLocks.Count != 1)
-                throw new InvalidOperationException("The local Admin identity was not found.");
-
-            var adminLocks = pdb.Database.SqlQueryRaw<long>(
-                "SELECT id AS \"Value\" FROM public.admin_users WHERE app_id={0} FOR UPDATE", accountId).ToList();
-            if (adminLocks.Count != 1)
-                throw new InvalidOperationException("The local Admin account was not found.");
-
-            var invitationAccepted = pdb.Database.SqlQueryRaw<DateTime?>(
-                "SELECT accepted_at AS \"Value\" FROM public.admin_invitations WHERE id={0}", invitationId).SingleOrDefault();
-            var invitationEmail = pdb.Database.SqlQueryRaw<string>(
-                "SELECT email AS \"Value\" FROM public.admin_invitations WHERE id={0}", invitationId).SingleOrDefault();
-            if (!invitationAccepted.HasValue || !SameNormalizedEmail(invitationEmail, email))
-                throw new InvalidOperationException("The invitation is not consumed for this email.");
-
-            var identityAdminId = pdb.Database.SqlQueryRaw<long?>(
-                "SELECT admin_id AS \"Value\" FROM public.account_identities WHERE id={0}", accountId).SingleOrDefault();
-            var identityLogin = pdb.Database.SqlQueryRaw<string>(
-                "SELECT login AS \"Value\" FROM public.account_identities WHERE id={0}", accountId).SingleOrDefault();
-            var linkedInvitation = pdb.Database.SqlQueryRaw<Guid?>(
-                "SELECT admin_invitation_id AS \"Value\" FROM public.account_identities WHERE id={0}", accountId).SingleOrDefault();
-            var state = pdb.Database.SqlQueryRaw<string>(
-                "SELECT admin_provisioning_state AS \"Value\" FROM public.account_identities WHERE id={0}", accountId).SingleOrDefault();
-            var authState = pdb.Database.SqlQueryRaw<string>(
-                "SELECT auth_state AS \"Value\" FROM public.account_identities WHERE id={0}", accountId).SingleOrDefault();
-            var currentSubject = pdb.Database.SqlQueryRaw<Guid?>(
-                "SELECT supabase_user_id AS \"Value\" FROM public.account_identities WHERE id={0}", accountId).SingleOrDefault();
-            var adminId = adminLocks[0];
-            var adminAppId = pdb.Database.SqlQueryRaw<Guid>(
-                "SELECT app_id AS \"Value\" FROM public.admin_users WHERE id={0}", adminId).Single();
-            var role = pdb.Database.SqlQueryRaw<string>(
-                "SELECT role AS \"Value\" FROM public.admin_users WHERE id={0}", adminId).SingleOrDefault();
-            var adminEmail = pdb.Database.SqlQueryRaw<string>(
-                "SELECT email AS \"Value\" FROM public.admin_users WHERE id={0}", adminId).SingleOrDefault();
-            var isActive = pdb.Database.SqlQueryRaw<bool>(
-                "SELECT is_active AS \"Value\" FROM public.admin_users WHERE id={0}", adminId).Single();
-
-            if (identityAdminId != adminId || adminAppId != accountId || role != "Admin"
-                || !SameNormalizedEmail(identityLogin, email) || !SameNormalizedEmail(adminEmail, email)
-                || linkedInvitation != invitationId)
-                throw new InvalidOperationException("The invitation does not correlate to this local Admin identity.");
-
-            var otherInvitationClaims = pdb.Database.SqlQueryRaw<Guid>("""
-                SELECT id AS "Value" FROM public.account_identities
-                WHERE admin_invitation_id={0} AND id<>{1} FOR UPDATE
-                """, invitationId, accountId).ToList();
-            if (otherInvitationClaims.Count != 0)
-                throw new InvalidOperationException("This invitation is already correlated to another local account.");
-
-            var otherSubjectClaims = pdb.Database.SqlQueryRaw<Guid>("""
-                SELECT id AS "Value" FROM public.account_identities
-                WHERE supabase_user_id={0} AND id<>{1} FOR UPDATE
-                """, supabaseUserId, accountId).ToList();
-            if (otherSubjectClaims.Count != 0)
-                throw new InvalidOperationException("This Supabase identity is already linked to another account.");
-
-            if (state == "Confirmed")
-            {
-                if (currentSubject == supabaseUserId && authState == "Supabase" && isActive)
-                    return; // Exact repeat after rechecking every association and both unique claims.
-                throw new InvalidOperationException("The confirmed Admin identity does not match this request.");
-            }
-            if (state != "Pending" || authState != "Unknown" || currentSubject.HasValue || isActive)
-                throw new InvalidOperationException("The local Admin is not in the required inactive Pending state.");
-
-            if (pdb.Database.ExecuteSqlInterpolated($"""
-                UPDATE public.account_identities
-                SET supabase_user_id={supabaseUserId}, auth_state='Supabase',
-                    admin_provisioning_state='Confirmed', updated_at=now()
-                WHERE id={accountId} AND admin_id={adminId} AND login IS NOT NULL
-                  AND lower(btrim(login))=lower(btrim({email}))
-                  AND admin_invitation_id={invitationId} AND admin_provisioning_state='Pending'
-                  AND auth_state='Unknown' AND supabase_user_id IS NULL
-                  AND EXISTS (SELECT 1 FROM public.admin_invitations
-                      WHERE id={invitationId} AND accepted_at IS NOT NULL
-                        AND lower(btrim(email))=lower(btrim({email})))
-                """) != 1)
-                throw new InvalidOperationException("The Supabase identity could not be linked.");
-
-            if (pdb.Database.ExecuteSqlInterpolated($"""
-                UPDATE public.admin_users SET is_active=true
-                WHERE id={adminId} AND app_id={accountId} AND role='Admin' AND is_active=false
-                  AND lower(btrim(email))=lower(btrim({email}))
-                  AND EXISTS (SELECT 1 FROM public.account_identities
-                      WHERE id={accountId} AND admin_id={adminId}
-                        AND admin_invitation_id={invitationId} AND admin_provisioning_state='Confirmed'
-                        AND supabase_user_id={supabaseUserId} AND auth_state='Supabase')
-                """) != 1)
-                throw new InvalidOperationException("The pending Admin account could not be activated.");
-
-            var finalMatch = pdb.Database.SqlQueryRaw<int>("""
-                SELECT count(*)::int AS "Value"
-                FROM public.admin_invitations inv
-                JOIN public.account_identities i ON i.admin_invitation_id=inv.id
-                JOIN public.admin_users u ON u.id=i.admin_id
-                WHERE inv.id={0} AND inv.accepted_at IS NOT NULL
-                  AND lower(btrim(inv.email))=lower(btrim({1}))
-                  AND i.id={2} AND u.app_id={2} AND u.role='Admin' AND u.is_active=true
-                  AND lower(btrim(i.login))=lower(btrim({1}))
-                  AND lower(btrim(u.email))=lower(btrim({1}))
-                  AND i.admin_provisioning_state='Confirmed' AND i.auth_state='Supabase'
-                  AND i.supabase_user_id={3}
-                """, invitationId, email, accountId, supabaseUserId).Single();
-            if (finalMatch != 1)
-                throw new InvalidOperationException("The confirmed Admin identity did not pass final correlation checks.");
-        });
-    }
-
-    private static bool SameNormalizedEmail(string? left, string right) =>
-        left != null && string.Equals(left.Trim(), right.Trim(), StringComparison.OrdinalIgnoreCase);
-
-    private void EnsureAdminProvisioningConstraints()
-    {
-        var ready = pdb.Database.SqlQueryRaw<int>("""
-            SELECT CASE WHEN
-              EXISTS (
-                SELECT 1 FROM pg_constraint c
-                WHERE c.conrelid='public.account_identities'::regclass
-                  AND c.conname='account_identities_admin_invitation_fkey'
-                  AND c.contype='f' AND c.confrelid='public.admin_invitations'::regclass
-                  AND c.confdeltype='r' AND c.convalidated
-                  AND c.conkey=ARRAY[(SELECT attnum FROM pg_attribute
-                    WHERE attrelid='public.account_identities'::regclass AND attname='admin_invitation_id' AND NOT attisdropped)]
-                  AND c.confkey=ARRAY[(SELECT attnum FROM pg_attribute
-                    WHERE attrelid='public.admin_invitations'::regclass AND attname='id' AND NOT attisdropped)]
-              )
-              AND EXISTS (
-                SELECT 1 FROM pg_index x
-                WHERE x.indexrelid=to_regclass('public.ux_account_identities_admin_invitation')
-                  AND x.indrelid='public.account_identities'::regclass AND x.indisunique AND x.indisvalid AND x.indisready
-                  AND x.indnkeyatts=1 AND x.indkey[0]=(SELECT attnum FROM pg_attribute
-                    WHERE attrelid='public.account_identities'::regclass AND attname='admin_invitation_id' AND NOT attisdropped)
-                  AND x.indpred IS NOT NULL AND pg_get_expr(x.indpred,x.indrelid) LIKE '%admin_invitation_id IS NOT NULL%'
-              )
-              AND EXISTS (
-                SELECT 1 FROM pg_index x
-                WHERE x.indexrelid=to_regclass('public.ux_account_identities_supabase_user')
-                  AND x.indrelid='public.account_identities'::regclass AND x.indisunique AND x.indisvalid AND x.indisready
-                  AND x.indnkeyatts=1 AND x.indkey[0]=(SELECT attnum FROM pg_attribute
-                    WHERE attrelid='public.account_identities'::regclass AND attname='supabase_user_id' AND NOT attisdropped)
-                  AND x.indpred IS NOT NULL AND pg_get_expr(x.indpred,x.indrelid) LIKE '%supabase_user_id IS NOT NULL%'
-              )
-              AND EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.account_identities'::regclass
-                    AND conname='account_identities_admin_provisioning_state_check' AND contype='c' AND convalidated)
-              AND EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.account_identities'::regclass
-                    AND conname='account_identities_admin_provisioning_correlation_check' AND contype='c' AND convalidated)
-              AND EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.account_identities'::regclass
-                    AND conname='account_identities_admin_confirmed_link_check' AND contype='c' AND convalidated)
-              THEN 1 ELSE 0 END AS "Value"
-            """).Single();
-        if (ready != 1)
-            throw new InvalidOperationException("The reviewed Admin provisioning constraints are not installed and validated.");
-    }
-
     protected override Guid Artist() => ResolveArtist().AppId;
 
     protected override void Admin(Guid id) =>
@@ -401,6 +147,23 @@ public sealed class PublicStudioStore(
         return user;
     }
 
+    public override AppUser AddCustomerWithPasswordHash(string firstName, string lastName, string email, string passwordHash, int age, string gender, string address, DateOnly? birthday = null, string? suffix = null)
+    {
+        if (string.IsNullOrWhiteSpace(passwordHash)) throw new InvalidOperationException("Registration expired. Please register again.");
+        var error = RegistrationRules.ValidateProfile(firstName, lastName, email, age, gender, address, enforceLegacyAge: false);
+        if (error != null) throw new InvalidOperationException(error);
+        var user = new AppUser
+        {
+            FirstName = firstName.Trim(), LastName = lastName.Trim(), Name = $"{firstName.Trim()} {lastName.Trim()}",
+            Email = email.Trim(), Age = age, Gender = gender, Address = address.Trim(), Role = "Customer", PasswordHash = passwordHash,
+            Birthday = birthday, Suffix = string.IsNullOrEmpty(suffix) ? null : suffix
+        };
+        var storedSuffix = user.Suffix ?? "";
+        // Requires customers.birthday and customers.suffix (database/v2/migrations/0006_customer_birthday_suffix.sql).
+        Transaction(ActorId, () => pdb.Database.ExecuteSqlInterpolated($"INSERT INTO public.customers(app_id, full_name, first_name, last_name, age_at_registration, gender, address, email, password_hash, is_active, birthday, suffix) VALUES({user.Id}, {user.Name}, {user.FirstName}, {user.LastName}, {age}, {gender}, {user.Address}, {user.Email}, {user.PasswordHash}, true, {birthday}, {storedSuffix})"));
+        return user;
+    }
+
     public override AppUser CreateElevatedUser(string firstName, string lastName, string email, string password, string role, int age, string gender, string address)
         => CreateElevatedUserCore(firstName, lastName, email, password, role, age, gender, address, false);
 
@@ -434,12 +197,19 @@ public sealed class PublicStudioStore(
                 var restricted = pdb.Database.SqlQueryRaw<bool>("""
                     SELECT (row_security_active('public.admin_users'::regclass)
                         OR row_security_active('public.customers'::regclass)
-                        OR row_security_active('public.account_identities'::regclass)) AS "Value"
+                        OR row_security_active('public.account_identities'::regclass))
+                       -- The app login (member of makeup_backend) sees every row through the
+                       -- unrestricted backend policies, so the counts below are complete.
+                       AND NOT pg_has_role(current_user, 'makeup_backend', 'MEMBER') AS "Value"
                     """).Single();
                 if (restricted) throw new InvalidOperationException("Initial SuperAdmin setup requires unfiltered account visibility.");
                 var existing = pdb.Database.SqlQueryRaw<int>("SELECT count(*)::int AS \"Value\" FROM public.admin_users WHERE role='SuperAdmin'").Single();
                 if (existing > 0) throw new InvalidOperationException("A SuperAdmin already exists. Initial setup is permanently disabled.");
                 if (FindUser(email) != null) throw new InvalidOperationException("That email already exists. No account was overwritten or reactivated.");
+                // The owner is the business's only makeup artist: create that artist row in the same transaction.
+                if (pdb.Database.SqlQueryRaw<int>("SELECT count(*)::int AS \"Value\" FROM public.makeup_artists WHERE is_active").Single() > 0)
+                    throw new InvalidOperationException("An active makeup artist already exists. Initial setup is permanently disabled.");
+                pdb.Database.ExecuteSqlInterpolated($"INSERT INTO public.makeup_artists(full_name, is_active) VALUES({user.Name}, true)");
             }
             pdb.Database.ExecuteSqlInterpolated($"INSERT INTO public.admin_users(app_id, username, email, first_name, last_name, age_at_registration, gender, address, password_hash, role, is_active) VALUES({user.Id}, {user.Email}, {user.Email}, {user.FirstName}, {user.LastName}, {age}, {gender}, {user.Address}, {user.PasswordHash}, {role}, true)");
         });
@@ -518,6 +288,16 @@ public sealed class PublicStudioStore(
     public override void RecordAudit(Guid actor, string message) => Transaction(actor, () =>
         pdb.Database.ExecuteSqlInterpolated($"INSERT INTO public.audit_logs(actor_id, entity_type, event) VALUES({actor}, 'application', {message})"));
 
+    public override void SetAdminActive(Guid admin, bool active, Guid actor) => Transaction(actor, () =>
+    {
+        if (pdb.Database.SqlQuery<int>($"SELECT count(*)::int AS \"Value\" FROM public.admin_users WHERE app_id={actor} AND role='SuperAdmin' AND is_active").Single() == 0)
+            throw new InvalidOperationException("Only the Super Admin can disable or enable administrators.");
+        // Role 'Admin' only: a SuperAdmin (the owner) can never be disabled here. The new
+        // security stamp marks the change; the cookie check ends sessions via is_active.
+        if (pdb.Database.ExecuteSqlInterpolated($"UPDATE public.admin_users SET is_active={active}, security_stamp=gen_random_uuid() WHERE app_id={admin} AND role='Admin'") == 0)
+            throw new InvalidOperationException("Only Admin accounts can be disabled or enabled.");
+    });
+
     public override void ResetPassword(string email, string newPassword)
     {
         var passwordError = PasswordPolicy.ValidateNewPassword(newPassword);
@@ -587,11 +367,74 @@ public sealed class PublicStudioStore(
         return created ?? throw new InvalidOperationException("Could not create the booking. Please retry.");
     }
 
+    public override int ExpireOverduePayments() =>
+        Transaction(null, () => pdb.Database.SqlQueryRaw<int>("SELECT public.mvc_expire_overdue() AS \"Value\"").AsEnumerable().Single());
+
+    public override void AttachInvoice(Guid booking, string invoiceId, string checkoutUrl) => Transaction(null, () =>
+    {
+        var updated = pdb.Database.ExecuteSqlInterpolated($"""
+            UPDATE public.payments SET provider='xendit', provider_invoice_id={invoiceId}, checkout_url={checkoutUrl}, provider_status='PENDING'
+            WHERE purpose='down_payment' AND method='Xendit' AND provider_invoice_id IS NULL
+              AND reservation_id=(SELECT id FROM public.reservations WHERE app_id={booking})
+            """);
+        if (updated != 1) throw new InvalidOperationException("The Xendit invoice could not be linked to this booking.");
+    });
+
+    public override string XenditPaid(string invoiceId, decimal amount, string eventKey) =>
+        Transaction(null, () => pdb.Database.SqlQuery<string>($"SELECT public.mvc_xendit_paid({invoiceId}, {amount}, {eventKey}) AS \"Value\"").AsEnumerable().Single());
+
+    // The summary view has no payment deadline, so one booking reads it from its reservation;
+    // booking details then show "Complete your payment by …".
+    public override Booking? FindBooking(Guid id)
+    {
+        var booking = base.FindBooking(id);
+        if (booking is { Status: "Pending Payment", PaymentDueAt: null } && PaymentExpiresAt(id) is { } due)
+            booking.PaymentDueAt = Local(due);
+        if (booking is { Status: "Cancelled" or "Completed" })
+        {
+            var outcome = pdb.Database.SqlQuery<StaffOutcome>($"""
+                SELECT staff_cancelled_by AS "CancelledBy", staff_cancelled_at AS "CancelledAt", staff_cancellation_reason AS "Reason",
+                       completed_by AS "CompletedBy", completed_at AS "CompletedAt"
+                FROM public.reservations WHERE app_id = {id}
+                """).AsEnumerable().FirstOrDefault();
+            if (outcome != null)
+            {
+                booking.StaffCancelledBy = outcome.CancelledBy;
+                booking.StaffCancelledAt = outcome.CancelledAt is { } c ? Local(c) : null;
+                booking.StaffCancellationReason = outcome.Reason;
+                booking.CompletedBy = outcome.CompletedBy;
+                booking.CompletedAt = outcome.CompletedAt is { } d ? Local(d) : null;
+            }
+        }
+        return booking;
+    }
+
+    private sealed record StaffOutcome(Guid? CancelledBy, DateTime? CancelledAt, string? Reason, Guid? CompletedBy, DateTime? CompletedAt);
+
+    internal DateTime? PaymentExpiresAt(Guid booking) =>
+        pdb.Database.SqlQuery<DateTime?>($"""
+            SELECT payment_expires_at AS "Value" FROM public.reservations WHERE app_id = {booking}
+            """).AsEnumerable().FirstOrDefault();
+
+    public override string? PendingCheckoutUrl(Guid booking) =>
+        pdb.Database.SqlQuery<string>($"""
+            SELECT p.checkout_url AS "Value" FROM public.payments p JOIN public.reservations r ON r.id = p.reservation_id
+            WHERE r.app_id = {booking} AND r.status = 'Pending Payment' AND p.provider = 'xendit'
+              AND p.provider_status = 'PENDING' AND p.checkout_url IS NOT NULL
+            LIMIT 1
+            """).AsEnumerable().FirstOrDefault();
+
+    public override string XenditExpired(string invoiceId, string eventKey) =>
+        Transaction(null, () => pdb.Database.SqlQuery<string>($"SELECT public.mvc_xendit_expired({invoiceId}, {eventKey}) AS \"Value\"").AsEnumerable().Single());
+
     public override void CancelBooking(Guid booking, Guid customer, bool confirmed) => Transaction(customer, () =>
     {
         var b = LockBooking(booking);
         if (!confirmed || b.CustomerId != customer) throw new InvalidOperationException("Confirm cancellation of your own appointment.");
-        pdb.Database.ExecuteSqlInterpolated($"UPDATE public.reservations SET status='Cancelled', cancellation_confirmed_at=now(), notes='Customer confirmed cancellation and the PHP 200 deduction.' WHERE app_id={booking}");
+        var decision = CancellationPolicy.Evaluate(b.Status, Local(b.StartsAt), Now);
+        if (!decision.Allowed) throw new InvalidOperationException(decision.Reason);
+        var note = decision.Fee > 0 ? $"Customer confirmed cancellation and the PHP {decision.Fee:N0} deduction." : "Customer cancelled before payment. No fee.";
+        pdb.Database.ExecuteSqlInterpolated($"UPDATE public.reservations SET status='Cancelled', cancellation_confirmed_at=now(), notes={note} WHERE app_id={booking}");
     });
 
     public override void RequestReschedule(Guid booking, Guid customer, DateTime start) => Transaction(customer, () =>
@@ -654,10 +497,24 @@ public sealed class PublicStudioStore(
                     throw new InvalidOperationException("No reschedule request to review.");
                 if (action == "decline") pdb.Database.ExecuteSqlInterpolated($"UPDATE public.reservations SET notes={reason} WHERE app_id={booking}");
                 break;
+            case "cancel":
+                // Business cancellation: no fee, allowed until the appointment starts. The database
+                // checks the SuperAdmin role and records a closure with the whole verified payment due back.
+                if (b.Status is not ("Pending Payment" or "Confirmed")) throw new InvalidOperationException("Only pending or confirmed appointments can be cancelled by the business.");
+                if (string.IsNullOrWhiteSpace(reason)) throw new InvalidOperationException("Enter a reason for cancelling this appointment.");
+                if (Local(b.StartsAt) <= Now) throw new InvalidOperationException("This appointment has already started and can no longer be cancelled.");
+                var cancelNote = "Glam by Mariya has cancelled this appointment: " + reason.Trim() + ". Mariya will contact you about returning your down payment.";
+                pdb.Database.ExecuteSqlInterpolated($"UPDATE public.reservations SET status='Cancelled', cancellation_confirmed_at=now(), staff_cancelled_by={admin}, staff_cancelled_at=now(), staff_cancellation_reason={reason.Trim()}, notes={cancelNote} WHERE app_id={booking}");
+                break;
             case "complete":
-                // No explicit confirmation or SuperAdmin-only contract exists on
-                // this legacy adapter entry point. Fail closed until implemented.
-                throw new InvalidOperationException("Persistent appointment completion is not available.");
+                // The remaining balance is paid in cash to the artist; record it as received, then complete.
+                if (b.Status != "Confirmed") throw new InvalidOperationException("Only confirmed appointments can be marked completed.");
+                if (Local(b.EndsAt) > Now) throw new InvalidOperationException("Only appointments whose makeup services have ended can be marked completed.");
+                var balance = b.FinalTotal - b.VerifiedPaid;
+                if (balance > 0)
+                    pdb.Database.ExecuteSqlInterpolated($"INSERT INTO public.payments(reservation_id, app_id, app_managed, purpose, amount, method, reference, status, verification_status, verified_by, verified_at, paid_at) VALUES({reservationId}, {Guid.NewGuid()}, true, 'balance', {balance}, 'Cash', {"CASH-" + b.Reference}, 'Paid', 'Verified', {admin}, now(), now())");
+                pdb.Database.ExecuteSqlInterpolated($"UPDATE public.reservations SET status='Completed', completed_by={admin}, completed_at=now(), reviewed_by={admin}, reviewed_at=now(), notes='Your appointment was marked completed by Glam by Mariya. Thank you!' WHERE app_id={booking}");
+                break;
             case "noshow":
             case "incomplete":
                 var outcome = action == "noshow" ? "No-show" : "Incomplete";

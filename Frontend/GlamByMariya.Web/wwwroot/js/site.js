@@ -1,3 +1,23 @@
+// Send each form once. A double click or a second Enter used to post sign-in and sign-up twice:
+// the second sign-in failed its antiforgery check (HTTP 400) and the second sign-up showed the
+// empty form again. Runs on document, after a form's own handler, so a submit that handler
+// cancelled (the booking form checks availability first) is not counted. Opt out with
+// data-submit-guard="off"; forms that open a new tab are left alone.
+document.addEventListener('submit', event => {
+  const form = event.target;
+  if (!(form instanceof HTMLFormElement) || event.defaultPrevented) return;
+  if (form.dataset.submitGuard === 'off' || (form.target && form.target !== '_self')) return;
+  if (form.dataset.submitGuard === 'sent') { event.preventDefault(); return; }
+  form.dataset.submitGuard = 'sent';
+  form.setAttribute('aria-busy', 'true');
+  // A download or a stalled request must not lock the form for good.
+  window.setTimeout(() => { delete form.dataset.submitGuard; form.removeAttribute('aria-busy'); }, 15000);
+});
+// Coming back with the browser's Back button restores the page as it was; let it submit again.
+window.addEventListener('pageshow', event => {
+  if (event.persisted) document.querySelectorAll('form[data-submit-guard="sent"]').forEach(form => { delete form.dataset.submitGuard; form.removeAttribute('aria-busy'); });
+});
+
 // Enhance every password field once, including reset and account settings forms.
 document.querySelectorAll('input[type="password"]').forEach((input, index) => {
   if (!input.id) input.id = `studio-password-${index}`;
@@ -145,7 +165,7 @@ if (sidebarToggle) {
   sidebarToggle.addEventListener('click', () => {
     if (matchMedia('(max-width: 850px)').matches) { staffMenu.open = !staffMenu.open; return; }
     document.body.classList.toggle('sidebar-collapsed');
-    try { localStorage.setItem('glambymariya-sidebar', document.body.classList.contains('sidebar-collapsed') ? 'collapsed' : 'expanded'); } catch { }
+    try { localStorage.setItem('lumiere-sidebar', document.body.classList.contains('sidebar-collapsed') ? 'collapsed' : 'expanded'); } catch { }
     syncSidebar();
   });
   syncSidebar();
@@ -340,7 +360,7 @@ if (bookingForm) {
       if (flexible) updatePayment(); else deposit.value = Number(quote.requiredDownPayment).toFixed(2);
       if (flexible) document.querySelector('#summary-addons').textContent = addonQuantities.filter(a => Number(a.value) > 0).map(a => `${a.dataset.name} × ${a.value}: ${money(Number(a.dataset.price) * Number(a.value))}`).join(', ') || 'None';
       else document.querySelector('#summary-addons').textContent = [...bookingForm.querySelectorAll('[name="addOnIds"]:checked')].map(a => `${a.closest('label').querySelector('strong').textContent} × 1: ${money(Number(a.dataset.price))}`).join(', ') || 'None';
-      document.querySelector('#look-selection-caption').textContent = `${quote.service} · ${quote.people} ${quote.people === 1 ? 'person' : 'people'} · ${quote.durationMinutes} minutes`;
+      document.querySelector('#look-selection-caption').textContent = `${quote.service} · ${quote.people} people · ${quote.durationMinutes} minutes`;
       pricingStatus.textContent = `Final total ${money(quote.finalTotal)} · Pay ${quote.downPaymentPercent}%: ${money(quote.requiredDownPayment)} · Balance: ${money(quote.remainingBalance)}`;
       bookingForm.dataset.priceState = 'ready';
       bookingForm.dispatchEvent(new Event('booking-price-updated'));
@@ -434,6 +454,8 @@ document.querySelectorAll('.availability-picker').forEach(picker => {
   let month = today.slice(0, 7);
   let selectedDate = '';
   let snapshot = null;
+  // Until the first availability answer arrives, say so instead of showing every day as "No slots".
+  let firstLoad = true;
   const calendarGate = window.AvailabilityResponse.requestGate();
   const validationGate = window.AvailabilityResponse.requestGate();
   let calendarController = null;
@@ -616,7 +638,8 @@ document.querySelectorAll('.availability-picker').forEach(picker => {
       const number = document.createElement('span');
       number.textContent = Number(day.date.slice(-2));
       const indicator = document.createElement('small');
-       indicator.textContent = day.availableCount > 0 ? `${day.availableCount} ${day.availableCount === 1 ? 'time' : 'times'} available` : status === 'full' ? 'Fully booked' : status === 'past' ? 'Date has passed' : 'No slots';
+       const waiting = firstLoad && snapshot.durationMinutes === 0 && status !== 'past';
+       indicator.textContent = day.availableCount > 0 ? `${day.availableCount} request slots` : status === 'full' ? 'Fully booked' : status === 'past' ? 'Date has passed' : waiting ? 'Loading…' : 'No slots';
       button.append(number, indicator);
       const reason = day.date >= today && !day.availableCount
         ? snapshot.durationMinutes === 0 ? 'Live availability is unavailable; use Refresh to retry.' : day.slots.length === 0 ? 'The session and preparation buffer do not fit within booking hours.' : 'No times fit around booking hours, reservations or blocked time.'
@@ -635,7 +658,7 @@ document.querySelectorAll('.availability-picker').forEach(picker => {
     }
     picker.querySelector('[data-duration-label]').textContent = snapshot.durationMinutes > 0
       ? `${snapshot.durationMinutes} min session + ${snapshot.bufferMinutes} min buffer`
-      : 'Live availability is unavailable';
+      : firstLoad ? 'Checking availability…' : 'Live availability is unavailable';
   };
   const validateTime = async (force = false) => {
     if (!startInput.value) return false;
@@ -690,6 +713,7 @@ document.querySelectorAll('.availability-picker').forEach(picker => {
       if (!calendarGate.isCurrent(version) || month !== requestedMonth) return;
       const result = window.AvailabilityResponse.calendar(data, requestedMonth);
       snapshot = result;
+      firstLoad = false;
       today = result.today;
       const day = result.days.find(d => d.date === selectedDate);
       const lostTime = Boolean(startInput.value && !day?.slots.some(s => s.start === startInput.value && s.available));
@@ -710,6 +734,7 @@ document.querySelectorAll('.availability-picker').forEach(picker => {
         validationMessage(selectedDate ? 'Choose an available time for this date.' : 'Choose an available date, then a time.');
      } catch (error) {
        if (error.name !== 'AbortError' && calendarGate.isCurrent(version) && month === requestedMonth) {
+         firstLoad = false;
          if (!snapshot || snapshot.durationMinutes === 0) {
            snapshot = localMonthFallback();
            selectedDate = '';

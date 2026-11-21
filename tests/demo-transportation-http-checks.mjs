@@ -15,7 +15,7 @@ await mkdir(parent, { recursive: true });
 const contentRoot = await mkdtemp(path.join(parent, 'transportation-78i-'));
 const server = spawn('dotnet', [path.join(root, 'Frontend/GlamByMariya.Web/bin/Release/net10.0/GlamByMariya.Web.dll'),
   '--urls=http://127.0.0.1:0', `--contentRoot=${contentRoot}`, `--webroot=${path.join(root, 'Frontend/GlamByMariya.Web/wwwroot')}`,
-  '--Database:Provider=Demo', '--Supabase:Url=', '--Supabase:AnonKey=', '--SupabaseStorage:ServiceKey=',
+  '--Database:Provider=Demo', '--DemoAccounts:Presentation=true', '--Supabase:Url=', '--Supabase:AnonKey=', '--SupabaseStorage:ServiceKey=',
   '--B2:Bucket=', '--B2:Endpoint=', '--B2:KeyId=', '--B2:AppKey=', '--Email:BrevoApiKey=', '--Email:SmtpHost='
 ], { cwd: contentRoot, env: { ...process.env, ASPNETCORE_ENVIRONMENT: 'Development', DOTNET_ENVIRONMENT: 'Development',
   ASPNETCORE_FORWARDEDHEADERS_ENABLED: 'false', PORT: '' }, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -57,8 +57,8 @@ try {
   }
   const ids = html => [...html.matchAll(/href="\/Bookings\/Details\/([a-f0-9-]+)"/g)].map(match => match[1]);
   const status = html => html.match(/<span>Transportation policy<\/span><strong>([^<]+)<\/strong>/)?.[1];
-  await signIn(customer, 'customer@glambymariya.demo', 'Customer123!', '/Bookings');
-  await signIn(admin, 'admin@glambymariya.demo', 'Admin123!', '/Admin');
+  await signIn(customer, 'presentation-customer@example.test', 'Customer123!', '/Bookings');
+  await signIn(admin, 'presentation-admin@example.test', 'Admin123!', '/Admin');
   const before = ids((await request(customer, '/Bookings')).body);
   const history = new Map();
   for (const id of before) history.set(id, status((await request(admin, '/Admin/Details/' + id)).body));

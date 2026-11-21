@@ -3,13 +3,19 @@ using System.Text.Json;
 using GlamByMariya.Infrastructure.Data;
 using GlamByMariya.Core.Entities;
 using GlamByMariya.Infrastructure.Services;
+using GlamByMariya.Infrastructure.Integrations;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 namespace GlamByMariya.Web.Controllers;
 [Authorize(Roles = "Customer")]
-public class BookingsController(IStudioStore store, BookingService workflow, IWebHostEnvironment environment, PaymentQrService paymentQr, CatalogImageService imageService, IAppFileStore files) : Controller
+public class BookingsController(IStudioStore store, BookingService workflow, IWebHostEnvironment environment, PaymentQrService paymentQr, CatalogImageService imageService, IAppFileStore files, XenditClient? xendit = null) : Controller
 {
     private Guid UserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+    public override void OnActionExecuting(Microsoft.AspNetCore.Mvc.Filters.ActionExecutingContext context)
+    {
+        workflow.ExpireOverduePayments();
+        base.OnActionExecuting(context);
+    }
     [HttpGet, ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
     public IActionResult MixedSelection()
     {
@@ -107,7 +113,9 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
                 var selection = AvailabilitySelection(serviceId, addOnIds, bookingId, people, package);
                 if (selection == null) return NotFound(new { error = "This appointment cannot be rescheduled." });
                 workflow.CheckSlot(date, selection.Value.Duration, selection.Value.Exclude);
-                 return Json(new { available = true, message = "Available for request at this moment; service and preparation time only. Travel is not estimated. Confirmation requires payment review and approval." });
+                 return Json(new { available = true, message = UsesXendit
+                     ? "This time is available. It covers makeup and preparation; travel time is not included. Your booking is confirmed once the down payment goes through."
+                     : "Available for request at this moment; service and preparation time only. Travel is not estimated. Confirmation requires payment review and approval." });
             }
             catch (InvalidOperationException e) { return Json(new { available = false, message = e.Message }); }
         }
@@ -115,7 +123,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
     private (int Duration, Guid? Exclude)? AvailabilitySelection(Guid serviceId, Guid[] addOnIds, Guid? bookingId, int people, string package)
     {
         if (!bookingId.HasValue) return (workflow.SelectedDuration(serviceId, addOnIds, people, package), null);
-        var b = store.Bookings.FirstOrDefault(b => b.Id == bookingId && b.CustomerId == UserId && b.Status == "Confirmed" && b.Start > store.Now);
+        var b = store.FindBooking(bookingId.Value) is { } upcoming && upcoming.CustomerId == UserId && upcoming.Status == "Confirmed" && upcoming.Start > store.Now ? upcoming : null;
         return b == null ? null : ((int)(b.End - b.Start).TotalMinutes, b.Id);
     }
     public IActionResult Index()
@@ -132,7 +140,8 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
     }
     public IActionResult Create(Guid? serviceId)
     {
-        ViewBag.PaymentQr = paymentQr.GetOptions();
+        ViewBag.XenditEnabled = UsesXendit;
+        ViewBag.PaymentQr = UsesXendit ? new List<PaymentQrOption>() : paymentQr.GetOptions();
         ViewBag.CatalogImages = (Func<string, Guid, string?>)((kind, id) => imageService.GetImageUrl(kind, id));
         ViewBag.CatalogPreviewImages = (Func<string, Guid, string?>)((kind, id) => imageService.GetImageUrl(kind, id, "preview"));
         lock (store.Gate)
@@ -146,15 +155,18 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
         }
     }
     [HttpPost, RequestSizeLimit(6_000_000)]
-    public async Task<IActionResult> Create(Guid serviceId, Guid[] addOnIds, DateTime start, string address, string area, decimal deposit, string method, string reference, IFormFile? proof, bool agreed, int people = 1, string package = "auto", bool travelAcknowledged = false, decimal? expectedTotal = null, decimal? expectedMinimum = null)
+    public async Task<IActionResult> Create(Guid serviceId, Guid[] addOnIds, DateTime start, string address, string area, decimal deposit, string method, string? reference, IFormFile? proof, bool agreed, int people = 1, string package = "auto", bool travelAcknowledged = false, decimal? expectedTotal = null, decimal? expectedMinimum = null)
     {
         string? path = null;
         try
         {
             if (!ModelState.IsValid) throw new InvalidOperationException("Check the number of people, date and payment amount.");
             if (!expectedTotal.HasValue || !expectedMinimum.HasValue) throw new InvalidOperationException("Review the current price before submitting.");
+            if (UsesXendit) return await CreateWithXendit(serviceId, addOnIds, start, address, area, deposit, agreed, people, package, travelAcknowledged, expectedTotal, expectedMinimum);
             if (method == "Cash") throw new InvalidOperationException("Deposits must use GCash, Maya or Bank Transfer.");
             if (proof == null || proof.Length == 0) throw new InvalidOperationException("Upload a payment screenshot to submit your booking.");
+            // Nullable only because the Xendit form has no reference field; the manual flow still requires one.
+            if (string.IsNullOrWhiteSpace(reference)) throw new InvalidOperationException("Enter your payment reference number.");
             path = await SaveProof(proof);
             workflow.Create(UserId, serviceId, addOnIds, start, address, area, deposit, method, reference, path, agreed, people, package, travelAcknowledged, expectedTotal, expectedMinimum);
             CompleteStaging(path);
@@ -164,6 +176,42 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
         }
         catch (InvalidOperationException e) { CleanupFailedStaging(path); TempData["Error"] = e.Message; return RedirectToAction("Create", new { serviceId }); }
     }
+    // Tells the page whether this booking is paid on Xendit and, while it waits for the
+    // down payment, the link back to its Xendit payment page.
+    private void ShowXenditPayment(Booking booking)
+    {
+        ViewBag.PaidOnXendit = ((List<Payment>)ViewBag.Payments).Any(p => p.Method == "Xendit");
+        ViewBag.CheckoutUrl = UsesXendit && booking.Status == "Pending Payment"
+            ? ((IPersistentStudioStore)store).PendingCheckoutUrl(booking.Id) : null;
+    }
+    // Database mode with Xendit configured: the down payment is paid on Xendit's checkout.
+    private bool UsesXendit => xendit?.Enabled == true && store is IPersistentStudioStore;
+
+    // Saves the booking as Pending Payment, opens a Xendit invoice for the exact down payment
+    // and sends the customer to it. Only the Xendit webhook confirms the booking. If the invoice
+    // cannot be created, the unpaid booking is cancelled (free) so the slot is released at once.
+    private async Task<IActionResult> CreateWithXendit(Guid serviceId, Guid[] addOnIds, DateTime start, string address, string area, decimal deposit, bool agreed,
+        int people, string package, bool travelAcknowledged, decimal? expectedTotal, decimal? expectedMinimum)
+    {
+        var reference = "XENDIT-" + Guid.NewGuid().ToString("N")[..16].ToUpperInvariant();
+        var booking = workflow.Create(UserId, serviceId, addOnIds, start, address, area, deposit, "Xendit", reference, null, agreed, people, package, travelAcknowledged, expectedTotal, expectedMinimum);
+        var database = (IPersistentStudioStore)store;
+        try
+        {
+            var email = User.FindFirstValue(ClaimTypes.Email) ?? "";
+            var done = Url.Action("Confirmation", "Bookings", new { id = booking.Id }, Request.Scheme)!;
+            var invoice = await xendit!.CreateInvoiceAsync(booking.Reference, booking.RequiredDownPayment, email,
+                $"Glam by Mariya down payment for {booking.Reference} ({booking.ServiceDescription})", done, done);
+            database.AttachInvoice(booking.Id, invoice.Id, invoice.InvoiceUrl);
+            return Redirect(invoice.InvoiceUrl);
+        }
+        catch (Exception e) when (e is InvalidOperationException or HttpRequestException or TaskCanceledException)
+        {
+            try { database.CancelBooking(booking.Id, UserId, true); } catch (InvalidOperationException) { }
+            throw new InvalidOperationException("We could not open the Xendit payment page, so nothing was charged and the time was released. Please try again.");
+        }
+    }
+
     [HttpPost, ValidateAntiForgeryToken, RequestSizeLimit(6_000_000)]
     public async Task<IActionResult> CreateMixed(DateTime mixedStart, string address, string area, decimal deposit, string method, string reference, IFormFile? proof, bool agreed, bool travelAcknowledged, decimal? expectedTotal, decimal? expectedMinimum, string? mixedSelection, Guid submissionId, string? policyVersion, string? travelReminderVersion)
     {
@@ -208,11 +256,12 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
     {
         lock (store.Gate)
         {
-            var b = store.Bookings.FirstOrDefault(b => b.Id == id && b.CustomerId == UserId);
+            var b = store.FindBooking(id) is { } owned && owned.CustomerId == UserId ? owned : null;
             if (b == null) return NotFound();
             if (store.IsPersistent && b.MixedPeople.Count > 0) return NotFound();
             ViewBag.Paid = workflow.Paid(b);
             ViewBag.Payments = store.Payments.Where(p => p.BookingId == id).ToList();
+            ShowXenditPayment(b);
             return View(b);
         }
     }
@@ -221,11 +270,12 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
     {
         lock (store.Gate)
         {
-            var b = store.Bookings.FirstOrDefault(b => b.Id == id && b.CustomerId == UserId);
+            var b = store.FindBooking(id) is { } owned && owned.CustomerId == UserId ? owned : null;
             if (b == null) return NotFound();
             if (store.IsPersistent && b.MixedPeople.Count > 0) return NotFound();
             ViewBag.Paid = workflow.Paid(b);
             ViewBag.Payments = store.Payments.Where(p => p.BookingId == id).ToList();
+            ShowXenditPayment(b);
             return View(b);
         }
     }
@@ -234,7 +284,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
     {
         lock (store.Gate)
         {
-            var b = store.Bookings.FirstOrDefault(b => b.Id == id && b.CustomerId == UserId);
+            var b = store.FindBooking(id) is { } owned && owned.CustomerId == UserId ? owned : null;
             if (b == null) return NotFound();
             try
             {
@@ -250,7 +300,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
     {
         lock (store.Gate)
         {
-            var b = store.Bookings.FirstOrDefault(b => b.Id == id && b.CustomerId == UserId);
+            var b = store.FindBooking(id) is { } owned && owned.CustomerId == UserId ? owned : null;
             if (b == null) return NotFound();
             try
             {
@@ -278,7 +328,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
             path = await SaveProof(proof);
             lock (store.Gate)
             {
-                var b = store.Bookings.FirstOrDefault(b => b.Id == id && b.CustomerId == UserId);
+                var b = store.FindBooking(id) is { } owned && owned.CustomerId == UserId ? owned : null;
                 if (b == null) { if (path != null) System.IO.File.Delete(path); return NotFound(); }
                 if (!store.IsPersistent && b.Status == "Pending Payment")
                 {
@@ -297,13 +347,13 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
         return RedirectToAction("Details", new { id });
     }
     [HttpPost, ValidateAntiForgeryToken]
-    public IActionResult ConfirmReschedule(Guid id, Guid quoteId, bool agreed)
+    public IActionResult ConfirmReschedule(Guid id, Guid quoteId, bool agreed, DateTime? proposedStart = null, decimal? expectedTotal = null)
     {
         lock (store.Gate)
         {
-            var b = store.Bookings.FirstOrDefault(b => b.Id == id && b.CustomerId == UserId);
+            var b = store.FindBooking(id) is { } owned && owned.CustomerId == UserId ? owned : null;
             if (b == null) return NotFound();
-            try { workflow.ConsentReschedule(b, UserId, quoteId, agreed); TempData["Success"] = "Your request and consent were recorded. The original appointment remains reserved until SuperAdmin approval."; }
+            try { workflow.ConsentReschedule(b, UserId, quoteId, agreed, proposedStart, expectedTotal); TempData["Success"] = "Your request and consent were recorded. The original appointment remains reserved until SuperAdmin approval."; }
             catch (InvalidOperationException e) { TempData["Error"] = e.Message; }
             return RedirectToAction("Details", new { id });
         }
@@ -315,7 +365,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
         {
             var payment = store.Payments.FirstOrDefault(x => x.Id == id);
             if (payment == null) return NotFound();
-            var booking = store.Bookings.FirstOrDefault(x => x.Id == payment.BookingId && x.CustomerId == UserId);
+            var booking = store.FindBooking(payment.BookingId) is { } paid && paid.CustomerId == UserId ? paid : null;
             if (booking == null) return NotFound();
             if (store.IsPersistent && booking.MixedPeople.Count > 0) return NotFound();
             var asset = payment.ProofKey != null && store is IPersistentStudioStore persistent

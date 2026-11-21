@@ -1,120 +1,54 @@
-@{
-    ViewData["Title"] = "Terms and Conditions";
-    var s = DataStore.Settings;
-    var downPayment = s.DownPaymentPercent.ToString("0.##");
-    var open = DateTime.Today.AddHours(s.OpenHour).ToString("h tt");
-    var close = DateTime.Today.AddHours(s.CloseHour).ToString("h tt");
-}
+@model GlamByMariya.Core.Entities.BusinessSettings
+@{ ViewData["Title"] = "Terms and Conditions"; var deposit = Model.DownPaymentPercent.ToString("0"); }
 <div class="public-page terms-page">
     <h1>Terms and Conditions</h1>
     <p class="public-breadcrumb"><a asp-action="Index">Home</a> / Terms and Conditions</p>
-    <p class="terms-updated">Last updated: November 21, 2026</p>
+    <p class="terms-intro">These terms apply when you create an account and book a home-service makeup appointment with Glam by Mariya. Please read them before you book.</p>
 
-    <p class="terms-intro">These Terms and Conditions ("Terms") apply when you create an account with, book with, or use the website of Glam by Mariya ("we", "us", "the artist"), a home-service makeup business. By creating an account or making a booking, you agree to these Terms. Please read them carefully.</p>
+    <section class="panel terms-section">
+        <h2>1. Your account</h2>
+        <p>Use your real name, a working email address and a correct service address. You confirm your email with a 6-digit code. Keep your password private; you are responsible for bookings made from your account.</p>
+    </section>
 
-    <nav class="terms-toc" aria-label="On this page">
-        <a href="#accounts">1. Your account</a><a href="#bookings">2. Bookings</a><a href="#payments">3. Payments</a><a href="#cancellations">4. Cancellations</a><a href="#reschedules">5. Rescheduling</a><a href="#transport">6. Transportation</a><a href="#appointment">7. On the day</a><a href="#health">8. Skin, allergies and health</a><a href="#photos">9. Photos</a><a href="#privacy">10. Privacy</a><a href="#liability">11. Liability</a><a href="#changes">12. Changes and contact</a>
-    </nav>
+    <section class="panel terms-section">
+        <h2>2. Bookings and down payment</h2>
+        <p>A booking is reserved only after you pay a down payment of @(deposit)% of the final booking total. The remaining balance is paid after your appointment.</p>
+        <p>After you submit a booking, your time is held for <strong>30 minutes</strong> while you pay. If the down payment is not received in that time, the booking expires and the time is released.</p>
+    </section>
 
-    <section id="accounts"><h2>1. Your account</h2>
+    <section class="panel terms-section">
+        <h2>3. Cancellations</h2>
         <ul>
-            <li>You must be at least 18 years old to create an account. A parent or guardian must book for anyone younger.</li>
-            <li>Give accurate details (name, email, address) and keep them up to date. We use them to contact you and to travel to your location.</li>
-            <li>Keep your password private. You are responsible for bookings made through your account.</li>
-            <li>We may suspend an account that gives false information, misuses the booking system, or submits false payment proof.</li>
+            <li>An unpaid booking can be cancelled for free.</li>
+            <li>A confirmed booking can be cancelled up to <strong>24 hours</strong> before the appointment. <strong>₱200</strong> is deducted from your verified payment and the rest is refunded.</li>
+            <li>Less than 24 hours before the appointment, a confirmed booking can no longer be cancelled online. Please contact the artist.</li>
         </ul>
     </section>
 
-    <section id="bookings"><h2>2. Bookings</h2>
-        <ul>
-            <li>Bookings are made online by choosing a service, date, time and service address.</li>
-            <li>A submitted booking is a <strong>request</strong>. Your time is held while it is reviewed, and the booking is only <strong>confirmed</strong> after the artist verifies your payment.</li>
-            <li>Service hours are @open to @close. Available times include makeup and preparation time, but not travel time.</li>
-            <li>We may decline a booking, for example if the location cannot be reached in time, the payment cannot be verified, or the schedule is no longer available. If we decline, any verified payment is returned.</li>
-            <li>Package (group) prices apply only when the group reaches the stated minimum number of people.</li>
-        </ul>
+    <section class="panel terms-section">
+        <h2>4. Rescheduling</h2>
+        <p>You can request a new time from your appointment page. Your original time and prices stay in place until the artist approves the change.</p>
     </section>
 
-    <section id="payments"><h2>3. Payments</h2>
-        <ul>
-            <li>A down payment of at least <strong>@downPayment%</strong> of the booking total is required to confirm. You may also pay a higher amount or the full total.</li>
-            <li>Payments are made by GCash, Maya or bank transfer. Upload a clear screenshot and the correct reference number. A screenshot is a payment claim: it is checked against the actual transfer before confirmation.</li>
-            <li>Submitting fake, edited or someone else's payment proof will cancel the booking and may lead to account suspension.</li>
-            <li>The remaining balance is paid on the day of your appointment.</li>
-            <li>The website does not charge your card or wallet automatically.</li>
-        </ul>
+    <section class="panel terms-section">
+        <h2>5. Transportation</h2>
+        <p>Transportation is not included in the makeup price or the down payment. You reimburse the artist's actual travel expense when she arrives, after she shows a receipt or an agreed fare breakdown. The amount can change with ride-hailing fares, fuel, tolls and distance.</p>
     </section>
 
-    <section id="cancellations"><h2>4. Cancellations</h2>
-        <ul>
-            <li><strong>Before your booking is confirmed:</strong> you may cancel your request at any time, for any reason including a change of mind, with <strong>no cancellation fee</strong>. Any amount you already sent will be returned.</li>
-            <li><strong>After your booking is confirmed:</strong> a <strong>₱200 cancellation deduction</strong> applies. The rest of your verified payment is refunded.</li>
-            <li>Refunds are sent manually by the artist to the account you paid from, usually within 7 working days.</li>
-            <li>If we have to cancel a confirmed appointment, you will receive a full refund of your verified payment, or you may choose to reschedule.</li>
-        </ul>
+    <section class="panel terms-section">
+        <h2>6. On the day</h2>
+        <p>Please be ready at the booked time at the address you gave, with a clean, well-lit space to work in. If the artist cannot reach the location or the appointment cannot go ahead because of the location, the artist will contact you to rearrange it.</p>
     </section>
 
-    <section id="reschedules"><h2>5. Rescheduling</h2>
-        <ul>
-            <li>You may request a new date and time for a confirmed booking. Your original time stays reserved until the artist approves the change.</li>
-            <li>Rescheduling depends on availability. If the new time changes the price, the difference is settled directly with the artist.</li>
-        </ul>
+    <section class="panel terms-section">
+        <h2>7. Your information</h2>
+        <p>We use your name, contact details and address only to manage your account and appointments. Payments are processed by our payment provider; we do not store your card or e-wallet details.</p>
     </section>
 
-    <section id="transport"><h2>6. Transportation</h2>
-        <ul>
-            <li>Transportation is <strong>not included</strong> in the booking total or the down payment.</li>
-            <li>You reimburse the artist's actual transportation cost (ride-hailing, fuel, tolls or parking) on arrival. The artist will show a receipt or an agreed fare breakdown.</li>
-        </ul>
+    <section class="panel terms-section">
+        <h2>8. Changes to these terms</h2>
+        <p>We may update these terms. The version shown here applies to bookings made from the date it is published.</p>
     </section>
 
-    <section id="appointment"><h2>7. On the day</h2>
-        <ul>
-            <li>Please have clean, moisturized skin and a well-lit space with a chair and a table or flat surface ready.</li>
-            <li>Make sure the artist can safely enter your location (gate passes, parking or guard instructions).</li>
-            <li>If you are not available within 30 minutes of the start time without notice, the appointment may be treated as a no-show and handled as a confirmed cancellation.</li>
-            <li>If the artist is running late, we will contact you. Lost time will be made up where the schedule allows, or adjusted fairly in the balance.</li>
-            <li>The artist may stop or refuse service if the location is unsafe or the artist is treated with disrespect or harassment.</li>
-        </ul>
-    </section>
-
-    <section id="health"><h2>8. Skin, allergies and health</h2>
-        <ul>
-            <li>Tell us before your appointment about any allergies, sensitive skin, skin conditions, eye conditions, or recent cosmetic treatments.</li>
-            <li>We use clean, sanitized tools and products, but reactions can still happen. A patch test can be done on request before the full service.</li>
-            <li>The artist may decline to apply products to broken, infected or irritated skin.</li>
-        </ul>
-    </section>
-
-    <section id="photos"><h2>9. Photos</h2>
-        <ul>
-            <li>The artist may ask to take photos of the finished look for the portfolio or social media. Photos are only posted with your permission, and you may withdraw it at any time.</li>
-            <li>Gallery images on this website are for inspiration and may include sample images that are not of past clients.</li>
-        </ul>
-    </section>
-
-    <section id="privacy"><h2>10. Privacy</h2>
-        <ul>
-            <li>We collect your name, email, birthday, gender, address, booking details and payment proofs to manage your account and appointments.</li>
-            <li>We process personal data in line with the Philippine Data Privacy Act of 2012 (Republic Act No. 10173). We do not sell your data.</li>
-            <li>Your information is only shared with the people and services needed to run your booking, such as our secure hosting, database and email providers.</li>
-            <li>Payment screenshots are kept private and only viewed by the artist to verify payments.</li>
-            <li>You may ask to see, correct or delete your personal data, unless we must keep certain records (such as payment records) for legal or accounting reasons.</li>
-        </ul>
-    </section>
-
-    <section id="liability"><h2>11. Liability</h2>
-        <ul>
-            <li>We take care to provide a safe and professional service. We are not responsible for delays or cancellations caused by events outside our control, such as severe weather, natural disasters or emergencies. In those cases we will reschedule or refund your verified payment.</li>
-            <li>Our total liability for any booking is limited to the amount you paid for that booking, except where the law does not allow this limit.</li>
-        </ul>
-    </section>
-
-    <section id="changes"><h2>12. Changes and contact</h2>
-        <ul>
-            <li>We may update these Terms. Changes apply to bookings made after the update date shown at the top of this page.</li>
-            <li>These Terms are governed by the laws of the Republic of the Philippines.</li>
-            <li>For questions about these Terms, a booking or your personal data, please reach us through the details on our <a asp-action="Contact">Contact page</a>.</li>
-        </ul>
-    </section>
+    <p class="terms-back"><a class="button secondary" asp-controller="Account" asp-action="Register">Back to sign up</a></p>
 </div>

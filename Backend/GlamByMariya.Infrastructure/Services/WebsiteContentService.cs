@@ -13,6 +13,11 @@ public interface IWebsiteImageRepository
     Task ReplaceDraftImages(Guid actor, Guid draftId, long expectedRevision, IReadOnlyList<WebsiteImageReference> images, CancellationToken cancellationToken);
 }
 
+public interface IWebsiteAssetWriter
+{
+    Task<Guid> AddAsset(Guid actor, string objectKey, string contentType, int byteLength, CancellationToken ct);
+}
+
 // Implementations must compare the expected revision and write atomically in persistent storage.
 public interface IWebsiteContentRepository
 {

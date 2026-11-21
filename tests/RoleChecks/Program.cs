@@ -20,19 +20,20 @@ void Reject(Action action, string name)
     catch (InvalidOperationException) { checks++; Console.WriteLine($"PASS: {name}"); }
 }
 
-var store = new DemoStore();
-var admin = store.Users.Single(u => u.Email == "admin@glambymariya.demo");
-Check(admin.Role == Roles.Admin, "demo seeds an Admin");
-var owner = store.Users.Single(u => u.Email == "owner@glambymariya.demo");
-Check(owner.Role == Roles.SuperAdmin, "demo seeds a SuperAdmin");
-Check(store.Users.Single(u => u.Email == "customer@glambymariya.demo").Role == Roles.Customer, "demo seeds a Customer");
+Check(new DemoStore().Users.Count == 0, "Demo mode seeds no accounts by default");
+var store = new DemoStore(presentationAccounts: true);
+var admin = store.Users.Single(u => u.Email == "presentation-admin@example.test");
+Check(admin.Role == Roles.Admin, "presentation mode seeds an Admin");
+var owner = store.Users.Single(u => u.Email == "presentation-owner@example.test");
+Check(owner.Role == Roles.SuperAdmin, "presentation mode seeds a SuperAdmin");
+Check(store.Users.Single(u => u.Email == "presentation-customer@example.test").Role == Roles.Customer, "presentation mode seeds a Customer");
 var hasher = new PasswordHasher<AppUser>();
 var unrelatedPassword = "fixture-" + Guid.NewGuid().ToString("N");
 Check(hasher.VerifyHashedPassword(admin, admin.PasswordHash, unrelatedPassword) == PasswordVerificationResult.Failed, "default synthetic Admin rejects an unrelated password");
-var secondStore = new DemoStore();
+var secondStore = new DemoStore(presentationAccounts: true);
 Check(hasher.VerifyHashedPassword(secondStore.Users.Single(u => u.Role == Roles.Admin), secondStore.Users.Single(u => u.Role == Roles.Admin).PasswordHash, unrelatedPassword) == PasswordVerificationResult.Failed, "another synthetic store also rejects an unrelated password");
 var supplied = new[] { "fixtureAdmin1", "fixtureOwner2", "fixtureCustomer3" };
-foreach (var presentation in new[] { false, true })
+foreach (var presentation in new[] { true })
 {
     var configured = new DemoStore(passwords: supplied, presentationAccounts: presentation);
     foreach (var (role, password) in new[] { (Roles.Admin, supplied[0]), (Roles.SuperAdmin, supplied[1]), (Roles.Customer, supplied[2]) })

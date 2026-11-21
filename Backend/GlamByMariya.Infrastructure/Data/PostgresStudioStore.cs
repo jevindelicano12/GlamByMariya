@@ -46,11 +46,12 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
     private IQueryable<BookingRow> VisibleBookings => CustomerRequest
         ? db.Set<BookingRow>().AsNoTracking().Where(b => b.CustomerId == Actor)
         : db.Set<BookingRow>().AsNoTracking();
-    public List<Booking> Bookings
+    public List<Booking> Bookings => LoadBookings(VisibleBookings.OrderByDescending(x => x.StartsAt));
+    // One row plus its own add-ons and refunds; customers still only see their own bookings.
+    public virtual Booking? FindBooking(Guid id) => LoadBookings(VisibleBookings.Where(b => b.Id == id)).SingleOrDefault();
+    private List<Booking> LoadBookings(IQueryable<BookingRow> query)
     {
-        get
-        {
-            var rows = VisibleBookings.OrderByDescending(x => x.StartsAt).ToList();
+            var rows = query.ToList();
             var ids = rows.Select(x => x.Id).ToArray();
             var extras = db.Set<BookingAddonRow>().AsNoTracking().Where(x => ids.Contains(x.BookingId)).ToList().ToLookup(x => x.BookingId);
             var quantityLines = PreparedPersistentBooking.Enabled ? PreparedPersistentBooking.ReadLines(db, ids, db is PublicMakeupDbContext) : null;
@@ -65,7 +66,6 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
                 Address=b.Address,Area=b.AreaNameSnapshot,TravelFee=b.TravelFeeInformationalSnapshot,TransportationPolicyAcknowledgedAt=b.TransportationPolicyAcknowledgedAt,VerifiedPaid=b.VerifiedPaid,
                 PaymentStatus=b.PaymentStatus,Status=b.Status,Note=b.Note,RequestedStart=b.RequestedStart.HasValue?Local(b.RequestedStart.Value):null,
                 CancellationFee=b.CancellationFee,RefundDue=b.RefundDue,Refunded=b.Refunded,RefundReference=transfers[b.Id].FirstOrDefault()?.TransferReference??"" }).ToList();
-        }
     }
     public List<Payment> Payments
     {
@@ -153,7 +153,9 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
         if (artists.Count!=1) throw new InvalidOperationException("Configure Database:ArtistId for the business's active makeup artist (or create one admin first).");
         return artists[0];
     }
-    protected T Transaction<T>(Guid? actor, Func<T> command)
+    // The app registers the context with EnableRetryOnFailure, which only allows a manual
+    // transaction inside the execution strategy: a transient failure retries the whole unit.
+    protected T Transaction<T>(Guid? actor, Func<T> command) => db.Database.CreateExecutionStrategy().Execute(() =>
     {
         using var transaction=db.Database.BeginTransaction(IsolationLevel.ReadCommitted);
         try
@@ -169,14 +171,14 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
             transaction.Rollback();
             throw new InvalidOperationException(Friendly(e),e);
         }
-    }
+    });
     protected void Transaction(Guid? actor, Action command) => Transaction(actor,()=>{ command(); return true; });
     protected virtual string Friendly(PostgresException e) => e.SqlState switch
     {
         PostgresErrorCodes.UniqueViolation => e.ConstraintName=="ux_users_email" ? "This email is already registered." : "That transaction reference or request already exists. Refresh and check your records before retrying.",
         PostgresErrorCodes.ForeignKeyViolation => "This record is still referenced. Archive it instead of deleting it.",
         PostgresErrorCodes.CheckViolation or PostgresErrorCodes.NotNullViolation => "The submitted data does not meet the booking or payment requirements. Refresh and check all fields.",
-        PostgresErrorCodes.ExclusionViolation => "The appointment overlaps the artist's schedule. Choose another time.",
+        PostgresErrorCodes.ExclusionViolation => "This slot overlaps a reserved appointment. Please choose another time.",
         PostgresErrorCodes.SerializationFailure or PostgresErrorCodes.DeadlockDetected => "Another update was made at the same time. Refresh and retry.",
         PostgresErrorCodes.RaiseException => e.MessageText,
         _ => "The database could not save this change. Please refresh and try again."
@@ -195,13 +197,25 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
         var user=new AppUser { FirstName=firstName.Trim(),LastName=lastName.Trim(),Name=$"{firstName.Trim()} {lastName.Trim()}",
             Email=email.Trim(),Age=age,Gender=gender,Address=address.Trim(),Role=role };
         user.PasswordHash=new PasswordHasher<AppUser>().HashPassword(user,password);
+        InsertLegacyUser(user,role,age,gender);
+        return user;
+    }
+    public virtual AppUser AddCustomerWithPasswordHash(string firstName,string lastName,string email,string passwordHash,int age,string gender,string address,DateOnly? birthday=null,string? suffix=null)
+    {
+        if(string.IsNullOrWhiteSpace(passwordHash)) throw new InvalidOperationException("Registration expired. Please register again.");
+        var error=RegistrationRules.ValidateProfile(firstName,lastName,email,age,gender,address,enforceLegacyAge:false);
+        if(error!=null) throw new InvalidOperationException(error);
+        var user=new AppUser { FirstName=firstName.Trim(),LastName=lastName.Trim(),Name=$"{firstName.Trim()} {lastName.Trim()}",
+            Email=email.Trim(),Age=age,Gender=gender,Address=address.Trim(),Role="Customer",PasswordHash=passwordHash };
+        InsertLegacyUser(user,"Customer",age,gender);
+        return user;
+    }
+    private void InsertLegacyUser(AppUser user,string role,int age,string gender) =>
         Transaction(Actor,()=>db.Database.ExecuteSqlInterpolated($"""
             INSERT INTO makeup.app_users(id,role_id,first_name,last_name,age_at_registration,gender,address,email,password_hash)
             SELECT {user.Id},id,{user.FirstName},{user.LastName},{age},{gender},{user.Address},{user.Email},{user.PasswordHash}
             FROM makeup.roles WHERE name={role}
             """));
-        return user;
-    }
     public virtual AppUser CreateElevatedUser(string firstName,string lastName,string email,string password,string role,int age,string gender,string address)
     {
         if(role is not ("Admin" or "SuperAdmin")) throw new InvalidOperationException("Invalid elevated role.");
@@ -271,6 +285,10 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
     public virtual void RecordAudit(Guid actor,string message) => Transaction(actor,()=>
         db.Database.ExecuteSqlInterpolated($"INSERT INTO makeup.audit_logs(actor_id,entity_type,event) VALUES({actor},'application',{message})"));
 
+    // The legacy makeup schema has no SuperAdmin, so nobody there may disable admins.
+    public virtual void SetAdminActive(Guid admin,bool active,Guid actor) =>
+        throw new InvalidOperationException("Admin Disable/Enable needs the public schema, where the SuperAdmin lives.");
+
     public virtual void ResetPassword(string email, string newPassword)
     {
         var passwordError = PasswordPolicy.ValidateNewPassword(newPassword);
@@ -324,11 +342,20 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
         });
         return Bookings.Single(x=>x.Id==id);
     }
+    // The legacy makeup schema has no Expired status; only the public schema expires bookings.
+    public virtual int ExpireOverduePayments() => 0;
+    public virtual void AttachInvoice(Guid booking,string invoiceId,string checkoutUrl) => throw new InvalidOperationException("Xendit payments need the public schema.");
+    public virtual string XenditPaid(string invoiceId,decimal amount,string eventKey) => throw new InvalidOperationException("Xendit payments need the public schema.");
+    public virtual string XenditExpired(string invoiceId,string eventKey) => throw new InvalidOperationException("Xendit payments need the public schema.");
+    public virtual string? PendingCheckoutUrl(Guid booking) => null;
     public virtual void CancelBooking(Guid booking,Guid customer,bool confirmed) => Transaction(customer,()=>
     {
         var b=LockBooking(booking);
         if(!confirmed || b.CustomerId!=customer) throw new InvalidOperationException("Confirm cancellation of your own appointment.");
-        db.Database.ExecuteSqlInterpolated($"UPDATE makeup.bookings SET status='Cancelled',cancellation_confirmed_at=now(),note='Customer confirmed cancellation and the PHP 200 deduction.' WHERE id={booking}");
+        var decision=CancellationPolicy.Evaluate(b.Status,Local(b.StartsAt),Now);
+        if(!decision.Allowed) throw new InvalidOperationException(decision.Reason);
+        var note=decision.Fee>0 ? $"Customer confirmed cancellation and the PHP {decision.Fee:N0} deduction." : "Customer cancelled before payment. No fee.";
+        db.Database.ExecuteSqlInterpolated($"UPDATE makeup.bookings SET status='Cancelled',cancellation_confirmed_at=now(),note={note} WHERE id={booking}");
     });
     public virtual void RequestReschedule(Guid booking,Guid customer,DateTime start) => Transaction(customer,()=>
     {

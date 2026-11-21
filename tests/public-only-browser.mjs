@@ -15,7 +15,7 @@ const check = (ok, label) => { assert.ok(ok, label); console.log(`PASS ${++check
 async function start(mode) {
   const root = await mkdtemp(path.join(parent, `public-boundary-${mode}-`));
   const args = [dll, '--urls=http://127.0.0.1:0', `--contentRoot=${root}`, `--webroot=${webroot}`,
-    `--Database:Provider=${mode === 'public' ? 'PostgreSql' : 'Demo'}`, '--DemoAccounts:Presentation=false', '--Authentication:DurableSessionEnforcement=false',
+    `--Database:Provider=${mode === 'public' ? 'PostgreSql' : 'Demo'}`, '--DemoAccounts:Presentation=true', '--Authentication:DurableSessionEnforcement=false',
     '--DemoGallery:Enabled=false', '--DemoCatalog:Enabled=false', '--DemoAvatar:Enabled=false', '--WebsiteContent:DemoTextEditing=false',
     '--WebsiteContent:DemoPersistentText=false', '--Supabase:Url=', '--Supabase:AnonKey=', '--SupabaseStorage:ServiceKey=',
     '--FileStorage:Provider=Local', '--Email:BrevoApiKey=', '--Email:SmtpHost=', `--PublicSite:InformationOnly=${mode === 'public'}`];
@@ -37,12 +37,12 @@ try {
   const login = await page.goto(demo + '/Account/Login'); assert.equal(login.status(), 200);
   for (const asset of ['/css/account-settings.css', '/js/booking-quantity.js', '/js/availability-response.js'])
     assert.ok((await page.content()).includes(asset), `normal Demo retains ${asset}`);
-  await page.fill('[name=email]', 'customer@glambymariya.demo'); await page.fill('[name=password]', 'Customer123!');
+  await page.fill('[name=email]', 'presentation-customer@example.test'); await page.fill('[name=password]', 'Customer123!');
   await Promise.all([page.waitForURL(u => !u.pathname.includes('/Account/Login')), page.locator('#auth-form button.button').click()]);
   check((await (await ctx.request.get(demo + '/Bookings')).text()).includes('My appointments'), 'normal isolated Demo authentication and booking page still work');
   const anonymous = await browser.newContext();
   const authenticated = [];
-  for (const [email, password] of [['customer@glambymariya.demo', 'Customer123!'], ['admin@glambymariya.demo', 'Admin123!'], ['owner@glambymariya.demo', 'Owner123!']]) {
+  for (const [email, password] of [['presentation-customer@example.test', 'Customer123!'], ['presentation-admin@example.test', 'Admin123!'], ['presentation-owner@example.test', 'Owner123!']]) {
     const source = await browser.newContext(), loginPage = await source.newPage();
     await loginPage.goto(demo + '/Account/Login'); await loginPage.fill('[name=email]', email); await loginPage.fill('[name=password]', password);
     await Promise.all([loginPage.waitForURL(u => !u.pathname.includes('/Account/Login')), loginPage.locator('#auth-form button.button').click()]);

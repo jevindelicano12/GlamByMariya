@@ -6,7 +6,10 @@ namespace GlamByMariya.Web.Controllers;
 
 public sealed class WebsiteImagesController : Controller
 {
-    [HttpGet, ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    // An image id always maps to the same stored file, so published images can be cached.
+    private const string PublicCache = "public, max-age=86400";
+
+    [HttpGet]
     public async Task<IActionResult> Image(Guid id, CancellationToken cancellationToken)
     {
         var demo = HttpContext.RequestServices.GetService<DemoGalleryStore>();
@@ -17,6 +20,7 @@ public sealed class WebsiteImagesController : Controller
             catch (Exception e) when (e is IOException or InvalidOperationException) { return NotFound(); }
             if (photo == null) return NotFound();
             Response.Headers.XContentTypeOptions = "nosniff";
+            Response.Headers.CacheControl = PublicCache;
             return File(photo.Value.Bytes, photo.Value.Type);
         }
         var service = HttpContext.RequestServices.GetService<WebsitePublicImageService>();
@@ -26,6 +30,7 @@ public sealed class WebsiteImagesController : Controller
             var image = await service.Read(id, cancellationToken);
             if (image == null) return NotFound();
             Response.Headers.XContentTypeOptions = "nosniff";
+            Response.Headers.CacheControl = PublicCache;
             return File(image.Bytes, image.ContentType);
         }
         catch (Exception e) when (e is not OperationCanceledException)

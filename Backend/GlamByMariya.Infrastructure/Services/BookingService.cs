@@ -25,7 +25,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             var selected = SelectAddOns(addOnIds, people);
             var earlyFee = !store.IsPersistent && start.HasValue ? EarlyFeeAt(start.Value, store.Settings) : 0;
             var quote = BookingPricing.Calculate(service, selected, people, store.Settings.TravelFee, package, store.Settings.DownPaymentPercent, earlyFee);
-            var lateFee = !store.IsPersistent && start.HasValue ? LateFeeAt(start.Value, quote.DurationMinutes, package, store.Settings) : 0;
+            var lateFee = !store.IsPersistent && start.HasValue ? LateFeeAt(start.Value, quote.DurationMinutes, store.Settings) : 0;
             return lateFee == 0 ? quote : BookingPricing.Calculate(service, selected, people, store.Settings.TravelFee, package, store.Settings.DownPaymentPercent, earlyFee, lateFee);
         }
     }
@@ -56,7 +56,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             var serviceTotal = snapshots.Sum(p => p.Service.Price);
             var addonTotal = snapshots.Sum(p => p.AddOns.Sum(a => a.Price));
             var early = start.HasValue ? EarlyFeeAt(start.Value, store.Settings) : 0;
-            var late = start.HasValue ? LateFeeAt(start.Value, duration, "group", store.Settings) : 0;
+            var late = start.HasValue ? LateFeeAt(start.Value, duration, store.Settings) : 0;
             var total = serviceTotal + addonTotal + early + late;
             return new MixedBookingQuote(snapshots.AsReadOnly(), serviceTotal, addonTotal, 0, early, late, total,
                 Money.Percentage(total, store.Settings.DownPaymentPercent), store.Settings.DownPaymentPercent, duration);
@@ -95,10 +95,12 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
         }
     }
     private static decimal EarlyFeeAt(DateTime start, BusinessSettings settings) => settings.EarlyFeeEnabled && start.TimeOfDay >= TimeSpan.FromHours(settings.EarlyStartHour) && start.TimeOfDay < TimeSpan.FromHours(settings.OpenHour) ? settings.EarlyFee : 0;
-    private static decimal LateFeeAt(DateTime start, int duration, string package, BusinessSettings settings) =>
+    // One rule for every booking type: late when makeup starts at or after the late
+    // boundary, or starts in regular hours but finishes after regular closing.
+    private static decimal LateFeeAt(DateTime start, int duration, BusinessSettings settings) =>
         settings.LateFeeEnabled && settings.LateStartHour.HasValue && start.TimeOfDay >= TimeSpan.FromHours(settings.OpenHour)
         && (start.TimeOfDay >= TimeSpan.FromHours(settings.LateStartHour.Value)
-            || (package == "group" && start.TimeOfDay + TimeSpan.FromMinutes(duration) > TimeSpan.FromHours(settings.CloseHour)))
+            || start.TimeOfDay + TimeSpan.FromMinutes(duration) > TimeSpan.FromHours(settings.CloseHour))
             ? settings.LateFee : 0;
     private List<CatalogItem> SelectAddOns(Guid[] ids, int people)
     {
@@ -127,7 +129,47 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             if (issue != null) throw new InvalidOperationException(issue);
         }
     }
-    public bool HoldsReservation(Booking booking) => booking.Status is "Confirmed" or "Pending Payment";
+    public bool HoldsReservation(Booking booking) =>
+        booking.Status == "Confirmed" || (booking.Status == "Pending Payment" && !PaymentWindow.IsExpired(booking, store.Now));
+    // Upcoming bookings that still hold their slot but would start before, or end after,
+    // the bookable day if the regular hours became openHour..closeHour. Early and late
+    // fee windows (Demo only) still extend the day, the same way the slot list does.
+    public List<Booking> BookingsOutsideHours(int openHour, int closeHour)
+    {
+        var settings = store.Settings; var now = store.Now;
+        var open = TimeSpan.FromHours(!store.IsPersistent && settings.EarlyFeeEnabled ? settings.EarlyStartHour : openHour);
+        var close = TimeSpan.FromHours(!store.IsPersistent && settings.LateFeeEnabled ? settings.LateEndHour : closeHour);
+        return bookings.Bookings
+            .Where(b => b.Start > now && HoldsReservation(b))
+            .Where(b => b.Start.TimeOfDay < open || b.End > b.Start.Date + close)
+            .OrderBy(b => b.Start).ToList();
+    }
+    // Marks overdue unpaid bookings as Expired so screens show it.
+    // Slot release does not depend on this; HoldsReservation already ignores them.
+    // Database mode: the database marks them (job every minute, and before each slot check).
+    public int ExpireOverduePayments()
+    {
+        if (store is IPersistentStudioStore database) return database.ExpireOverduePayments();
+        lock (store.Gate)
+        {
+            var now = store.Now; var expired = 0;
+            foreach (var b in bookings.Bookings.Where(b => PaymentWindow.IsExpired(b, now)).ToList())
+            {
+                b.Status = PaymentWindow.ExpiredStatus;
+                b.RequestedStart = null; b.PendingReschedule = null; b.RescheduleOffer = null;
+                b.Note = "The 30-minute payment window ended before payment was confirmed. The time slot was released.";
+                b.History.Add(new(Guid.Empty, "System", "Payment window expired", b.Note, now, b.Status, b.Start, null));
+                Notify(b, "Payment window expired. The time slot was released.", Guid.Empty);
+                expired++;
+            }
+            return expired;
+        }
+    }
+    private void EnsurePaymentWindowOpen(Booking b)
+    {
+        if (PaymentWindow.IsExpired(b, store.Now))
+            throw new InvalidOperationException("The 30-minute payment window for this booking has ended and its time slot was released.");
+    }
     // Demo-only service/preparation windows; routing and travel are not calculated.
     public IReadOnlyList<ScheduleWindow> DemoOpenWindows(DateTime date)
     {
@@ -234,6 +276,8 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
         {
             if (!expectedTotal.HasValue || !expectedMinimum.HasValue) throw new InvalidOperationException("Review the current price before submitting.");
             if (!PreparedPersistentBooking.Enabled && addOnIds.Distinct().Count() != addOnIds.Length) throw new InvalidOperationException("Add-on quantities are not yet available in persistent storage.");
+            // Friendly early check; the database trigger stays the final authority under concurrency.
+            CheckSlot(start, Quote(serviceId, addOnIds, people, package).DurationMinutes);
             return database.SubmitBooking(userId, serviceId, addOnIds, start, address, area, deposit, method, reference, proof, agreed, travelAcknowledged, people, package, expectedTotal, expectedMinimum);
         }
         lock (store.Gate)
@@ -247,8 +291,8 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             if ((expectedTotal.HasValue && expectedTotal != quote.FinalTotal) || (expectedMinimum.HasValue && expectedMinimum != quote.RequiredDownPayment)) throw new InvalidOperationException("The booking price or minimum payment changed. Please review the updated quote before submitting.");
             CheckSlot(start, quote.DurationMinutes);
             var user = store.Users.First(x => x.Id == userId);
-            var b = new Booking { CustomerId = userId, CustomerName = user.Name, Service = new(service.Id, service.Name, service.Price, service.Minutes), AddOns = selected.GroupBy(x => x.Id).Select(g => new PriceSnapshot(g.Key, g.First().Name, g.First().Price, g.First().Minutes, g.Count())).ToList(), Start = start, BufferMinutesSnapshot = store.Settings.BufferMinutes, Address = address.Trim(), Area = area, TravelFee = 0, EarlyFeeSnapshot = quote.EarlyFee, LateFeeSnapshot = quote.LateFee, TransportationPolicyAcknowledgedAt = store.Now, People = people, Package = package, AppliedPricePerPerson = quote.AppliedPricePerPerson, GroupPrice = quote.GroupPrice, GroupMinimumPeople = quote.GroupMinimumPeople, DownPaymentPercentSnapshot = store.Settings.DownPaymentPercent, RequiredDownPaymentSnapshot = quote.RequiredDownPayment };
-            if (Money.Round(deposit) != deposit || deposit < quote.RequiredDownPayment || deposit > quote.FinalTotal) throw new InvalidOperationException($"Choose an amount from ₱{quote.RequiredDownPayment:N2} to ₱{quote.FinalTotal:N2}, with at most two decimal places.");
+            var b = new Booking { CustomerId = userId, CustomerName = user.Name, Service = new(service.Id, service.Name, service.Price, service.Minutes), AddOns = selected.GroupBy(x => x.Id).Select(g => new PriceSnapshot(g.Key, g.First().Name, g.First().Price, g.First().Minutes, g.Count())).ToList(), Start = start, BufferMinutesSnapshot = store.Settings.BufferMinutes, Address = address.Trim(), Area = area, TravelFee = 0, EarlyFeeSnapshot = quote.EarlyFee, LateFeeSnapshot = quote.LateFee, TransportationPolicyAcknowledgedAt = store.Now, People = people, Package = package, AppliedPricePerPerson = quote.AppliedPricePerPerson, GroupPrice = quote.GroupPrice, GroupMinimumPeople = quote.GroupMinimumPeople, DownPaymentPercentSnapshot = store.Settings.DownPaymentPercent, RequiredDownPaymentSnapshot = quote.RequiredDownPayment, PaymentDueAt = PaymentWindow.DueAt(store.Now) };
+            Money.RequireExactDeposit(deposit, quote.RequiredDownPayment);
             if (method == "Cash") throw new InvalidOperationException("Use GCash, Maya or Bank Transfer for your down payment.");
             CheckReference(method, reference);
             bookings.Bookings.Add(b);
@@ -282,7 +326,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
     }
     public static void ValidatePayment(string method, [NotNull] string? reference)
     {
-        if (!new[] { "GCash", "Maya", "Bank Transfer", "Cash" }.Contains(method) || string.IsNullOrWhiteSpace(reference) || reference.Length > 150) throw new InvalidOperationException("Choose a payment method and provide a valid reference.");
+        if (!new[] { "GCash", "Maya", "Bank Transfer", "Cash", "Xendit" }.Contains(method) || string.IsNullOrWhiteSpace(reference) || reference.Length > 150) throw new InvalidOperationException("Choose a payment method and provide a valid reference.");
     }
     public bool CanManageBooking(Booking b, Guid actor)
     {
@@ -293,34 +337,29 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
     {
         b.History.Add(new(actor, store.Users.First(u => u.Id == actor).Name, action, reason, store.Now, b.Status, b.Start, b.RequestedStart));
     }
-    private void CheckMixedReschedule(Booking b, DateTime start)
-    {
-        if (b.MixedPeople.Count == 0) return;
-        var calendar = GetAvailability(start, (int)(b.End - b.Start).TotalMinutes, b.Id);
-        if (start.Ticks % TimeSpan.TicksPerMinute != 0 || !calendar.Days.SelectMany(d => d.Slots).Any(s => s.Start == start.ToString("yyyy-MM-ddTHH:mm") && s.Available))
-            throw new InvalidOperationException("Choose a current available makeup start time within the booking window.");
-    }
     public void Cancel(Booking b, Guid actor, bool confirmed, string? reason = null)
     {
         if (store.IsPersistent && b.MixedPeople.Count > 0) throw new InvalidOperationException("Persistent mixed booking operations are unavailable.");
         if (store is IPersistentStudioStore database) { database.CancelBooking(b.Id, actor, confirmed); return; }
         lock (store.Gate)
         {
-            if (b.CustomerId != actor || !store.Users.Any(u => u.Id == actor && u.IsActive && u.Role == Roles.Customer) || b.Status is not ("Confirmed" or "Pending Payment") || b.Start <= store.Now || !confirmed)
-                throw new InvalidOperationException("Confirm the cancellation of a future appointment.");
+            if (b.CustomerId != actor || !store.Users.Any(u => u.Id == actor && u.IsActive && u.Role == Roles.Customer) || !confirmed)
+                throw new InvalidOperationException("Confirm the cancellation of your own appointment.");
+            var decision = CancellationPolicy.Evaluate(b.Status, b.Start, store.Now);
+            if (!decision.Allowed) throw new InvalidOperationException(decision.Reason);
             reason = (reason ?? "").Trim();
             if (reason.Length > 1000 || (b.MixedPeople.Count > 0 && reason.Length == 0)) throw new InvalidOperationException("Provide a cancellation reason, up to 1,000 characters.");
-            // Not yet accepted by the artist: the customer may withdraw without the cancellation deduction.
-            var accepted = b.Status == "Confirmed";
-            if (reason.Length == 0) reason = accepted ? "Customer requested cancellation." : "Customer withdrew the request before it was accepted.";
-            b.CancellationFee = accepted ? 200 : 0;
-            b.RefundDue = Math.Max(0, Paid(b) - b.CancellationFee);
+            if (reason.Length == 0) reason = "Customer requested cancellation.";
+            b.CancellationFee = decision.Fee;
+            b.RefundDue = CancellationPolicy.RefundDue(decision.Fee, Paid(b));
             b.Status = "Cancelled";
-            b.RequestedStart = null;
+            b.RequestedStart = null; b.PendingReschedule = null; b.RescheduleOffer = null;
             b.Note = reason;
             UpdatePaymentStatus(b);
             RecordDecision(b, actor, "Customer cancellation", reason);
-            Notify(b, accepted ? $"Cancelled. ₱200 cancellation fee; refund due ₱{b.RefundDue:N2}." : "Request cancelled before acceptance. No cancellation fee; any payment sent will be returned by the artist.", actor);
+            Notify(b, decision.Fee > 0
+                ? $"Cancelled. ₱{decision.Fee:N0} cancellation fee; refund due ₱{b.RefundDue:N2}."
+                : $"Cancelled before payment. No fee; refund due ₱{b.RefundDue:N2}.", actor);
         }
     }
     public void VerifyCancelledReceipt(Booking b, Guid actor, Guid paymentId, int revision, bool reviewed)
@@ -344,7 +383,8 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
     public void AdminAction(Booking b, string action, Guid actor, string reason, decimal amount, string reference, bool confirmed = false, Guid? paymentId = null, long? reviewRevision = null, string? reviewVersion = null)
     {
         if (store.IsPersistent && b.MixedPeople.Count > 0) throw new InvalidOperationException("Persistent mixed booking operations are unavailable.");
-        if (store.IsPersistent && (action is "cancel" or "complete")) throw new InvalidOperationException("Staff cancellation and manual completion are available in the isolated Demo only.");
+        if (store.IsPersistent && action == "cancel" && !confirmed) throw new InvalidOperationException("Confirm the cancellation before continuing.");
+        if (store.IsPersistent && action == "complete" && !confirmed) throw new InvalidOperationException("Confirm that all makeup services are finished and the balance was received before completing this appointment.");
         if (store.IsPersistent && (action is "verify" or "approve" or "proof"))
             throw new InvalidOperationException("Persistent payment review is unavailable until transaction-scoped authorization is verified.");
         if (store is IPersistentStudioStore database) { database.ManageBooking(b.Id, action, actor, reason, amount, reference, paymentId, reviewRevision, reviewVersion); return; }
@@ -362,8 +402,9 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
                         return;
                     }
                     if (b.Status != "Pending Payment") throw new InvalidOperationException("Only pending down payments can be verified.");
+                    EnsurePaymentWindowOpen(b);
                     var deposit = payments.Payments.SingleOrDefault(p => p.BookingId == b.Id) ?? throw new InvalidOperationException("No down payment was submitted.");
-                    if (deposit.Amount < b.RequiredDownPayment || deposit.Amount > b.Total || Money.Round(deposit.Amount) != deposit.Amount) throw new InvalidOperationException("The submitted payment must be between the required minimum and the booking total.");
+                    Money.RequireExactDeposit(deposit.Amount, b.RequiredDownPayment);
                     CheckReference(deposit.Method, deposit.Reference, deposit.Id);
                     // Validate everything before changing either payment or booking under the same lock.
                     if (!store.Settings.ServiceAreas.Split(',').Any(x => x.Trim().Equals(b.Area, StringComparison.OrdinalIgnoreCase))) throw new InvalidOperationException("This address is outside the configured service area.");
@@ -375,6 +416,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
                 case "approve":
                     if (b.Status == "Confirmed" && Paid(b) >= b.RequiredDownPayment) return;
                     if (b.Status != "Pending Payment" || Paid(b) < b.RequiredDownPayment || Paid(b) > b.Total) throw new InvalidOperationException("Verify at least the required down payment before confirming this booking.");
+                    EnsurePaymentWindowOpen(b);
                     if (!store.Settings.ServiceAreas.Split(',').Any(x => x.Trim().Equals(b.Area, StringComparison.OrdinalIgnoreCase))) throw new InvalidOperationException("This address is no longer within the configured service areas. Reject or update coverage before approval.");
                     CheckSlot(b.Start, (int)(b.End - b.Start).TotalMinutes, b.Id);
                     b.Status = "Confirmed";
@@ -479,7 +521,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
                 throw new InvalidOperationException("This makeup start time is no longer available. Choose another available time.");
             if (expectedTotal != quote.FinalTotal || expectedMinimum != quote.RequiredDownPayment) throw new InvalidOperationException("The booking price or minimum payment changed. Please review the updated quote before submitting.");
             CheckSlot(start, quote.DurationMinutes);
-            if (Money.Round(deposit) != deposit || deposit < quote.RequiredDownPayment || deposit > quote.FinalTotal) throw new InvalidOperationException($"Choose an amount from ₱{quote.RequiredDownPayment:N2} to ₱{quote.FinalTotal:N2}, with at most two decimal places.");
+            Money.RequireExactDeposit(deposit, quote.RequiredDownPayment);
             if (method == "Cash") throw new InvalidOperationException("Use GCash, Maya or Bank Transfer for your down payment.");
             CheckReference(method, reference);
             var user = store.Users.First(x => x.Id == userId);
@@ -492,7 +534,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
                 Start = start, BufferMinutesSnapshot = store.Settings.BufferMinutes, Address = address.Trim(), Area = area,
                 EarlyFeeSnapshot = quote.EarlyFee, LateFeeSnapshot = quote.LateFee, TransportationPolicyAcknowledgedAt = store.Now,
                 People = quote.People.Count, Package = "group", DownPaymentPercentSnapshot = quote.DownPaymentPercent,
-                RequiredDownPaymentSnapshot = quote.RequiredDownPayment
+                RequiredDownPaymentSnapshot = quote.RequiredDownPayment, PaymentDueAt = PaymentWindow.DueAt(store.Now)
             };
             bookings.Bookings.Add(booking);
             payments.Payments.Add(new() { BookingId = booking.Id, Amount = deposit, Method = method, Reference = reference.Trim(), ProofPath = proof });
@@ -502,13 +544,14 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
     }
     private RescheduleQuote ReschedulePrice(Booking b, DateTime start, Guid quoteId)
     {
-        if (store.IsPersistent) throw new InvalidOperationException("This rescheduling policy is unavailable in persistent storage.");
+        // Database mode has no early/late fees, so the quote keeps the same total.
+        if (store.IsPersistent && b.MixedPeople.Count > 0) throw new InvalidOperationException("Persistent mixed booking operations are unavailable.");
         if (b.Status != "Confirmed" || b.Start <= store.Now) throw new InvalidOperationException("Only future confirmed appointments can be rescheduled.");
         var duration = (int)(b.End - b.Start).TotalMinutes;
         var calendar = GetAvailability(start, duration, b.Id);
         if (start.Ticks % TimeSpan.TicksPerMinute != 0 || !calendar.Days.SelectMany(d => d.Slots).Any(s => s.Start == start.ToString("yyyy-MM-ddTHH:mm") && s.Available)) throw new InvalidOperationException("Choose an available appointment time.");
         CheckSlot(start, duration, b.Id);
-        var early = EarlyFeeAt(start, store.Settings); var late = LateFeeAt(start, duration, b.Package, store.Settings);
+        var early = EarlyFeeAt(start, store.Settings); var late = LateFeeAt(start, duration, store.Settings);
         return new(quoteId, b.Id, b.ApprovedReschedules.Count, b.Start, start, duration, b.BufferMinutesSnapshot ?? store.Settings.BufferMinutes, b.InitialBookingTotal, b.Total, b.InitialBookingTotal - b.EarlyFeeSnapshot - b.LateFeeSnapshot + early + late, early, late);
     }
     public RescheduleQuote OfferReschedule(Booking b, Guid actor, DateTime start)
@@ -519,8 +562,21 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             return b.RescheduleOffer = ReschedulePrice(b, start, Guid.NewGuid());
         }
     }
-    public void ConsentReschedule(Booking b, Guid actor, Guid quoteId, bool agreed)
+    // Database mode cannot keep the in-memory offer between requests, so the review
+    // page posts back the proposed start and total, which are re-checked here.
+    public void ConsentReschedule(Booking b, Guid actor, Guid quoteId, bool agreed, DateTime? proposedStart = null, decimal? expectedTotal = null)
     {
+        if (store is IPersistentStudioStore database)
+        {
+            lock (store.Gate)
+            {
+                if (b.CustomerId != actor || !store.Users.Any(u => u.Id == actor && u.IsActive && u.Role == Roles.Customer)) throw new InvalidOperationException("Only the booking customer may request a reschedule.");
+                if (!agreed || quoteId == Guid.Empty || proposedStart is not { } requested || expectedTotal is not { } seen) throw new InvalidOperationException("Review and agree to the current rescheduling quote.");
+                if (ReschedulePrice(b, requested, quoteId).ProposedTotal != seen) throw new InvalidOperationException("The quote changed. Please review the updated total again.");
+            }
+            database.RequestReschedule(b.Id, actor, proposedStart.Value);
+            return;
+        }
         lock (store.Gate)
         {
             if (b.CustomerId != actor || !store.Users.Any(u => u.Id == actor && u.IsActive && u.Role == Roles.Customer)) throw new InvalidOperationException("Only the booking customer may request a reschedule.");
@@ -530,22 +586,6 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             b.RescheduleConsents.Add(consent); b.PendingReschedule = consent; b.RequestedStart = offer.ProposedStart; b.RescheduleOffer = null;
             RecordDecision(b, actor, "Reschedule requested", $"Customer agreed to ₱{offer.ProposedTotal:N2}; previous total ₱{offer.CurrentTotal:N2}. Original reservation retained.");
             Notify(b, $"Reschedule requested for {offer.ProposedStart:MMM d, yyyy h:mm tt}. Original slot stays reserved until approval.", actor);
-        }
-    }
-    public void Reschedule(Booking b, Guid actor, DateTime start)
-    {
-        if (store.IsPersistent && b.MixedPeople.Count > 0) throw new InvalidOperationException("Persistent mixed booking operations are unavailable.");
-        if (store is IPersistentStudioStore database) { database.RequestReschedule(b.Id, actor, start); return; }
-        lock (store.Gate)
-        {
-            if (b.CustomerId != actor || b.Status != "Confirmed" || b.Start <= store.Now)
-                throw new InvalidOperationException("Only future confirmed appointments can be rescheduled.");
-            if (EarlyFeeAt(start, store.Settings) != b.EarlyFeeSnapshot || LateFeeAt(start, (int)(b.End - b.Start).TotalMinutes, b.Package, store.Settings) != b.LateFeeSnapshot) throw new InvalidOperationException("This reschedule changes a booking fee. Contact the artist; fee-changing reschedules are not supported.");
-            CheckMixedReschedule(b, start);
-            CheckSlot(start, (int)(b.End - b.Start).TotalMinutes, b.Id);
-            b.RequestedStart = start;
-            RecordDecision(b, actor, "Reschedule requested", "Original reservation retained; proposed time is not reserved.");
-            Notify(b, $"Reschedule requested for {start:MMM d, yyyy h:mm tt}. Original slot stays reserved until approval.", actor);
         }
     }
     public void CorrectProof(Booking b, Guid actor, string reference, string? proof, long? expectedPaymentRevision = null, string? expectedPaymentVersion = null)
@@ -561,6 +601,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
         var p = payments.Payments.First(x => x.BookingId == b.Id);
         if (b.CustomerId != actor || b.Status != "Pending Payment" || p.Verified)
             throw new InvalidOperationException("Only unverified pending deposits can be corrected.");
+        EnsurePaymentWindowOpen(b);
         CheckReference(p.Method, reference, p.Id);
         p.ProofHistory.Add(new(p.Reference, p.ProofPath, p.ProofKey, store.Now));
         p.Revision++;

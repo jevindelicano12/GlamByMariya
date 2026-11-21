@@ -35,8 +35,10 @@ public class Booking
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public string? StoredReference { get; set; }
-    public string Reference => StoredReference ?? "GBM-" + Id.ToString("N")[..8].ToUpperInvariant();
-    public string BookingType => MixedPeople.Count > 0 ? "Mixed-service" : Package == "group" ? "Same-Service Package" : "Individual";
+    public string Reference => StoredReference ?? "LM-" + Id.ToString("N")[..8].ToUpperInvariant();
+    // "Package" only when the group rate actually applied; a group below the minimum pays the regular rate.
+    public string BookingType => MixedPeople.Count > 0 ? "Mixed-service" : Package != "group" ? "Individual"
+        : GroupPrice.HasValue && People >= GroupMinimumPeople ? "Same-Service Package" : "Group booking (regular rate)";
     public string ServiceDescription => MixedPeople.Count > 0 ? "Mixed-service group" : Service.Name;
     public Guid CustomerId { get; set; }
     public string CustomerName { get; set; } = "";
@@ -72,6 +74,8 @@ public class Booking
     public decimal RemainingBalance => Math.Max(0, Total - VerifiedPaid);
     public string PaymentStatus { get; set; } = "Pending Verification";
     public string Status { get; set; } = "Pending Payment";
+    // When an unpaid Pending Payment booking stops holding its slot. Null means no deadline (older records).
+    public DateTime? PaymentDueAt { get; set; }
     public string Note { get; set; } = "";
     public DateTime? RequestedStart { get; set; }
     public Guid? StaffCancelledBy { get; set; }

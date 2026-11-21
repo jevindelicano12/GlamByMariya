@@ -4,7 +4,7 @@
 <link rel="stylesheet" href="~/css/admin-mixed-booking.css" asp-append-version="true" />
 <div class="admin-mixed-details" data-start="@Model.Start.ToString("s")" data-status="@Model.Status">
     <a class="subtle-link" asp-action="Appointments">All appointments</a>
-    <header class="page-heading"><div><h1>Mixed-service booking</h1><p>@Model.Reference · @Model.CustomerName · @Model.People @(Model.People == 1 ? "person" : "people")</p><p>@Model.Start.ToString("dddd, MMMM d, yyyy · h:mm tt") makeup start</p></div><span class="badge">@Model.Status</span></header>
+    <header class="page-heading"><div><h1>Mixed-service booking</h1><p>@Model.Reference · @Model.CustomerName · @AdminPaymentLabels.PeopleCount(Model.People)</p><p>@Model.Start.ToString("dddd, MMMM d, yyyy · h:mm tt") makeup start</p></div><span class="badge">@Model.Status</span></header>
     <p class="notice">SuperAdmin-only review. Granular Admin permissions are not implemented. An uploaded screenshot is an unverified claim until the actual transfer has been checked. Travel feasibility is not verified.</p>
     <div class="admin-mixed-columns">
         <div class="stack">

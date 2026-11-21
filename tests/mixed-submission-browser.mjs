@@ -12,7 +12,7 @@ const project = path.resolve('.'), binary = process.env.UI_CHECK_BUILD || path.j
 const parent = path.join(process.env.LOCALAPPDATA, 'Temp/opencode'); await mkdir(parent, { recursive: true });
 const temp = await mkdtemp(path.join(parent, 'phase3a-checks-'));
 const server = spawn('dotnet', [path.join(binary, 'GlamByMariya.Web.dll'), '--urls=http://127.0.0.1:0', `--contentRoot=${temp}`, `--webroot=${path.join(project, 'Frontend/GlamByMariya.Web/wwwroot')}`,
-  '--Database:Provider=Demo', '--DemoAccounts:Presentation=false', '--Authentication:DurableSessionEnforcement=false', '--DemoGallery:Enabled=false', '--DemoCatalog:Enabled=false', '--WebsiteContent:DemoTextEditing=false', '--WebsiteContent:DemoPersistentText=false', '--Supabase:Url=', '--Supabase:AnonKey=', '--Supabase:ServiceKey=', '--SupabaseStorage:ServiceKey=', '--FileStorage:Provider=Local', '--B2:Bucket=', '--B2:Endpoint=', '--B2:KeyId=', '--B2:AppKey=', '--Email:BrevoApiKey=', '--Email:SmtpHost='],
+  '--Database:Provider=Demo', '--DemoAccounts:Presentation=true', '--Authentication:DurableSessionEnforcement=false', '--DemoGallery:Enabled=false', '--DemoCatalog:Enabled=false', '--WebsiteContent:DemoTextEditing=false', '--WebsiteContent:DemoPersistentText=false', '--Supabase:Url=', '--Supabase:AnonKey=', '--Supabase:ServiceKey=', '--SupabaseStorage:ServiceKey=', '--FileStorage:Provider=Local', '--B2:Bucket=', '--B2:Endpoint=', '--B2:KeyId=', '--B2:AppKey=', '--Email:BrevoApiKey=', '--Email:SmtpHost='],
   { env: { ...process.env, PORT: '', ASPNETCORE_ENVIRONMENT: 'Development', DOTNET_ENVIRONMENT: 'Development' }, stdio: ['ignore', 'pipe', 'pipe'] });
 let browser, base, checks = 0;
 const check = (value, label) => { assert.ok(value, label); console.log('PASS', ++checks, label); };
@@ -26,7 +26,7 @@ try {
   browser = await chromium.launch({ executablePath: process.env.BROWSER_EXECUTABLE || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', headless: true });
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, reducedMotion: 'reduce' });
   await context.route('**/*', r => new URL(r.request().url()).origin === base ? r.continue() : r.abort());
-  async function login(ctx, email = 'customer@glambymariya.demo', password = 'Customer123!') { const p = await ctx.newPage(); await p.goto(base + '/Account/Login'); await p.fill('[name=email]', email); await p.fill('[name=password]', password); await Promise.all([p.waitForURL(u => !u.pathname.includes('/Account/Login')), p.locator('#auth-form button.button').click()]); return p; }
+  async function login(ctx, email = 'presentation-customer@example.test', password = 'Customer123!') { const p = await ctx.newPage(); await p.goto(base + '/Account/Login'); await p.fill('[name=email]', email); await p.fill('[name=password]', password); await Promise.all([p.waitForURL(u => !u.pathname.includes('/Account/Login')), p.locator('#auth-form button.button').click()]); return p; }
   const page = await login(context); page.on('pageerror', e => errors.push(e.message));
   let mixedPosts = 0;
   page.on('request', r => { if (r.method() === 'POST' && r.url().endsWith('/Bookings/CreateMixed')) mixedPosts++; });
@@ -147,7 +147,7 @@ try {
   const noCsrf = await post(invalid, { __RequestVerificationToken: '' }); check(noCsrf.status === 400, 'missing antiforgery rejected');
   const anon = await browser.newContext(); const anonPost = await post(invalid, {}, anon); check(anonPost.status === 302, 'anonymous submission denied');
   check((await anon.request.get(base + proofLink, { maxRedirects: 0 })).status() === 302, 'anonymous proof access denied');
-  const admin = await browser.newContext(); await login(admin, 'admin@glambymariya.demo', 'Admin123!'); const adminPost = await post(invalid, {}, admin); check(adminPost.status === 302 || adminPost.status === 403, 'Admin cannot submit Customer booking');
+  const admin = await browser.newContext(); await login(admin, 'presentation-admin@example.test', 'Admin123!'); const adminPost = await post(invalid, {}, admin); check(adminPost.status === 302 || adminPost.status === 403, 'Admin cannot submit Customer booking');
   // Storage failure: make the Proofs directory unwritable by replacing it with a file in this isolated root.
   const { rename, unlink } = await import('node:fs/promises'); const folder = path.join(temp, 'App_Data/Proofs');
   await rename(folder, folder + '.saved'); await writeFile(folder, 'synthetic storage fault');

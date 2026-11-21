@@ -7,11 +7,9 @@ namespace GlamByMariya.Infrastructure.Data;
 
 // Singleton demo implementation. All writes and consistent reads use Gate.
 // Replace these repository implementations with EF Core when persistence is required.
-public class DemoStore : IStudioStore, IAdminProvisioningStore, IVerifiedProviderCustomerStore
+public class DemoStore : IStudioStore
 {
     private readonly DemoCatalogSnapshot? catalogSnapshot;
-    private readonly Dictionary<Guid, AdminProvisioningSnapshot> adminProvisioning = [];
-    private readonly Dictionary<Guid, (Guid AccountId, string Email)> providerCustomers = [];
     public bool IsPersistent => false;
     public DateTime Now => DateTime.Now;
     public object Gate { get; } = new();
@@ -44,9 +42,6 @@ public class DemoStore : IStudioStore, IAdminProvisioningStore, IVerifiedProvide
     public BusinessSettings Settings { get; } = new();
     public DemoStore(DemoCatalogSnapshot? catalogSnapshot = null, string[]? passwords = null, bool presentationAccounts = false)
     {
-        passwords ??= Enumerable.Range(0, 3).Select(_ => Convert.ToHexString(RandomNumberGenerator.GetBytes(32))).ToArray();
-        if (passwords.Length != 3 || passwords.Any(string.IsNullOrWhiteSpace))
-            throw new ArgumentException("Three Demo account passwords are required.", nameof(passwords));
         this.catalogSnapshot = catalogSnapshot;
         if (catalogSnapshot != null)
         {
@@ -54,23 +49,19 @@ public class DemoStore : IStudioStore, IAdminProvisioningStore, IVerifiedProvide
             Services.Clear(); Services.AddRange(loaded.Services);
             AddOns.Clear(); AddOns.AddRange(loaded.AddOns);
         }
-        AppUser customer;
-        if (presentationAccounts)
-        {
-            AddUser("Demo", "Admin", "presentation-admin@example.test", passwords[0], "Admin", 35, "Others", "Address on file");
-            AddUser("Demo", "Owner", "presentation-owner@example.test", passwords[1], "SuperAdmin", 35, "Others", "Address on file");
-            customer = AddUser("Demo", "Customer", "presentation-customer@example.test", passwords[2], "Customer", 28, "Others", "24 Sample Street, Demo Barangay");
-        }
-        else
-        {
-            AddUser("Makeup", "Artist", "admin@glambymariya.demo", passwords[0], "Admin", 35, "Others", "Address on file");
-            AddUser("Business", "Owner", "owner@glambymariya.demo", passwords[1], "SuperAdmin", 35, "Others", "Address on file");
-            customer = AddUser("Alex", "Morgan", "customer@glambymariya.demo", passwords[2], "Customer", 28, "Others", "24 Sample Street, Demo Barangay");
-        }
+        // No seeded accounts by default: create them like a real system (owner setup,
+        // admin invite, customer registration). Presentation accounts are opt-in only.
+        if (!presentationAccounts) return;
+        passwords ??= Enumerable.Range(0, 3).Select(_ => Convert.ToHexString(RandomNumberGenerator.GetBytes(32))).ToArray();
+        if (passwords.Length != 3 || passwords.Any(string.IsNullOrWhiteSpace))
+            throw new ArgumentException("Three presentation account passwords are required.", nameof(passwords));
+        AddUser("Demo", "Admin", "presentation-admin@example.test", passwords[0], "Admin", 35, "Others", "Address on file");
+        AddUser("Demo", "Owner", "presentation-owner@example.test", passwords[1], "SuperAdmin", 35, "Others", "Address on file");
+        var customer = AddUser("Demo", "Customer", "presentation-customer@example.test", passwords[2], "Customer", 28, "Others", "24 Sample Street, Demo Barangay");
         var service = Services.FirstOrDefault(x => x.Active && !x.Archived);
         if (service != null)
         {
-            var booking = new Booking { CustomerId = customer.Id, CustomerName = customer.Name, Service = new(service.Id, service.Name, service.Price, service.Minutes), Start = DateTime.Today.AddDays(2).AddHours(10), BufferMinutesSnapshot = Settings.BufferMinutes, Address = "24 Sample Street", Area = "Quezon City", TravelFee = Settings.TravelFee };
+            var booking = new Booking { CustomerId = customer.Id, CustomerName = customer.Name, Service = new(service.Id, service.Name, service.Price, service.Minutes), Start = DateTime.Today.AddDays(2).AddHours(10), BufferMinutesSnapshot = Settings.BufferMinutes, Address = "24 Sample Street", Area = "Quezon City", TravelFee = Settings.TravelFee, PaymentDueAt = PaymentWindow.DueAt(Now) };
             Bookings.Add(booking);
             Payments.Add(new() { BookingId = booking.Id, Amount = booking.RequiredDownPayment, Method = "GCash", Reference = "DEMO-REFERENCE-001" });
         }
@@ -82,94 +73,21 @@ public class DemoStore : IStudioStore, IAdminProvisioningStore, IVerifiedProvide
         Users.Add(user);
         return user;
     }
+    public AppUser AddCustomerWithPasswordHash(string firstName, string lastName, string email, string passwordHash, int age, string gender, string address, DateOnly? birthday = null, string? suffix = null)
+    {
+        if (string.IsNullOrWhiteSpace(passwordHash)) throw new InvalidOperationException("Registration expired. Please register again.");
+        var error = RegistrationRules.ValidateProfile(firstName, lastName, email, age, gender, address, enforceLegacyAge: false);
+        if (error != null) throw new InvalidOperationException(error);
+        if (Users.Any(x => x.Email.Equals(email.Trim(), StringComparison.OrdinalIgnoreCase))) throw new InvalidOperationException("This email is already registered.");
+        var user = new AppUser { Name = $"{firstName.Trim()} {lastName.Trim()}", FirstName = firstName.Trim(), LastName = lastName.Trim(), Age = age, Gender = gender, Address = address.Trim(), Email = email.Trim(), Role = Roles.Customer, PasswordHash = passwordHash, Birthday = birthday, Suffix = string.IsNullOrEmpty(suffix) ? null : suffix };
+        Users.Add(user);
+        return user;
+    }
     public AppUser CreateElevatedUser(string firstName, string lastName, string email, string password, string role, int age, string gender, string address)
     {
         if (role is not ("Admin" or "SuperAdmin")) throw new InvalidOperationException("Invalid elevated role.");
         if (Users.Any(x => x.Email.Equals(email.Trim(), StringComparison.OrdinalIgnoreCase))) throw new InvalidOperationException("This email is already registered.");
         return AddUser(firstName, lastName, email, password, role, age, gender, address);
-    }
-    public AppUser? FindVerifiedCustomer(Guid subject, string email)
-    {
-        lock (Gate)
-        {
-            if (subject == Guid.Empty || string.IsNullOrWhiteSpace(email) || !providerCustomers.TryGetValue(subject, out var binding) ||
-                !string.Equals(binding.Email, email.Trim(), StringComparison.OrdinalIgnoreCase)) return null;
-            var matches = Users.Where(u => u.Email.Equals(binding.Email, StringComparison.OrdinalIgnoreCase)).Take(2).ToList();
-            return matches.Count == 1 && matches[0].Id == binding.AccountId && matches[0].IsActive && matches[0].Role == Roles.Customer ? matches[0] : null;
-        }
-    }
-    public AppUser CreateVerifiedCustomer(Guid subject, EmailVerificationService.PendingRegistration pending)
-    {
-        lock (Gate)
-        {
-            if (subject == Guid.Empty || pending.ProviderSubject != subject || string.IsNullOrWhiteSpace(pending.Email) ||
-                providerCustomers.ContainsKey(subject) || Users.Any(u => u.Email.Equals(pending.Email.Trim(), StringComparison.OrdinalIgnoreCase)))
-                throw new InvalidOperationException("The account identity could not be verified. Contact support.");
-            var user = AddUser(pending.FirstName, pending.LastName, pending.Email.Trim(), pending.Password, Roles.Customer, pending.Age, pending.Gender, pending.Address);
-            user.Suffix = pending.Suffix; user.Birthday = pending.Birthday;
-            providerCustomers.Add(subject, (user.Id, user.Email));
-            return user;
-        }
-    }
-    public virtual AppUser CreatePendingInvitedAdmin(string firstName, string lastName, string email,
-        string password, int age, string gender, string address, Guid invitationId)
-    {
-        if (invitationId == Guid.Empty) throw new InvalidOperationException("The invitation is invalid.");
-        var error = RegistrationRules.Validate(firstName, lastName, email, age, gender, address, password);
-        if (error != null) throw new InvalidOperationException(error);
-        lock (Gate)
-        {
-            var user = CreateElevatedUser(firstName, lastName, email, password, "Admin", age, gender, address);
-            user.IsActive = false;
-            adminProvisioning.Add(user.Id, new(user.Id, invitationId, AdminProvisioningState.Pending, null));
-            return user;
-        }
-    }
-    public virtual void MarkAdminProvisioningOutcome(Guid accountId, AdminProvisioningState outcome)
-    {
-        if (outcome is not (AdminProvisioningState.NotAttempted or AdminProvisioningState.Rejected or AdminProvisioningState.Unknown))
-            throw new InvalidOperationException("Invalid Admin provisioning outcome.");
-        lock (Gate)
-        {
-            var current = GetAdminProvisioning(accountId) ?? throw new InvalidOperationException("Pending Admin provisioning was not found.");
-            if (current.State != AdminProvisioningState.Pending) throw new InvalidOperationException("Admin provisioning is no longer pending.");
-            adminProvisioning[accountId] = current with { State = outcome };
-        }
-    }
-    public virtual void ConfirmAdminProvisioning(Guid accountId, Guid invitationId, string email, SupabaseProvisioningResult provisioningResult)
-    {
-        if (accountId == Guid.Empty || invitationId == Guid.Empty || string.IsNullOrWhiteSpace(email)
-            || provisioningResult is null || !provisioningResult.IsConfirmed
-            || provisioningResult.ProviderUserId is not { } supabaseUserId || supabaseUserId == Guid.Empty)
-            throw new InvalidOperationException("A confirmed Supabase identity is required.");
-        var normalizedEmail = email.Trim();
-        lock (Gate)
-        {
-            var current = GetAdminProvisioning(accountId) ?? throw new InvalidOperationException("Pending Admin provisioning was not found.");
-            var user = Users.SingleOrDefault(x => x.Id == accountId);
-            if (current.AccountId != accountId || current.InvitationId != invitationId || user == null
-                || user.Role != "Admin" || !string.Equals(user.Email.Trim(), normalizedEmail, StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException("The pending Admin identity could not be confirmed.");
-            if (adminProvisioning.Values.Any(x => x.AccountId != accountId && x.InvitationId == invitationId))
-                throw new InvalidOperationException("This invitation is already correlated to another local account.");
-            if (adminProvisioning.Values.Any(x => x.AccountId != accountId && x.SupabaseUserId == supabaseUserId))
-                throw new InvalidOperationException("This Supabase identity is already linked to another account.");
-
-            if (current.State == AdminProvisioningState.Confirmed)
-            {
-                if (current.SupabaseUserId == supabaseUserId && user.IsActive) return;
-                throw new InvalidOperationException("The confirmed Admin identity does not match this request.");
-            }
-            if (current.State != AdminProvisioningState.Pending || current.SupabaseUserId != null || user.IsActive)
-                throw new InvalidOperationException("The pending Admin identity could not be confirmed.");
-
-            adminProvisioning[accountId] = current with { State = AdminProvisioningState.Confirmed, SupabaseUserId = supabaseUserId };
-            user.IsActive = true;
-        }
-    }
-    public virtual AdminProvisioningSnapshot? GetAdminProvisioning(Guid accountId)
-    {
-        lock (Gate) return adminProvisioning.GetValueOrDefault(accountId);
     }
     public void SaveCatalog(string kind, CatalogItem item, Guid actor)
     {
@@ -203,4 +121,16 @@ public class DemoStore : IStudioStore, IAdminProvisioningStore, IVerifiedProvide
     }
     public void RemoveBlock(Guid id, Guid actor) => Blocks.RemoveAll(x => x.Id == id);
     public void RecordAudit(Guid actor, string message) => AuditLogs.Add(new(actor, message, Now));
+    public Booking? FindBooking(Guid id) => Bookings.FirstOrDefault(b => b.Id == id);
+    public void SetAdminActive(Guid admin, bool active, Guid actor)
+    {
+        lock (Gate)
+        {
+            if (!Users.Any(u => u.Id == actor && u.IsActive && u.Role == Roles.SuperAdmin))
+                throw new InvalidOperationException("Only the Super Admin can disable or enable administrators.");
+            var target = Users.SingleOrDefault(u => u.Id == admin && u.Role == Roles.Admin)
+                ?? throw new InvalidOperationException("Only Admin accounts can be disabled or enabled.");
+            target.IsActive = active;
+        }
+    }
 }
