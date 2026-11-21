@@ -1868,6 +1868,35 @@ if (args.Contains("--travel-rule-only"))
     else Console.WriteLine("SKIP: same-day demo travel checks need a clock between 02:00 and 22:00");
     Console.WriteLine($"All {checks} travel rule checks passed."); return;
 }
+if (args.Contains("--travel-form-only"))
+{
+    var webRoot = Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web");
+    string Web(params string[] parts) => File.ReadAllText(Path.Combine([webRoot, .. parts]));
+    var create = Web("Views", "Bookings", "Create.cshtml");
+    var step2 = create[create.IndexOf("Choose your service location", StringComparison.Ordinal)..];
+    step2 = step2[..step2.IndexOf("<span>03</span>", StringComparison.Ordinal)];
+    var pinAt = step2.IndexOf("id=\"booking-location\"", StringComparison.Ordinal);
+    var calendarAt = step2.IndexOf("_AvailabilityCalendar", StringComparison.Ordinal);
+    Check(pinAt >= 0 && calendarAt >= 0 && pinAt < calendarAt, "step 2 shows the location block before the calendar");
+    const string hint = "Pin your location to see available times.";
+    var picker = Web("Views", "Shared", "_AvailabilityCalendar.cshtml");
+    var site = Web("wwwroot", "js", "site.js");
+    Check(picker.Contains(hint) || site.Contains(hint), "the calendar shows the pin hint until a location is pinned");
+    foreach (var name in new[] { "site.js", "booking-steps.js", "booking-steps-phase2.js" })
+        Check(Web("wwwroot", "js", name) is var text && text.Contains("'latitude'") && text.Contains("'longitude'"), $"{name} sends latitude and longitude with availability and slot checks");
+    Check(Web("wwwroot", "js", "booking-location.js").Contains("booking-location-changed"), "the pin map announces booking-location-changed");
+    Check(site.Contains("'booking-location-changed'") && site.Contains("refresh("), "the calendar reloads availability when the pin changes");
+    var controller = Web("Controllers", "BookingsController.cs");
+    Check(controller.Split("Times include travel from the artist's other appointments that day.").Length - 1 >= 3, "the slot validation messages use the new travel copy");
+    var copyFiles = Directory.GetFiles(Path.Combine(webRoot, "Views", "Bookings"), "*.cshtml")
+        .Concat(Directory.GetFiles(Path.Combine(webRoot, "Views", "Shared"), "*.cshtml"))
+        .Concat(Directory.GetFiles(Path.Combine(webRoot, "wwwroot", "js"), "*.js"))
+        .Append(Path.Combine(webRoot, "Controllers", "BookingsController.cs"));
+    foreach (var file in copyFiles)
+        Check(!System.Text.RegularExpressions.Regex.IsMatch(File.ReadAllText(file), "travel (time )?(is|has) not (been )?(estimated|included|verified)|travel not estimated|travel time to your location is not included|travel feasibility (is|has) not|travel is not estimated", System.Text.RegularExpressions.RegexOptions.IgnoreCase),
+            $"{Path.GetFileName(file)} no longer says travel is not estimated");
+    Console.WriteLine($"All {checks} travel form checks passed."); return;
+}
 if (args.Contains("--travel-only"))
 {
     var routes = new Dictionary<(string, string), TimeSpan> {

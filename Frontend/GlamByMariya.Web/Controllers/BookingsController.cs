@@ -72,7 +72,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
                 var slot = calendar.Days.SelectMany(day => day.Slots).FirstOrDefault(candidate => candidate.Start == request.Start);
                 if (slot == null || !slot.Available) return Json(new { available = false, message = slot?.Reason ?? "This time is outside the available booking slots." });
                 workflow.CheckSlot(start, quote.DurationMinutes);
-                return Json(new { available = true, quote, bufferMinutes = calendar.BufferMinutes, message = "Availability is based on makeup duration, preparation time and existing appointments. Travel feasibility has not yet been verified." });
+                return Json(new { available = true, quote, bufferMinutes = calendar.BufferMinutes, message = "Availability is based on makeup duration, preparation time and existing appointments. Times include travel from the artist's other appointments that day." });
             }
             catch (InvalidOperationException e) { return BadRequest(new { error = e.Message }); }
             catch (OperationCanceledException) when (HttpContext.RequestAborted.IsCancellationRequested) { return new EmptyResult(); }
@@ -115,8 +115,8 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
                 workflow.CheckSlot(date, selection.Value.Duration, selection.Value.Exclude);
                 workflow.CheckTravel(date, selection.Value.Duration, selection.Value.Exclude, latitude, longitude);
                  return Json(new { available = true, message = UsesXendit
-                     ? "This time is available. It covers makeup and preparation; travel time is not included. Your booking is confirmed once the down payment goes through."
-                     : "Available for request at this moment; service and preparation time only. Travel is not estimated. Confirmation requires payment review and approval." });
+                     ? "This time is available. Times include travel from the artist's other appointments that day. Your booking is confirmed once the down payment goes through."
+                     : "Available for request at this moment. Times include travel from the artist's other appointments that day. Confirmation requires payment review and approval." });
             }
             catch (InvalidOperationException e) { return Json(new { available = false, message = e.Message }); }
         }

@@ -173,6 +173,8 @@
     const service = form.querySelector('[name="serviceId"]:checked');
     if (service) params.set('serviceId', service.value);
     form.querySelectorAll('input[name="addOnIds"]:checked, input[type="hidden"][name="addOnIds"]').forEach(input => params.append('addOnIds', input.value));
+    const pinLat = form.elements.latitude?.value, pinLng = form.elements.longitude?.value;
+    if (pinLat && pinLng) { params.set('latitude', pinLat); params.set('longitude', pinLng); }
     return params;
   };
   const navigate = async (target, fromHistory = false) => {

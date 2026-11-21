@@ -41,7 +41,7 @@
         else
         {
             <div class="detail-row"><span>Claimed payment submitted</span><strong>₱@(Model.MixedSubmission?.ClaimedAmount.ToString("N2") ?? payments.Sum(p => p.Amount).ToString("N2"))</strong></div>
-            <p class="mixed-review-note">An uploaded screenshot is a payment claim, not proof of a confirmed transfer. An authorized Admin must review the transfer and appointment. Travel feasibility has not been verified; transportation is separate.</p>
+            <p class="mixed-review-note">An uploaded screenshot is a payment claim, not proof of a confirmed transfer. An authorized Admin must review the transfer and appointment. Transportation is separate.</p>
         }
         <partial name="_MixedPeople" model="Model" />
         <div class="button-row">

@@ -25,3 +25,6 @@
 }
 
 .calendar-legend i.past{background:#a0a596}
+
+.availability-calendar.is-locked .calendar-toolbar,.availability-calendar.is-locked .calendar-days,.availability-calendar.is-locked .time-slots{opacity:.45}
+.availability-calendar.is-locked .calendar-status{color:#6e786c;font-weight:600}

@@ -16,7 +16,7 @@
     </section>
 }
 @if (Model.MixedSubmission != null) {
-<section class="panel stack"><h3>Submitted payment claim</h3><p>₱@Model.MixedSubmission.ClaimedAmount.ToString("N2") · @Model.MixedSubmission.Method · @Model.MixedSubmission.Reference</p><p>@(payments.All(p => !p.Verified) ? "Unverified — awaiting Admin review" : Model.PaymentStatus). An uploaded screenshot does not confirm payment or the appointment. Travel feasibility has not been verified.</p>
+<section class="panel stack"><h3>Submitted payment claim</h3><p>₱@Model.MixedSubmission.ClaimedAmount.ToString("N2") · @Model.MixedSubmission.Method · @Model.MixedSubmission.Reference</p><p>@(payments.All(p => !p.Verified) ? "Unverified — awaiting Admin review" : Model.PaymentStatus). An uploaded screenshot does not confirm payment or the appointment. Times include travel from the artist's other appointments that day.</p>
 @foreach (var payment in payments) { <a class="subtle-link" asp-action="Proof" asp-route-id="@payment.Id" target="_blank" rel="noopener">View private payment proof</a> }
 </section> }
 <partial name="_BookingPriceDetails" model="Model" />

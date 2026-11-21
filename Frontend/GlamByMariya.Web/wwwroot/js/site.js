@@ -532,6 +532,9 @@ document.querySelectorAll('.availability-picker').forEach(picker => {
       params.set('people', String(quantity.people));
       params.set('package', quantity.package);
       form.querySelectorAll('input[name="addOnIds"]:checked, input[type="hidden"][name="addOnIds"]').forEach(a => params.append('addOnIds', a.value));
+      // Travel-aware times depend on where the customer pins their location.
+      const pinLat = form.elements.latitude?.value, pinLng = form.elements.longitude?.value;
+      if (pinLat && pinLng) { params.set('latitude', pinLat); params.set('longitude', pinLng); }
     }
     return params;
   };
@@ -699,9 +702,36 @@ document.querySelectorAll('.availability-picker').forEach(picker => {
       if (validationGate.isCurrent(version)) { validating = false; syncSubmit(); }
     }
   };
+  // The home-service booking shows times only after the customer pins their location,
+  // because the times account for the artist's travel from her other appointments.
+  const needsPin = () => form.id === 'booking-form' && !!form.elements.latitude && !picker.dataset.bookingId;
+  const pinned = () => !needsPin() || !!(form.elements.latitude.value && form.elements.longitude.value);
+  const pinKey = () => pinned() && needsPin() ? `${form.elements.latitude.value}|${form.elements.longitude.value}` : '';
+  let lastPinKey = pinKey();
+  const pinHint = 'Pin your location to see available times.';
+  const lockCalendar = () => {
+    calendarController?.abort();
+    calendarGate.begin();
+    refreshing = false;
+    calendar.classList.add('is-locked');
+    [daysElement, slotsElement, prev, next, picker.querySelector('[data-refresh]')].forEach(element => { if (element) { element.inert = true; } });
+    snapshot = localMonthFallback();
+    selectedDate = '';
+    renderDays();
+    renderSlots();
+    cancelValidation();
+    clearTime();
+    validationMessage('');
+    calendarMessage(pinHint);
+  };
+  const unlockCalendar = () => {
+    calendar.classList.remove('is-locked');
+    [daysElement, slotsElement, prev, next, picker.querySelector('[data-refresh]')].forEach(element => { if (element) { element.inert = false; } });
+  };
   const refresh = async ({ background = false } = {}) => {
     if (form.classList.contains('is-mixed')) return;
     if (submitting) return;
+    if (!pinned()) { lockCalendar(); return; }
     const { version, signal } = beginCalendarRequest();
     const requestedMonth = month;
     const hadLiveCalendar = Boolean(snapshot?.durationMinutes > 0);
@@ -794,7 +824,18 @@ document.querySelectorAll('.availability-picker').forEach(picker => {
      quantityTimer = window.setTimeout(refresh, 350);
    });
   form.addEventListener('booking-price-state-changed', syncSubmit);
-  form.addEventListener('booking-location-changed', syncSubmit);
+  form.addEventListener('booking-location-changed', () => {
+    syncSubmit();
+    if (!needsPin()) return;
+    const key = pinKey();
+    if (key === lastPinKey) return;
+    lastPinKey = key;
+    // A moved pin changes the travel the times allow for, so the chosen time is dropped and reloaded.
+    if (!key) { lockCalendar(); return; }
+    unlockCalendar();
+    invalidateSelectionCalendar();
+    refresh();
+  });
   form.addEventListener('booking-price-updated', () => { if (startInput.value && !submitting) validateTime(); else syncSubmit(); });
   form.addEventListener('booking-submission-cancel', cancelValidation);
   form.addEventListener('submit', async event => {
@@ -863,8 +904,7 @@ document.querySelectorAll('.availability-picker').forEach(picker => {
   snapshot = localMonthFallback();
   renderDays();
   renderSlots();
-  calendarMessage('Checking live availability…');
-  refresh();
+  if (pinned()) { calendarMessage('Checking live availability…'); refresh(); } else lockCalendar();
   window.setInterval(() => { if (!document.hidden && !refreshing && !validating && !submitting) refresh({ background: true }); }, 15000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden && !validating) refresh({ background: true }); });
   window.addEventListener('focus', () => { if (!refreshing && !validating) refresh({ background: true }); });
