@@ -637,11 +637,14 @@ document.querySelectorAll('.availability-picker').forEach(picker => {
       const number = document.createElement('span');
       number.textContent = Number(day.date.slice(-2));
       const indicator = document.createElement('small');
+       // Before the customer pins a location nothing is loading: the days wait for the pin.
+       const awaitingPin = calendar.classList.contains('is-locked') && status !== 'past';
        const waiting = firstLoad && snapshot.durationMinutes === 0 && status !== 'past';
-       indicator.textContent = day.availableCount > 0 ? `${day.availableCount} request slots` : status === 'full' ? 'Fully booked' : status === 'past' ? 'Date has passed' : waiting ? 'Loading…' : 'No slots';
+       indicator.textContent = day.availableCount > 0 ? `${day.availableCount} request slots` : status === 'full' ? 'Fully booked' : status === 'past' ? 'Date has passed' : awaitingPin ? 'Pin first' : waiting ? 'Loading…' : 'No slots';
       button.append(number, indicator);
       const reason = day.date >= today && !day.availableCount
-        ? snapshot.durationMinutes === 0 ? 'Live availability is unavailable; use Refresh to retry.' : day.slots.length === 0 ? 'The session and preparation buffer do not fit within booking hours.' : 'No times fit around booking hours, reservations or blocked time.'
+        ? awaitingPin ? 'Pin your location to see available times.'
+        : snapshot.durationMinutes === 0 ? 'Live availability is unavailable; use Refresh to retry.' : day.slots.length === 0 ? 'The session and preparation buffer do not fit within booking hours.' : 'No times fit around booking hours, reservations or blocked time.'
         : '';
       button.title = `${day.date}: ${statusNames[status]}${day.availableCount ? `, ${day.availableCount} available start times` : ''}${reason ? ` ${reason}` : ''}`;
       button.setAttribute('aria-label', button.title);

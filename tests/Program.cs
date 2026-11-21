@@ -2060,6 +2060,9 @@ if (args.Contains("--travel-form-only"))
     foreach (var file in copyFiles)
         Check(!System.Text.RegularExpressions.Regex.IsMatch(File.ReadAllText(file), "travel (time )?(is|has) not (been )?(estimated|included|verified)|travel not estimated|travel time to your location is not included|travel is not estimated", System.Text.RegularExpressions.RegexOptions.IgnoreCase),
             $"{Path.GetFileName(file)} no longer says travel is not estimated");
+    var siteScript = Web("wwwroot", "js", "site.js");
+    Check(siteScript.Contains("const awaitingPin = calendar.classList.contains('is-locked')") && siteScript.Contains("awaitingPin ? 'Pin first' : waiting ? 'Loading…'"),
+        "before a pin the calendar days say \"Pin first\", not \"Loading…\"");
     Console.WriteLine($"All {checks} travel form checks passed."); return;
 }
 if (args.Contains("--travel-only"))
