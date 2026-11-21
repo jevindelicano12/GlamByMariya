@@ -32,7 +32,7 @@ public interface IStudioStore : IServiceRepository, IAddOnRepository, IBookingRe
     // One booking by id (customers only see their own in database mode). Use this
     // instead of scanning Bookings, which loads every reservation in database mode.
     Booking? FindBooking(Guid id);
-    // Travel rule (Phase 5): the artist's home and current pins. Pins must be inside Metro Manila;
+    // Travel rule (Phase 5): the artist's home and current pins. Pins must be inside Metro Manila or Rizal;
     // SetArtistCurrent(null, null) clears the current pin (the artist is back home).
     ArtistLocation GetArtistLocation();
     void SetArtistHome(decimal lat, decimal lng);

@@ -493,7 +493,7 @@ if (Run("--booking-location"))
     var readBack = App().FindBooking(booking.Id)!;
     Check(readBack.Latitude == 14.5547m && readBack.Longitude == 121.0244m, "a booking submitted with a pin reads back its pin");
     Check(await Refused(() => Task.FromResult(App().SubmitBooking(customer.Id, soft.Id, [], DateTime.Today.AddDays(5).AddHours(10), "24 Synthetic Street, Quezon City", "Quezon City", quote.RequiredDownPayment, "Xendit", "XENDIT-LOC-2", null,
-        true, true, 1, "auto", quote.FinalTotal, quote.RequiredDownPayment))) == "Pin your exact location inside Metro Manila.", "the store refuses a booking without a pin");
+        true, true, 1, "auto", quote.FinalTotal, quote.RequiredDownPayment))) == "Pin your exact location inside Metro Manila or Rizal.", "the store refuses a booking without a pin");
     async Task<string> InsertWithoutPin()
     {
         try
@@ -520,7 +520,8 @@ if (Run("--booking-location"))
     Check(await Pin() == "14.554700/121.024400", "the booking summary shows the pin (" + await Pin() + ")");
     Check(await Update("location_lat=14.6, location_lng=NULL") == "23514", "a latitude without a longitude is refused");
     Check(await Update("location_lat=15.5, location_lng=121.0244") == "23514", "a pin north of Metro Manila is refused");
-    Check(await Update("location_lat=14.5547, location_lng=121.3") == "23514", "a pin east of Metro Manila is refused");
+    Check(await Update("location_lat=14.5547, location_lng=121.7") == "23514", "a pin east of Rizal is refused");
+    Check(await Update("location_lat=14.5236, location_lng=121.2856") == "", "a pin in Tanay, Rizal is accepted");
     Check(await Update("location_lat=14.20, location_lng=120.85") == "", "the south-west corner of Metro Manila is accepted");
     Check(await Update("location_lat=NULL, location_lng=NULL") == "" && await Pin() == "null/null", "a booking can have no pin");
     var legacy = App().FindBooking(booking.Id)!;
@@ -575,7 +576,7 @@ if (Run("--travel"))
         "the store refuses a home pin outside Metro Manila");
     Check(await Refused(() => { App().SetArtistCurrent(14.5547m, null); return Task.CompletedTask; }) != "", "the store refuses half a current pin");
     Check(await State("UPDATE public.makeup_artists SET home_lat=14.6, home_lng=NULL") == "23514", "the database refuses a home latitude without a longitude");
-    Check(await State("UPDATE public.makeup_artists SET current_lat=14.5547, current_lng=121.3") == "23514", "the database refuses a current pin east of Metro Manila");
+    Check(await State("UPDATE public.makeup_artists SET current_lat=14.5547, current_lng=121.7") == "23514", "the database refuses a current pin east of Rizal");
 
     var soft = App().Services.Single(x => x.Name == "Soft Glam");
     var quote = GlamByMariya.Core.BusinessRules.BookingPricing.Calculate(soft, [], 1, App().Settings.TravelFee, "auto", App().Settings.DownPaymentPercent);

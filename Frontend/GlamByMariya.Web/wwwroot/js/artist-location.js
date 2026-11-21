@@ -1,13 +1,13 @@
 // Lets the owner place the artist's home base and current location on an OpenStreetMap map (Leaflet).
 // The draggable pin fills the hidden latitude/longitude of the two save forms; the server checks the
-// Metro Manila box again.
+// Metro Manila and Rizal box again.
 (() => {
   const root = document.querySelector('[data-artist-location]');
   if (!root || !window.L) return;
 
-  const bounds = { minLat: 14.20, maxLat: 14.95, minLng: 120.85, maxLng: 121.25 };
+  const bounds = { minLat: 14.20, maxLat: 14.95, minLng: 120.85, maxLng: 121.65 };
   const metroManila = [14.5995, 120.9842];
-  const outsideMessage = "Pin the artist's location inside Metro Manila.";
+  const outsideMessage = "Pin the artist's location inside Metro Manila or Rizal.";
   const geolocationMessage = "We couldn't get your location. Drag the pin instead.";
   // Say why the browser gave no location: blocked for this site, device location off, or too slow.
   const geolocationError = error => error?.code === 1

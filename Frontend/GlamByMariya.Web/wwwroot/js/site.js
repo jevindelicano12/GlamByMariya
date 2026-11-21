@@ -479,7 +479,7 @@ document.querySelectorAll('.availability-picker').forEach(picker => {
       submitStatus.textContent = submitting ? 'Checking or submitting your booking…'
         : validating ? 'Checking your selected time…'
         : !startInput.value ? 'Choose an available date and time before submitting.'
-        : unpinned ? 'Pin your exact location inside Metro Manila.'
+        : unpinned ? 'Pin your exact location inside Metro Manila or Rizal.'
         : form.dataset.priceState === 'loading' ? 'Calculating your current price…'
         : form.dataset.priceState !== 'ready' ? document.querySelector('#pricing-status').textContent : '';
     }

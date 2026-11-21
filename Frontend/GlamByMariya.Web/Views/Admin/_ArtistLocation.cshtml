@@ -17,7 +17,7 @@
 <link rel="stylesheet" href="~/css/artist-location.css" asp-append-version="true" />
 <section class="panel stack artist-location" id="artist-location" data-artist-location data-home-lat="@F(location.HomeLat)" data-home-lng="@F(location.HomeLng)" data-current-lat="@F(location.CurrentLat)" data-current-lng="@F(location.CurrentLng)">
     <h3>Artist location</h3>
-    <p>Used to estimate travel to your first booking of the day. Search a place, drag the pin or click the map, then save it as your home base or as where you are right now. Pins must be inside Metro Manila.</p>
+    <p>Used to estimate travel to your first booking of the day. Search a place, drag the pin or click the map, then save it as your home base or as where you are right now. Pins must be inside Metro Manila or Rizal.</p>
     <p class="artist-location-state" data-artist-location-state>
         @(location.HomeLat.HasValue ? "Home base is set." : "Home base is not set yet.")
         @if (location.CurrentLat.HasValue && location.CurrentUpdatedAt.HasValue) { <text> Current location set @AdminTravelLines.Ago(location.CurrentUpdatedAt, now).</text> } else if (location.HomeLat.HasValue) { <text> No current location; the artist is assumed to be at home base.</text> } else { <text> No current location either, so the first booking of the day uses the minimum travel time.</text> }

@@ -1,6 +1,6 @@
 // Lets the customer pin the exact service location on an OpenStreetMap map (Leaflet).
 // The pin is written to the hidden latitude/longitude inputs with six decimals; the
-// server checks it again against the Metro Manila box.
+// server checks it again against the Metro Manila and Rizal box.
 (() => {
   const root = document.querySelector('#booking-location');
   const form = document.querySelector('#booking-form');
@@ -15,8 +15,8 @@
     'Mandaluyong': [14.5794, 121.0359]
   };
   const metroManila = [14.5995, 120.9842];
-  const bounds = { minLat: 14.20, maxLat: 14.95, minLng: 120.85, maxLng: 121.25 };
-  const outsideMessage = 'Pin your exact location inside Metro Manila.';
+  const bounds = { minLat: 14.20, maxLat: 14.95, minLng: 120.85, maxLng: 121.65 };
+  const outsideMessage = 'Pin your exact location inside Metro Manila or Rizal.';
   const geolocationMessage = "We couldn't get your location. Drag the pin instead.";
   // Say why the browser gave no location: blocked for this site, device location off, or too slow.
   const geolocationError = error => error?.code === 1

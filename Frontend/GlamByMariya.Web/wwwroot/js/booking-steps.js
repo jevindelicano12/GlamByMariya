@@ -205,7 +205,7 @@
         }
         if (notPinned()) {
           setHash(current, true);
-          notify('Pin your exact location inside Metro Manila.');
+          notify('Pin your exact location inside Metro Manila or Rizal.');
           document.querySelector('#booking-location-map')?.scrollIntoView({ block: 'center' });
           return;
         }
@@ -332,7 +332,7 @@
       ++navigation;
       show(1);
       setHash(1, true);
-      notify('Pin your exact location inside Metro Manila.');
+      notify('Pin your exact location inside Metro Manila or Rizal.');
     } else if (!confirmed && confirmation?.showModal) {
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -344,7 +344,7 @@
   // site.js owns the validation/retry/duplicate lock; keep errors visible on payment.
   // Once a valid pin is set, drop the stale pin reminder.
   form.addEventListener('booking-location-changed', () => {
-    if (!notPinned() && message.textContent === 'Pin your exact location inside Metro Manila.') notify('');
+    if (!notPinned() && message.textContent === 'Pin your exact location inside Metro Manila or Rizal.') notify('');
   });
   form.addEventListener('booking-submission-message', event => notify(event.detail.message));
 

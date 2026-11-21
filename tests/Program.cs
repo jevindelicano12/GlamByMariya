@@ -899,8 +899,14 @@ if (args.Contains("--booking-location-only"))
     Check(BookingLocation.IsValid(14.5547m, 121.0244m), "a pin in Makati is inside Metro Manila");
     Check(!BookingLocation.IsValid(14.5547m, null) && !BookingLocation.IsValid(null, 121.0244m) && !BookingLocation.IsValid(null, null), "a missing latitude or longitude is not a pin");
     Check(!BookingLocation.IsValid(15.5m, 121m), "a pin north of Metro Manila is refused");
-    Check(!BookingLocation.IsValid(14.5547m, 121.3m) && !BookingLocation.IsValid(14.19m, 121m) && !BookingLocation.IsValid(14.5m, 120.84m), "pins outside the box on other sides are refused");
-    Check(BookingLocation.IsValid(14.20m, 120.85m) && BookingLocation.IsValid(14.95m, 121.25m), "the box corners are inclusive");
+    Check(!BookingLocation.IsValid(14.5547m, 121.7m) && !BookingLocation.IsValid(14.19m, 121m) && !BookingLocation.IsValid(14.5m, 120.84m), "pins outside the box on other sides are refused");
+    Check(BookingLocation.IsValid(14.20m, 120.85m) && BookingLocation.IsValid(14.95m, 121.65m), "the box corners are inclusive");
+    Check(BookingLocation.IsValid(14.5869m, 121.1753m) && BookingLocation.IsValid(14.5236m, 121.2856m) && BookingLocation.IsValid(14.4000m, 121.3300m), "pins in Antipolo, Tanay and Jala-Jala (Rizal) are accepted");
+    Check(BookingLocation.Message == "Pin your exact location inside Metro Manila or Rizal.", "the pin message names Metro Manila and Rizal");
+    var rizalSql = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "database", "migrations", "0018_rizal_service_area.sql"));
+    Check(rizalSql.Split("BETWEEN 120.85 AND 121.65").Length - 1 == 3 && !rizalSql.Contains("121.25)"), "migration 0018 widens all three pin checks to 121.65");
+    foreach (var js in new[] { "booking-location.js", "artist-location.js" })
+        Check(File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "wwwroot", "js", js)).Contains("maxLng: 121.65 }"), $"{js} uses the same east edge as the server");
     const string expectedUrl = "https://www.google.com/maps/dir/?api=1&destination=14.554700,121.024400";
     Check(BookingLocation.GoogleMapsUrl(14.5547m, 121.0244m) == expectedUrl, "the Google Maps link uses six decimals");
     var savedCulture = System.Globalization.CultureInfo.CurrentCulture;
@@ -987,7 +993,7 @@ if (args.Contains("--booking-location-only"))
         return (result, bookingsController.TempData["Error"] as string);
     }
     var postCount = demo.Bookings.Count;
-    foreach (var (lat, lng, label) in new (decimal?, decimal?, string)[] { (null, null, "no pin"), (null, 121.0244m, "half a pin"), (14.5547m, 121.4m, "a pin outside Metro Manila") })
+    foreach (var (lat, lng, label) in new (decimal?, decimal?, string)[] { (null, null, "no pin"), (null, 121.0244m, "half a pin"), (14.5547m, 121.8m, "a pin outside Metro Manila and Rizal") })
     {
         var (result, error) = await Post(lat, lng);
         Check(result is RedirectToActionResult { ActionName: "Create" } && error == BookingLocation.Message, $"posting the form with {label} returns to the form with the pin message");
@@ -1027,7 +1033,7 @@ if (args.Contains("--booking-location-only"))
         var stepsText = File.ReadAllText(Path.Combine(web, "wwwroot", "js", stepsName));
         var listenAt = stepsText.IndexOf("addEventListener('booking-location-changed'", StringComparison.Ordinal);
         var listenBody = listenAt >= 0 ? stepsText[listenAt..Math.Min(stepsText.Length, listenAt + 400)] : "";
-        Check(listenBody.Contains("notPinned()") && listenBody.Contains("Pin your exact location inside Metro Manila.") && listenBody.Contains("notify('')"), $"{stepsName} clears the pin message once a valid pin is set");
+        Check(listenBody.Contains("notPinned()") && listenBody.Contains("Pin your exact location inside Metro Manila or Rizal.") && listenBody.Contains("notify('')"), $"{stepsName} clears the pin message once a valid pin is set");
     }
     var busyText = "Search is busy right now. Try again in a moment, or drag the pin.";
     var searchStart = locScript.IndexOf("const search = async", StringComparison.Ordinal);
