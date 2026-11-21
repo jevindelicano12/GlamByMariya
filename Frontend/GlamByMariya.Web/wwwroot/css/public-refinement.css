@@ -1,7 +1,9 @@
 /* Public refinement: homepage image framing and registration readability.
    Scoped to the public/customer surfaces; the staff workspace is untouched. */
 
-.landing-page .public-hero .hero-placeholder { height: clamp(340px, 26vw, 380px); }
+/* The hero photo is portrait: keep a 4:5 frame at every width so wide screens do not crop it to a
+   letterbox, and lift it above the decorative wave at the bottom of the hero. */
+.landing-page .public-hero .hero-placeholder { height: clamp(360px, 30vw, 460px); width: auto; max-width: 100%; aspect-ratio: 4 / 5; justify-self: center; position: relative; z-index: 1; }
 .landing-page .public-hero .hero-placeholder img { object-position: 50% 24%; }
 .landing-page .public-about .portrait-placeholder img { object-position: 50% 26%; }
 
