@@ -1,4 +1,6 @@
 .artist-location-map { height: 320px; width: 100%; border: 1px solid var(--line); border-radius: 8px; z-index: 0; }
+.artist-location-search { display: flex; gap: 8px; min-width: 0; }
+.artist-location-search input { flex: 1 1 auto; min-width: 0; }
 .artist-location-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .artist-location-actions form { margin: 0; }
 .artist-location-status { min-height: 1.6em; font-size: 12px; }

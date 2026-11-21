@@ -426,6 +426,14 @@ if (args.Contains("--travel-admin-only"))
     foreach (var label in new[] { "Use my current location", "Save as current location", "Set as home base", "Back to home base", "Current location set" })
         Check(locationView.Contains(label), $"the artist location card offers \"{label}\"");
     Check(File.Exists(Path.Combine(adminWeb, "wwwroot", "js", "artist-location.js")), "the artist location map script exists");
+    var artistMapScript = File.ReadAllText(Path.Combine(adminWeb, "wwwroot", "js", "artist-location.js"));
+    Check(locationView.Contains("data-artist-location-query") && locationView.Contains("data-artist-location-search") && locationView.Contains("aria-label=\"Search a place or address\""),
+        "the artist location card has a labelled place search");
+    Check(artistMapScript.Contains("https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ph&q=") && artistMapScript.Contains("lastSearch + 1000 > Date.now()"),
+        "the artist search uses Nominatim limited to the Philippines, at most once a second");
+    Check(artistMapScript.Contains("No match found. Try another name, or drag the pin.") && artistMapScript.Contains("Search is busy right now. Try again in a moment, or drag the pin."),
+        "the artist search says when nothing matched or the search is busy");
+    Check(artistMapScript.Contains("event.key !== 'Enter'") && artistMapScript.Contains("event.preventDefault()"), "Enter in the artist search box searches instead of submitting a form");
     Console.WriteLine($"All {checks} travel admin checks passed."); return;
 }
 if (args.Contains("--storage-key-only"))

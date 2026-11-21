@@ -65,4 +65,43 @@
       setPin(latitude, longitude);
     }, error => { geoButton.disabled = false; say(geolocationError(error)); }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 });
   });
+
+  // Search a place or address (works even where the browser blocks location). Same Nominatim
+  // rules as the booking map: an explicit search only, the Philippines only, at most one per second.
+  const query = root.querySelector('[data-artist-location-query]');
+  const searchButton = root.querySelector('[data-artist-location-search]');
+  let lastSearch = 0;
+  let searching = false;
+  const search = async () => {
+    const text = query.value.trim();
+    if (!text || searching) return;
+    if (lastSearch + 1000 > Date.now()) { say('Please wait a moment before searching again.'); return; }
+    lastSearch = Date.now();
+    searching = true;
+    searchButton.disabled = true;
+    say('Searching…');
+    try {
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ph&q=${encodeURIComponent(text)}`, {
+        headers: { Accept: 'application/json' }, credentials: 'omit', referrerPolicy: 'strict-origin-when-cross-origin'
+      });
+      if (!response.ok) throw new Error('search failed');
+      const results = await response.json();
+      const hit = Array.isArray(results) ? results[0] : null;
+      const lat = hit ? parseFloat(hit.lat) : NaN, lng = hit ? parseFloat(hit.lon) : NaN;
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) { say('No match found. Try another name, or drag the pin.'); return; }
+      map.setView([lat, lng], 16);
+      setPin(lat, lng, 'Pinned near your search result. Drag the pin to the exact spot, then save.');
+    } catch {
+      say('Search is busy right now. Try again in a moment, or drag the pin.');
+    } finally {
+      searching = false;
+      searchButton.disabled = false;
+    }
+  };
+  searchButton?.addEventListener('click', search);
+  query?.addEventListener('keydown', event => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    search();
+  });
 })();
