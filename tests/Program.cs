@@ -326,6 +326,105 @@ if (args.Contains("--catalog-settings-only"))
     Check(demo.Settings.OpenHour == 12 && closed.TempData["Error"] == null, "cancelled bookings do not block an hours change");
     Console.WriteLine($"All {checks} catalog and settings checks passed."); return;
 }
+if (args.Contains("--travel-admin-only"))
+{
+    // Task 5: the owner's travel settings, artist location actions, travel travelLines and override warning.
+    var adminDemo = new DemoStore(presentationAccounts: true);
+    var adminOwner = adminDemo.Users.Single(u => u.Role == Roles.SuperAdmin);
+    AdminController AdminAs(Guid userId, string role)
+    {
+        var http = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+        http.User = new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim(ClaimTypes.NameIdentifier, userId.ToString()), new Claim(ClaimTypes.Role, role) }, "Cookies"));
+        var controller = new AdminController(adminDemo, new BookingService(adminDemo, adminDemo, adminDemo, adminDemo, adminDemo), null!, null!, new MemoryInvitationService(TimeProvider.System), null!)
+        { ControllerContext = new ControllerContext { HttpContext = http } };
+        controller.TempData = new Microsoft.AspNetCore.Mvc.ViewFeatures.TempDataDictionary(http, new NoTempData());
+        return controller;
+    }
+    var adminSettings = adminDemo.Settings;
+    adminDemo.Settings.EarlyFeeEnabled = false; adminDemo.Settings.LateFeeEnabled = false;
+    var pct = adminSettings.DownPaymentPercent; var serviceAreas = adminSettings.ServiceAreas;
+    var saveOk = AdminAs(adminOwner.Id, Roles.SuperAdmin);
+    saveOk.Settings(adminSettings.OpenHour, adminSettings.CloseHour, adminSettings.BufferMinutes, adminSettings.TravelFee, pct, serviceAreas, "", false, 20m, 45);
+    Check(adminSettings.TravelSpeedKmh == 20m && adminSettings.TravelMinimumMinutes == 45 && saveOk.TempData["Error"] == null, "settings save a 20 km/h speed and a 45 minute minimum");
+    var tooFast = AdminAs(adminOwner.Id, Roles.SuperAdmin);
+    tooFast.Settings(adminSettings.OpenHour, adminSettings.CloseHour, adminSettings.BufferMinutes, adminSettings.TravelFee, pct, serviceAreas, "", false, 70m, 30);
+    Check(adminSettings.TravelSpeedKmh == 20m && tooFast.TempData["Error"] as string == "Travel speed must be between 5 and 60 km/h.", "a 70 km/h speed is refused with a friendly message and nothing changes");
+    var tooLong = AdminAs(adminOwner.Id, Roles.SuperAdmin);
+    tooLong.Settings(adminSettings.OpenHour, adminSettings.CloseHour, adminSettings.BufferMinutes, adminSettings.TravelFee, pct, serviceAreas, "", false, 20m, 200);
+    Check(adminSettings.TravelMinimumMinutes == 45 && tooLong.TempData["Error"] as string == "Minimum travel must be between 0 and 180 minutes.", "a 200 minute minimum is refused with a friendly message and nothing changes");
+    var tooSlow = AdminAs(adminOwner.Id, Roles.SuperAdmin);
+    tooSlow.Settings(adminSettings.OpenHour, adminSettings.CloseHour, adminSettings.BufferMinutes, adminSettings.TravelFee, pct, serviceAreas, "", false, 4m, 30);
+    Check(adminSettings.TravelSpeedKmh == 20m && tooSlow.TempData["Error"] != null, "a 4 km/h speed is refused");
+
+    // Artist location actions
+    var locatePost = AdminAs(adminOwner.Id, Roles.SuperAdmin);
+    locatePost.SetArtistHome(14.6760m, 121.0437m);
+    Check(adminDemo.GetArtistLocation() is { HomeLat: 14.6760m, HomeLng: 121.0437m } && locatePost.TempData["Error"] == null, "the owner saves the home base");
+    locatePost.SetArtistCurrent(14.5547m, 121.0244m);
+    Check(adminDemo.GetArtistLocation() is { CurrentLat: 14.5547m, CurrentUpdatedAt: not null }, "the owner saves the current location");
+    var outsidePost = AdminAs(adminOwner.Id, Roles.SuperAdmin);
+    outsidePost.SetArtistCurrent(15.5m, 121.0437m);
+    Check(outsidePost.TempData["Error"] as string == BookingLocation.ArtistMessage && adminDemo.GetArtistLocation().CurrentLat == 14.5547m, "a current location outsidePost Metro Manila is refused and the old one stays");
+    var outsideHome = AdminAs(adminOwner.Id, Roles.SuperAdmin);
+    outsideHome.SetArtistHome(10m, 121m);
+    Check(outsideHome.TempData["Error"] != null && adminDemo.GetArtistLocation().HomeLat == 14.6760m, "a home base outsidePost Metro Manila is refused");
+    var blankPost = AdminAs(adminOwner.Id, Roles.SuperAdmin);
+    blankPost.SetArtistCurrent(null, null);
+    Check(blankPost.TempData["Error"] != null && adminDemo.GetArtistLocation().CurrentLat == 14.5547m, "a blankPost post does not clear the current location");
+    var backHomePost = AdminAs(adminOwner.Id, Roles.SuperAdmin);
+    backHomePost.SetArtistCurrent(null, null, backHome: true);
+    Check(adminDemo.GetArtistLocation() is { CurrentLat: null, CurrentUpdatedAt: null, HomeLat: 14.6760m }, "Back to home base clears only the current location");
+    var adminStaff = AdminAs(adminDemo.Users.First(u => u.Role == Roles.Admin).Id, Roles.Admin);
+    adminStaff.SetArtistCurrent(14.5547m, 121.0244m);
+    Check(adminDemo.GetArtistLocation().CurrentLat == 14.5547m, "an Admin can also save the artist's location");
+
+    // Role and antiforgery gates
+    var adminGate = typeof(AdminController).GetCustomAttributes(typeof(Microsoft.AspNetCore.Authorization.AuthorizeAttribute), true).Cast<Microsoft.AspNetCore.Authorization.AuthorizeAttribute>().Single();
+    Check(adminGate.Roles!.Split(',').Select(r => r.Trim()).OrderBy(r => r).SequenceEqual(new[] { Roles.Admin, Roles.SuperAdmin }.OrderBy(r => r)), "the admin controller admits only Admin and SuperAdmin, so a customer gets 403");
+    foreach (var action in new[] { nameof(AdminController.SetArtistHome), nameof(AdminController.SetArtistCurrent) })
+    {
+        var method = typeof(AdminController).GetMethod(action)!;
+        Check(method.GetCustomAttributes(typeof(Microsoft.AspNetCore.Mvc.HttpPostAttribute), true).Length == 1
+            && method.GetCustomAttributes(typeof(Microsoft.AspNetCore.Mvc.ValidateAntiForgeryTokenAttribute), true).Length == 1
+            && method.GetCustomAttributes(typeof(Microsoft.AspNetCore.Authorization.AllowAnonymousAttribute), true).Length == 0
+            && method.GetCustomAttributes(typeof(Microsoft.AspNetCore.Authorization.AuthorizeAttribute), true).Cast<Microsoft.AspNetCore.Authorization.AuthorizeAttribute>().All(a => a.Roles == "Admin,SuperAdmin"), $"{action} is POST-only, antiforgery-protected and limited to Admin and SuperAdmin");
+    }
+
+    // Travel travelLines
+    var lineSettings = new BusinessSettings { TravelSpeedKmh = 15m, TravelMinimumMinutes = 30 };
+    Booking LineBooking(int hour, decimal? lat, decimal? lng) => new() { Start = new DateTime(2030, 1, 7, hour, 0, 0), Latitude = lat, Longitude = lng, Service = new(Guid.NewGuid(), "Look", 100m, 60) };
+    var lineA = LineBooking(9, 14.5547m, 121.0244m); var lineB = LineBooking(13, 14.7046m, 121.0567m); var lineC = LineBooking(16, null, null);
+    var travelLines = GlamByMariya.Web.ViewModels.AdminTravelLines.For(new[] { lineC, lineA, lineB }, lineSettings);
+    Check(travelLines.Count == 2 && !travelLines.ContainsKey(lineA.Id) && travelLines[lineB.Id] == "≈ 90 min travel", "the travel line between two pinned bookings is computed from the settings");
+    Check(travelLines[lineC.Id] == "≈ 30 min (no pin)", "a booking without a pin shows the minimum and (no pin)");
+    lineSettings.TravelSpeedKmh = 60m;
+    Check(GlamByMariya.Web.ViewModels.AdminTravelLines.For(new[] { lineA, lineB }, lineSettings)[lineB.Id] == "≈ 30 min travel", "the travel line follows the current speed");
+    Check(GlamByMariya.Web.ViewModels.AdminTravelLines.Ago(adminDemo.Now.AddMinutes(-5), adminDemo.Now) == "5 min ago" && GlamByMariya.Web.ViewModels.AdminTravelLines.Ago(adminDemo.Now.AddHours(-3), adminDemo.Now) == "3 h ago", "the current-location age reads in minutes and hours");
+
+    // View sources
+    var adminWeb = Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web");
+    string AdminView(params string[] parts) => File.ReadAllText(Path.Combine([adminWeb, .. parts]));
+    var dayView = AdminView("Views", "Admin", "_AppointmentCalendar.cshtml");
+    Check(dayView.Contains("AdminTravelLines.For(") && dayView.Contains("data-travel-line"), "the day view renders the travel line between bookings");
+    Check(!dayView.Contains("travel is not estimated") && !dayView.Contains("Travel time is not included"), "the day view no longer says single-booking travel is not estimated");
+    Check(dayView.Contains("mixed bookings have no pin and are not travel-checked"), "the day view keeps accurate wording for mixed bookings");
+    Check(!AdminView("Views", "Admin", "Calendar.cshtml").Contains("Travel time is not estimated"), "the calendar page no longer says travel is not estimated");
+    var detailsView = AdminView("Views", "Admin", "Details.cshtml");
+    Check(!detailsView.Contains("travel not estimated"), "booking details no longer say travel is not estimated");
+    Check(AdminView("Views", "Admin", "_MixedBookingDetails.cshtml").Contains("Travel feasibility is not verified."), "mixed booking details keep their accurate wording");
+    var overrideAt = detailsView.IndexOf("I'm sure the artist can make it", StringComparison.Ordinal);
+    var superAdminAt = detailsView.LastIndexOf("User.IsInRole(\"SuperAdmin\")", overrideAt, StringComparison.Ordinal);
+    var elseAt = detailsView.IndexOf("Only SuperAdmin may approve this request.", overrideAt, StringComparison.Ordinal);
+    Check(overrideAt > 0 && superAdminAt > 0 && elseAt > overrideAt && !detailsView[superAdminAt..overrideAt].Contains("else {") && detailsView.Contains("name=\"travelOverride\""), "the override checkbox sits only inside the SuperAdmin approval form");
+    Check(detailsView.Contains("Travel warning."), "the reschedule approval shows the travel warning");
+    var settingsView = AdminView("Views", "Admin", "Settings.cshtml");
+    Check(settingsView.Contains("name=\"travelSpeedKmh\"") && settingsView.Contains("name=\"travelMinimumMinutes\"") && settingsView.Contains("<partial name=\"_ArtistLocation\" />"), "the settings page has the travel fields and the artist location card");
+    var locationView = AdminView("Views", "Admin", "_ArtistLocation.cshtml");
+    foreach (var label in new[] { "Use my current location", "Save as current location", "Set as home base", "Back to home base", "Current location set" })
+        Check(locationView.Contains(label), $"the artist location card offers \"{label}\"");
+    Check(File.Exists(Path.Combine(adminWeb, "wwwroot", "js", "artist-location.js")), "the artist location map script exists");
+    Console.WriteLine($"All {checks} travel admin checks passed."); return;
+}
 if (args.Contains("--storage-key-only"))
 {
     // A storage key pasted with a trailing new line (or spaces) still works.

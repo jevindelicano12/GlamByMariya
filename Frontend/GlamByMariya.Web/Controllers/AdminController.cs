@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using GlamByMariya.Infrastructure.Data;
+using GlamByMariya.Core.BusinessRules;
 using GlamByMariya.Core.Entities;
 using GlamByMariya.Infrastructure.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -113,6 +114,14 @@ public class AdminController(IStudioStore store, BookingService workflow, Paymen
             return View(all.Where(b => string.IsNullOrEmpty(status) || b.Status == status).OrderBy(b => b.Start).ToList());
         }
     }
+    // Does the proposed reschedule time fit the artist's travel? null when there is nothing to check (no pending request, or a mixed booking).
+    private bool? RescheduleTravelFits(Booking b)
+    {
+        if (b.MixedPeople.Count > 0) return null;
+        var proposed = b.PendingReschedule?.Quote.ProposedStart ?? (store.IsPersistent && b.Status == "Confirmed" ? b.RequestedStart : null);
+        if (proposed is not { } start) return null;
+        return BookingService.TravelFits(store, start, (int)(b.End - b.Start).TotalMinutes, b.BufferMinutesSnapshot ?? store.Settings.BufferMinutes, b.Latitude, b.Longitude, b.Id);
+    }
     public IActionResult Details(Guid id)
     {
         lock (store.Gate)
@@ -120,7 +129,7 @@ public class AdminController(IStudioStore store, BookingService workflow, Paymen
             var b = store.FindBooking(id); if (b == null) return NotFound();
             if (!workflow.CanManageBooking(b, UserId)) return Forbid();
             if (store.IsPersistent && b.MixedPeople.Count > 0) return NotFound();
-            ViewBag.Paid = workflow.Paid(b); ViewBag.Payments = store is IPersistentStudioStore persistent ? persistent.ReviewPayments(id) : store.Payments.Where(p => p.BookingId == id).ToList(); return View(b);
+            ViewBag.TravelFits = RescheduleTravelFits(b); ViewBag.Paid = workflow.Paid(b); ViewBag.Payments = store is IPersistentStudioStore persistent ? persistent.ReviewPayments(id) : store.Payments.Where(p => p.BookingId == id).ToList(); return View(b);
         }
     }
     [HttpPost, ValidateAntiForgeryToken]
@@ -364,7 +373,44 @@ public class AdminController(IStudioStore store, BookingService workflow, Paymen
     {
         return RedirectToAction(nameof(Appointments), new { mode = "calendar", year, month });
     }
-    public IActionResult Settings() { ViewBag.PaymentQr = paymentQr.GetOptions(); lock (store.Gate) return View(store.Settings); }
+    public IActionResult Settings() { ViewBag.PaymentQr = paymentQr.GetOptions(); lock (store.Gate) { ViewBag.ArtistLocation = store.GetArtistLocation(); ViewBag.ArtistNow = store.Now; return View(store.Settings); } }
+    public const string TravelSpeedMessage = "Travel speed must be between 5 and 60 km/h.";
+    public const string TravelMinimumMessage = "Minimum travel must be between 0 and 180 minutes.";
+    // The owner saves where the artist is based (home) or is right now (current); backHome clears the current pin.
+    [HttpPost, ValidateAntiForgeryToken, Authorize(Roles = "Admin,SuperAdmin")]
+    public IActionResult SetArtistHome(decimal? latitude, decimal? longitude)
+    {
+        lock (store.Gate)
+        {
+            try
+            {
+                if (latitude is not { } lat || longitude is not { } lng) throw new InvalidOperationException(BookingLocation.ArtistMessage);
+                store.SetArtistHome(lat, lng); store.RecordAudit(UserId, "Set the artist's home base.");
+                TempData["Success"] = "Home base saved. Travel estimates use it when no current location is set.";
+            }
+            catch (InvalidOperationException e) { TempData["Error"] = e.Message; }
+            return RedirectToAction("Settings");
+        }
+    }
+    [HttpPost, ValidateAntiForgeryToken, Authorize(Roles = "Admin,SuperAdmin")]
+    public IActionResult SetArtistCurrent(decimal? latitude, decimal? longitude, bool backHome = false)
+    {
+        lock (store.Gate)
+        {
+            try
+            {
+                if (backHome) { store.SetArtistCurrent(null, null); store.RecordAudit(UserId, "Moved the artist back to home base."); TempData["Success"] = "The artist is back at home base."; }
+                else
+                {
+                    if (latitude is not { } lat || longitude is not { } lng) throw new InvalidOperationException(BookingLocation.ArtistMessage);
+                    store.SetArtistCurrent(lat, lng); store.RecordAudit(UserId, "Updated the artist's current location.");
+                    TempData["Success"] = "Current location saved. Today's travel estimates start from here.";
+                }
+            }
+            catch (InvalidOperationException e) { TempData["Error"] = e.Message; }
+            return RedirectToAction("Settings");
+        }
+    }
     [HttpPost, RequestSizeLimit(6_000_000)]
     public async Task<IActionResult> SavePaymentQr(string method, IFormFile? qr)
     {
@@ -393,11 +439,14 @@ public class AdminController(IStudioStore store, BookingService workflow, Paymen
         return RedirectToAction("Settings");
     }
     [HttpPost]
-    public IActionResult Settings(int openHour, int closeHour, int bufferMinutes, decimal travelFee, decimal downPaymentPercent, string serviceAreas, string? paymentInstructions, bool confirmAffected = false)
+    public IActionResult Settings(int openHour, int closeHour, int bufferMinutes, decimal travelFee, decimal downPaymentPercent, string serviceAreas, string? paymentInstructions, bool confirmAffected = false, decimal? travelSpeedKmh = null, int? travelMinimumMinutes = null)
     {
         lock (store.Gate)
         {
-            if (!ModelState.IsValid || openHour < 0 || closeHour > 24 || openHour >= closeHour || bufferMinutes < 0 || bufferMinutes > 180 || travelFee < 0 || Money.Round(travelFee) != travelFee || downPaymentPercent is < 1 or > 100 || decimal.Round(downPaymentPercent) != downPaymentPercent || string.IsNullOrWhiteSpace(serviceAreas)) TempData["Error"] = "Enter valid hours, buffer, travel fee, down payment percentage (whole numbers 1–100) and service areas.";
+            var speed = travelSpeedKmh ?? store.Settings.TravelSpeedKmh; var minimum = travelMinimumMinutes ?? store.Settings.TravelMinimumMinutes;
+            if (speed < 5 || speed > 60) TempData["Error"] = TravelSpeedMessage;
+            else if (minimum < 0 || minimum > 180) TempData["Error"] = TravelMinimumMessage;
+            else if (!ModelState.IsValid || openHour < 0 || closeHour > 24 || openHour >= closeHour || bufferMinutes < 0 || bufferMinutes > 180 || travelFee < 0 || Money.Round(travelFee) != travelFee || downPaymentPercent is < 1 or > 100 || decimal.Round(downPaymentPercent) != downPaymentPercent || string.IsNullOrWhiteSpace(serviceAreas)) TempData["Error"] = "Enter valid hours, buffer, travel fee, down payment percentage (whole numbers 1–100) and service areas.";
             else if (!Roles.IsSuperAdmin(User) && downPaymentPercent != store.Settings.DownPaymentPercent) TempData["Error"] = "Only the SuperAdmin can change the down payment percentage.";
             else if (!Roles.IsSuperAdmin(User) && (openHour != store.Settings.OpenHour || closeHour != store.Settings.CloseHour || bufferMinutes != store.Settings.BufferMinutes)) TempData["Error"] = "Only the SuperAdmin can change service hours or the preparation buffer.";
             else if (!store.IsPersistent && store.Settings.EarlyFeeEnabled && openHour <= store.Settings.EarlyStartHour) TempData["Error"] = "Opening hour must be later than the configured early start.";
@@ -407,7 +456,7 @@ public class AdminController(IStudioStore store, BookingService workflow, Paymen
             else
             {
                 var affected = workflow.BookingsOutsideHours(openHour, closeHour);
-                var s = store.Settings; var oldPercent = s.DownPaymentPercent; s.OpenHour = openHour; s.CloseHour = closeHour; s.BufferMinutes = bufferMinutes; s.TravelFee = travelFee; s.DownPaymentPercent = downPaymentPercent; s.ServiceAreas = serviceAreas; s.PaymentInstructions = paymentInstructions ?? "";
+                var s = store.Settings; var oldPercent = s.DownPaymentPercent; s.OpenHour = openHour; s.CloseHour = closeHour; s.BufferMinutes = bufferMinutes; s.TravelFee = travelFee; s.TravelSpeedKmh = speed; s.TravelMinimumMinutes = minimum; s.DownPaymentPercent = downPaymentPercent; s.ServiceAreas = serviceAreas; s.PaymentInstructions = paymentInstructions ?? "";
                 var saved = false;
                 try { store.SaveSettings(s, UserId); saved = true; if (store is DemoStore settingsDemo) settingsDemo.RecordAdminActivity(UserId, "Business settings updated", "Settings", Guid.Empty); TempData["Success"] = "Settings saved. Existing appointments and prices are unchanged."; }
                 catch (InvalidOperationException e) { TempData["Error"] = e.Message; }
