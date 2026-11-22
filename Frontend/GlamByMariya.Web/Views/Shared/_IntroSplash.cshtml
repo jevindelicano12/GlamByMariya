@@ -1,0 +1,22 @@
+@* Homepage intro: four soft pink and beige circles bloom, then "Glam by Mariya" is written like a
+   signature with "HOME-SERVICE MAKEUP" below it, and the intro fades to the homepage.
+   Shown once per browser tab session (sessionStorage), skipped for automated browsers (add ?intro=1
+   to force it), reduced to a short still version for prefers-reduced-motion. Without JavaScript nothing is shown. *@
+@{ var cspNonce = Context.Items["csp-nonce"] as string; }
+<script nonce="@cspNonce">try { var gbmForce = /[?&]intro=1(&|$)/.test(location.search); if (gbmForce || (!navigator.webdriver && !sessionStorage.getItem('gbm-intro-seen'))) document.documentElement.classList.add('gbm-intro-on'); } catch { }</script>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap" />
+<link rel="stylesheet" href="~/css/intro.css" asp-append-version="true" />
+<div class="gbm-intro" id="gbm-intro">
+    <div class="gbm-intro-bg" aria-hidden="true">
+        <span class="gbm-intro-circle gbm-intro-c1"></span>
+        <span class="gbm-intro-circle gbm-intro-c2"></span>
+        <span class="gbm-intro-circle gbm-intro-c3"></span>
+        <span class="gbm-intro-circle gbm-intro-c4"></span>
+        <div class="gbm-intro-name">
+            <span class="gbm-intro-script">Glam by Mariya</span>
+            <span class="gbm-intro-tag">HOME-SERVICE MAKEUP</span>
+        </div>
+    </div>
+    <button type="button" class="gbm-intro-skip" id="gbm-intro-skip">Skip intro</button>
+</div>
+<script src="~/js/intro.js" asp-append-version="true" defer></script>
