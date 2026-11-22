@@ -279,7 +279,7 @@ if (bookingForm) {
   const submitButton = bookingForm.querySelector('[type="submit"]');
   let pricingVersion = 0;
   let pricingRequest;
-  const update = async () => {
+  const update = async ({ background = false } = {}) => {
     if (bookingForm.querySelector('#mixed-mode')?.checked && bookingForm.querySelector('[name="bookingType"]:checked')?.value === 'package') {
       ++pricingVersion; pricingRequest?.abort(); currentQuote = null;
       if (bookingForm.mixedSlot) return;
@@ -326,14 +326,19 @@ if (bookingForm) {
     const version = ++pricingVersion;
     pricingRequest?.abort();
     pricingRequest = new AbortController();
-    bookingForm.dataset.priceState = 'loading';
-    bookingForm.elements.expectedTotal.value = '';
-    bookingForm.elements.expectedMinimum.value = '';
-    updateMakeupTimes();
-    submitButton.disabled = true;
-    pricingStatus.textContent = 'Calculating your discounted price and down payment…';
-    if (addonFields.length) addonTotal.textContent = 'Calculating add-on total…';
-    bookingForm.dispatchEvent(new Event('booking-price-state-changed'));
+    // A background re-check (coming back to the tab) keeps the shown price usable until the new one
+    // arrives, so Next and Submit are not briefly disabled under the customer's first click.
+    const keepReady = background && bookingForm.dataset.priceState === 'ready' && currentQuote;
+    if (!keepReady) {
+      bookingForm.dataset.priceState = 'loading';
+      bookingForm.elements.expectedTotal.value = '';
+      bookingForm.elements.expectedMinimum.value = '';
+      updateMakeupTimes();
+      submitButton.disabled = true;
+      pricingStatus.textContent = 'Calculating your discounted price and down payment…';
+      if (addonFields.length) addonTotal.textContent = 'Calculating add-on total…';
+      bookingForm.dispatchEvent(new Event('booking-price-state-changed'));
+    }
     try {
       const params = new URLSearchParams({ serviceId: service.value, people: String(quantity.people), package: quantity.package });
       if (bookingForm.elements.start.value) params.set('start', bookingForm.elements.start.value);
@@ -363,7 +368,8 @@ if (bookingForm) {
       bookingForm.dataset.priceState = 'ready';
       bookingForm.dispatchEvent(new Event('booking-price-updated'));
     } catch (error) {
-      if (version === pricingVersion && error.name !== 'AbortError') {
+      // A failed background re-check keeps the current price; the server checks it again on submit.
+      if (version === pricingVersion && error.name !== 'AbortError' && !keepReady) {
         bookingForm.dataset.priceState = 'error';
         const noGroupRate = error.message === 'This service does not have a package rate configured.';
         // A group too long for the artist's day is a choice to change, not a hiccup to retry.
@@ -435,7 +441,7 @@ if (bookingForm) {
     update();
   };
   bookingTypeInputs.forEach(input => input.addEventListener('change', syncBookingType));
-  window.addEventListener('focus', update);
+  window.addEventListener('focus', () => update({ background: true }));
   syncBookingType();
 }
 
@@ -738,7 +744,9 @@ document.querySelectorAll('.availability-picker').forEach(picker => {
   const refresh = async ({ background = false } = {}) => {
     if (form.classList.contains('is-mixed')) return;
     if (submitting) return;
-    if (!pinned()) { lockCalendar(); return; }
+    // Already locked while waiting for the pin: re-locking would clear the time and re-quote the price
+    // on every background refresh (tab focus), briefly disabling Next under the customer's click.
+    if (!pinned()) { if (!calendar.classList.contains('is-locked')) lockCalendar(); return; }
     const { version, signal } = beginCalendarRequest();
     const requestedMonth = month;
     const hadLiveCalendar = Boolean(snapshot?.durationMinutes > 0);

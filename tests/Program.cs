@@ -2030,6 +2030,15 @@ if (args.Contains("--flexible-screens-only"))
     var sending = Source("wwwroot", "js", "mixed-booking-phase3.js");
     Check(sending.Contains("'Sending your early booking request…'") && sending.Contains("'Saving your booking and opening the secure Xendit payment page…'"), "sending a package says early request or Xendit, not payment claim review, on the live site");
     Check(Source("Controllers", "BookingsController.cs").Contains("\"The artist confirms this early time first; you pay the down payment after approval.\""), "choosing an early time says the artist confirms it first, not that paying confirms it");
+    // Coming back to the tab re-checks the price in the background: the shown price stays usable meanwhile,
+    // so the first click on "Next" after switching apps is not swallowed by a briefly disabled button.
+    var priceScript = Source("wwwroot", "js", "site.js");
+    Check(!priceScript.Contains("window.addEventListener('focus', update);") && priceScript.Contains("window.addEventListener('focus', () => update({ background: true }));"),
+        "returning to the page re-checks the price in the background");
+    Check(priceScript.Contains("const update = async ({ background = false } = {}) => {") && priceScript.Contains("const keepReady = background && bookingForm.dataset.priceState === 'ready' && currentQuote;"),
+        "a background price check keeps the current price ready until the new one arrives");
+    Check(priceScript.Contains("if (!pinned()) { if (!calendar.classList.contains('is-locked')) lockCalendar(); return; }"),
+        "a background calendar refresh before the pin does not clear the time and re-quote the price");
     Console.WriteLine($"All {checks} flexible screen checks passed."); return;
 }
 if (args.Contains("--flexible-booking-only"))
