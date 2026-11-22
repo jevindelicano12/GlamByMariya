@@ -71,7 +71,8 @@
 /* Social links show each platform's logo (Facebook, Instagram, TikTok) instead of an arrow,
    which phones drew as a blue emoji box. */
 .published-social .social-link { display:inline-flex; align-items:center; gap:8px; min-height:40px; padding:6px 12px 6px 8px; border:1px solid #EADDD7; border-radius:999px; background:#fff; color:#49363D; font-size:13px; text-decoration:none; }
-.published-social .social-link span { color:inherit; }
+/* The label span must not take the sidebar icon rule (nav a span: 22px wide, 19px text). */
+.published-social .social-link span { color:inherit; width:auto; font-size:inherit; }
 .published-social .social-link:hover, .published-social .social-link:focus-visible { border-color:#A6536B; color:#A6536B; }
 .published-social .social-icon { width:22px; height:22px; flex:none; }
 .published-social .social-facebook .social-icon { color:#1877F2; }
