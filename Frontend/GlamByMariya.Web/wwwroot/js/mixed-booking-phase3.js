@@ -74,7 +74,7 @@
     if (!slot || slot.selection !== JSON.stringify(form.mixedPeople)) { message('Your selection changed. Choose an available makeup start time again.'); return; }
     if (!form.reportValidity()) return;
     submitting = true; form.dataset.submissionState = 'submitting'; form.setAttribute('aria-busy', 'true'); submit.disabled = true;
-    message('Submitting your booking and payment claim for review…');
+    message(form.dataset.earlyRequest === 'true' ? 'Sending your early booking request…' : form.dataset.xendit === 'true' ? 'Saving your booking and opening the secure Xendit payment page…' : 'Submitting your booking and payment claim for review…');
     try {
       const response = await fetch(form.dataset.mixedCreateUrl, { method: 'POST', headers: { Accept: 'application/json' }, body: new FormData(form) });
       if (response.redirected || !response.headers.get('content-type')?.includes('application/json')) throw new Error('Your session may have expired. Sign in again before submitting.');

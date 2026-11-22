@@ -822,6 +822,14 @@ if (Run("--flexible"))
     await Exec("UPDATE public.business_settings SET early_request_start_hour=4 WHERE id=1");
     var rawEarly = await State($"SELECT public.mvc_check_request_window(artist_id, now()-interval '1 day', now()-interval '23 hours', 45) FROM public.reservations WHERE app_id='{toDecline.Id}'");
     Check(rawEarly.Contains("early time") || rawEarly.Contains("future"), $"the database refuses an early request in the past ({rawEarly})");
+    // An early package sent twice (double tap / resubmitted page) is saved once.
+    var earlyDay = DateTime.Today.AddDays(12).AddHours(4);
+    GlamByMariya.Core.Entities.Booking SendEarly(string reference) => App().SubmitPackage(customer.Id, package, earlyDay, "24 Synthetic Street, Quezon City", "Quezon City", packageDeposit, "Xendit", reference,
+        true, true, packageTotal, packageDeposit, 14.5547m, 121.0244m);
+    var firstSend = SendEarly("XENDIT-EARLY-PKG-1"); var secondSend = SendEarly("XENDIT-EARLY-PKG-2");
+    Check(firstSend.Status == "Awaiting Approval" && secondSend.Id == firstSend.Id &&
+          Convert.ToInt32(await Scalar($"SELECT count(*) FROM public.reservations WHERE status='Awaiting Approval' AND booking_type='mixed' AND start_at='{earlyDay.ToUniversalTime():O}'")) == 1,
+        "sending the same early package twice keeps one request");
     Console.WriteLine($"All {checks - before} flexible booking database checks passed.");
 }
 

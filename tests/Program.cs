@@ -1972,6 +1972,10 @@ if (args.Contains("--flexible-screens-only"))
           Source("Views", "Admin", "Index.cshtml").Contains("waiting for your approval") && Source("Views", "Admin", "Index.cshtml").Contains("b.Status == BookingService.EarlyRequestStatus)"),
         "the dashboard says how many early requests are waiting and the appointments list can filter them");
     Check(Source("Controllers", "AdminController.cs").Contains("Open your booking to pay: {Url.Action(\"Details\", \"Bookings\", new { id }, Request.Scheme)}"), "the approval email links to the booking's pay button");
+    Check(Source("Views", "Bookings", "Index.cshtml").Contains("\"Pending Payment\" or \"Awaiting Approval\" ? \"upcoming\""), "the customer's list shows early requests under upcoming");
+    Check(Source("Views", "Bookings", "Details.cshtml").Contains("Withdraw your early booking request"), "the customer page offers to withdraw an early request");
+    var sending = Source("wwwroot", "js", "mixed-booking-phase3.js");
+    Check(sending.Contains("'Sending your early booking request…'") && sending.Contains("'Saving your booking and opening the secure Xendit payment page…'"), "sending a package says early request or Xendit, not payment claim review, on the live site");
     Console.WriteLine($"All {checks} flexible screen checks passed."); return;
 }
 if (args.Contains("--flexible-booking-only"))
@@ -2073,6 +2077,10 @@ if (args.Contains("--flexible-booking-only"))
         "paying right after approval gets 14 minutes; paying 10 minutes later gets 4");
     Check(XenditClient.SecondsBefore(clock.AddSeconds(150), clock) == null && XenditClient.SecondsBefore(clock.AddMinutes(-1), clock) == null,
         "with under two minutes left (or none) no payment page is opened");
+    // The customer may withdraw an early request for free before the artist decides.
+    var withdrawn = Book(day.AddDays(6).AddHours(4), soft, "FLEX-EARLY-3");
+    flow.Cancel(withdrawn, flexCustomer.Id, true);
+    Check(withdrawn is { Status: "Cancelled", CancellationFee: 0 }, "a customer can withdraw an early request for free");
     Console.WriteLine($"All {checks} flexible booking checks passed."); return;
 }
 if (args.Contains("--travel-rule-only"))

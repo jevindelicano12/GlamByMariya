@@ -504,6 +504,7 @@ public sealed class PublicStudioStore(
         for (var attempt = 0; attempt < 3 && created == null; attempt++)
         {
             var appId = Guid.NewGuid();
+            Guid? repeated = null;
             try
             {
                 Transaction(customer, () =>
@@ -528,6 +529,19 @@ public sealed class PublicStudioStore(
                         throw new InvalidOperationException(TravelPlanner.RefusalMessage);
                     var early = BookingWindow.KindOf(start, Settings) == SlotKind.Early;
                     var afterHours = BookingWindow.IsAfterHours(start, minutes, Settings);
+                    // A request holds no time, so nothing else stops the same early package being sent twice
+                    // (a double tap or a resubmitted page): under the travel lock, reuse the one just sent.
+                    if (early)
+                    {
+                        repeated = pdb.Database.SqlQuery<Guid>($"""
+                            SELECT app_id AS "Value" FROM public.reservations
+                            WHERE customer_id={CustomerBigId(customer)} AND start_at={Utc(start)} AND status={BookingService.EarlyRequestStatus}
+                              AND booking_type='mixed' AND people={people.Count} AND package_total_snapshot={total}
+                              AND created_at > now() - interval '10 minutes'
+                            ORDER BY created_at DESC LIMIT 1
+                            """).AsEnumerable().Cast<Guid?>().FirstOrDefault();
+                        if (repeated != null) return;
+                    }
                     var bookingRef = NewReference(appId);
                     pdb.Database.ExecuteSqlInterpolated($"INSERT INTO public.reservations(app_id, app_managed, snapshot_source, reference, customer_id, artist_id, service_id, start_at, location, area_id, booking_type, people, addons_total_snapshot, addons_minutes_snapshot, package_total_snapshot, package_minutes_snapshot, down_payment_percent_snapshot, required_down_payment_snapshot, policy_accepted_at, policy_version, travel_reminder_acknowledged_at, travel_reminder_version, status, location_lat, location_lng, is_early_request, after_hours) VALUES({appId}, true, 'booking_creation', {bookingRef}, {CustomerBigId(customer)}, {artistId}, {ServiceBigId(chosen[0].Id)}, {Utc(start)}, {address.Trim()}, {coverage.Id}, 'mixed', {people.Count}, 0, 0, {total}, {minutes}, {Settings.DownPaymentPercent}, {required}, now(), {Settings.PolicyVersion}, now(), {Settings.TravelReminderVersion}, {(early ? BookingService.EarlyRequestStatus : "Pending Payment")}, {latitude}, {longitude}, {early}, {afterHours})");
                     var reservationId = pdb.Database.SqlQueryRaw<long>("SELECT id AS \"Value\" FROM public.reservations WHERE app_id = {0}", appId).Single();
@@ -540,7 +554,8 @@ public sealed class PublicStudioStore(
                     pdb.Database.ExecuteSqlInterpolated($"INSERT INTO public.payments(reservation_id, app_id, app_managed, purpose, amount, method, reference, status, verification_status, proof_asset_id, submitted_by) VALUES({reservationId}, {Guid.NewGuid()}, true, 'down_payment', {deposit}, {method}, {reference.Trim()}, 'Pending', 'Pending Verification', {(Guid?)null}, {customer})");
                     if (method != "Xendit") pdb.Database.ExecuteSqlInterpolated($"UPDATE public.reservations SET payment_expires_at = NULL WHERE id = {reservationId}");
                 });
-                created = Bookings.Single(x => x.Id == appId);
+                var id = repeated ?? appId;
+                created = Bookings.Single(x => x.Id == id);
             }
             catch (InvalidOperationException e) when (e.InnerException is PostgresException pg && pg.ConstraintName == "reservations_reference_key" && attempt < 2)
             {
@@ -647,7 +662,7 @@ public sealed class PublicStudioStore(
         if (!confirmed || b.CustomerId != customer) throw new InvalidOperationException("Confirm cancellation of your own appointment.");
         var decision = CancellationPolicy.Evaluate(b.Status, Local(b.StartsAt), Now);
         if (!decision.Allowed) throw new InvalidOperationException(decision.Reason);
-        var note = decision.Fee > 0 ? $"Customer confirmed cancellation and the PHP {decision.Fee:N0} deduction." : "Customer cancelled before payment. No fee.";
+        var note = decision.Fee > 0 ? $"Customer confirmed cancellation and the PHP {decision.Fee:N0} deduction." : b.Status == BookingService.EarlyRequestStatus ? "Customer withdrew the early booking request." : "Customer cancelled before payment. No fee.";
         pdb.Database.ExecuteSqlInterpolated($"UPDATE public.reservations SET status='Cancelled', cancellation_confirmed_at=now(), notes={note} WHERE app_id={booking}");
     });
 
