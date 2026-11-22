@@ -529,7 +529,8 @@ public sealed class PublicStudioStore(
                     if (PackageRules.Check(chosen) is { } refused) throw new InvalidOperationException(refused);
                     var extras = people.Select(p => p.AddOnIds.Distinct().Select(id => addOns.FirstOrDefault(a => a.Id == id && a.Active && !a.Archived)
                         ?? throw new InvalidOperationException("An add-on is no longer available.")).ToList()).ToList();
-                    var total = chosen.Sum(s => s.Price) + extras.Sum(e => e.Sum(a => a.Price));
+                    var prices = chosen.Select(s => PackageRules.PricePerPerson(s, chosen.Count)).ToList();
+                    var total = prices.Sum() + extras.Sum(e => e.Sum(a => a.Price));
                     var minutes = chosen.Sum(s => s.Minutes) + extras.Sum(e => e.Sum(a => a.Minutes));
                     var required = Money.Percentage(total, Settings.DownPaymentPercent);
                     if (expectedTotal != total || expectedMinimum != required) throw new InvalidOperationException("The booking price or minimum payment changed. Please review the updated quote.");
@@ -559,7 +560,7 @@ public sealed class PublicStudioStore(
                     var reservationId = pdb.Database.SqlQueryRaw<long>("SELECT id AS \"Value\" FROM public.reservations WHERE app_id = {0}", appId).Single();
                     for (var i = 0; i < chosen.Count; i++)
                     {
-                        var personId = pdb.Database.SqlQuery<long>($"INSERT INTO public.reservation_people(reservation_id, position, service_id, service_name_snapshot, price_snapshot, minutes_snapshot) VALUES({reservationId}, {i + 1}, {ServiceBigId(chosen[i].Id)}, {chosen[i].Name}, {chosen[i].Price}, {chosen[i].Minutes}) RETURNING id AS \"Value\"").AsEnumerable().Single();
+                        var personId = pdb.Database.SqlQuery<long>($"INSERT INTO public.reservation_people(reservation_id, position, service_id, service_name_snapshot, price_snapshot, minutes_snapshot) VALUES({reservationId}, {i + 1}, {ServiceBigId(chosen[i].Id)}, {chosen[i].Name}, {prices[i]}, {chosen[i].Minutes}) RETURNING id AS \"Value\"").AsEnumerable().Single();
                         foreach (var extra in extras[i])
                             pdb.Database.ExecuteSqlInterpolated($"INSERT INTO public.reservation_people_addons(person_id, addon_id, name_snapshot, price_snapshot, minutes_snapshot) VALUES({personId}, {extra.Id}, {extra.Name}, {extra.Price}, {extra.Minutes})");
                     }

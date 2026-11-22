@@ -49,7 +49,7 @@
 </section>
 @{
 <section id="mixed-selection" class="mixed-page" data-booking-step="look" data-quote-url="@Url.Action("MixedQuote", "Bookings")" hidden>
-    <h2>Services for your group</h2><p>Choose one service and optional add-ons for each person. Individual catalog prices apply; no group discount is included.</p>
+    <h2>Services for your group</h2><p>Choose one service and optional add-ons for each person. From 4 people, each person pays their service's group price where one is set; the bride stays at the regular Bridal price.</p>
     <p id="mixed-count-error" class="mixed-error" role="status"></p>
     <template id="mixed-person-template"><fieldset class="mixed-person"><legend></legend><label>Makeup service<select class="mixed-service" required><option value="">Choose a service</option>@foreach (var s in services) { <option value="@s.Id" data-max="@s.MaxPerPackage">@s.Name · ₱@s.Price.ToString("N2") · @s.Minutes min@(s.MaxPerPackage is { } max ? $" · only {max} per package" : "")</option> }</select></label><p class="mixed-error" role="status"></p><div class="mixed-addons"><span>Optional add-ons · one of each per person</span>@foreach (var a in addons) { <label><input type="checkbox" value="@a.Id" /> <span>@a.Name · ₱@a.Price.ToString("N2") · @a.Minutes min</span></label> }</div><p class="mixed-person-total">Choose a service to see this person's price.</p></fieldset></template>
     <div id="mixed-people"></div>

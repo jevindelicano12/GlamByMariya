@@ -6,7 +6,7 @@
 <link rel="stylesheet" href="~/css/mixed-selection.css" asp-append-version="true" />
 <div class="mixed-page">
     <a class="subtle-link" asp-action="Create">← Back to booking</a>
-    <header><h1>Choose services for your group.</h1><p>Select a look and optional finishing touches for each person. Individual catalog prices apply; no group discount is included.</p></header>
+    <header><h1>Choose services for your group.</h1><p>Select a look and optional finishing touches for each person. From 4 people, each person pays their service's group price where one is set; the bride stays at the regular Bridal price.</p></header>
     <form id="mixed-selection" data-quote-url="@Url.Action("MixedQuote", "Bookings")">
         @Html.AntiForgeryToken()
         <label class="mixed-people">Number of people<input id="mixed-count" type="text" inputmode="numeric" pattern="[0-9]{1,2}" maxlength="2" value="2" aria-describedby="mixed-count-help mixed-count-error" /><small id="mixed-count-help">Choose 2–20 people.</small><span id="mixed-count-error" class="mixed-error" role="status"></span></label>

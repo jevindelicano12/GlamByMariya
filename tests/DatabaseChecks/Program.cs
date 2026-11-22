@@ -766,7 +766,8 @@ if (Run("--flexible"))
     var bridal = App().Services.Single(x => x.Name == "Bridal Makeup");
     var glam = App().Services.Single(x => x.Name == "Glamour Makeup");
     var package = new[] { bridal, soft, soft, glam, glam, glam }.Select(x => new GlamByMariya.Core.Entities.MixedPersonSelection(x.Id, Array.Empty<Guid>())).ToArray();
-    var packageTotal = bridal.Price + 2 * soft.Price + 3 * glam.Price;
+    // From 4 people each person pays their service's group price where one is set (Bridal keeps its regular price).
+    var packageTotal = new[] { bridal, soft, soft, glam, glam, glam }.Sum(x => GlamByMariya.Core.BusinessRules.PackageRules.PricePerPerson(x, 6));
     var packageMinutes = bridal.Minutes + 2 * soft.Minutes + 3 * glam.Minutes;
     var packageDeposit = GlamByMariya.Core.Entities.Money.Percentage(packageTotal, App().Settings.DownPaymentPercent);
     var packageDay = DateTime.Today.AddDays(6);

@@ -6,6 +6,10 @@ namespace GlamByMariya.Core.BusinessRules;
 // appear in one package (e.g. Bridal once); null means no limit.
 public static class PackageRules
 {
+    // A package with different services per person: once the package reaches a service's group minimum,
+    // that person pays the service's group price. A service without one (Bridal) keeps its regular price.
+    public static decimal PricePerPerson(CatalogItem service, int people) =>
+        service.GroupPrice is { } group && people >= service.GroupMinimumPeople ? group : service.Price;
     public static string? Check(IReadOnlyList<CatalogItem> servicePerPerson)
     {
         if (servicePerPerson.Count is < 2 or > BookingPricing.MaximumPeople)

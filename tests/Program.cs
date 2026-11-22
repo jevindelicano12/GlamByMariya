@@ -1772,7 +1772,9 @@ if (args.Contains("--mixed-pricing-only"))
     Check(pair.FinalTotal == 3300 && pair.DurationMinutes == 270, "two-person mixed pricing and duration");
     mixedStore.Settings.AfterHoursEndHour = 22; // Phase 6: a quote must fit the artist's day, so give the five-person quote a late latest hour
     var fiveMixed = mixedFlow.QuoteMixed(Enumerable.Range(0, 5).Select(i => threeMixed[i % 3]).ToArray());
-    Check(fiveMixed.People.Count == 5 && fiveMixed.FinalTotal == 7200 && fiveMixed.DurationMinutes == 600, "five-person mixed totals and duration");
+    var fiveServices = Enumerable.Range(0, 5).Select(i => new[] { bridalMixed, glamourMixed, softMixed }[i % 3]).ToList();
+    var fiveExpected = fiveServices.Sum(x => GlamByMariya.Core.BusinessRules.PackageRules.PricePerPerson(x, 5)) + 2 * (lashMixed.Price + hairMixed.Price);
+    Check(fiveMixed.People.Count == 5 && fiveMixed.FinalTotal == fiveExpected && fiveMixed.DurationMinutes == 600, "five-person mixed totals (group prices from 4 people) and duration");
     var tenSelection = Enumerable.Repeat(new MixedPersonSelection(bridalMixed.Id, [hairMixed.Id]), 10).ToArray();
     Reject(() => mixedFlow.QuoteMixed(tenSelection), "a ten-person package longer than the artist's day is refused at the quote");
     mixedStore.Settings.AfterHoursEndHour = null;
@@ -1959,6 +1961,46 @@ if (args.Contains("--flexible-rules-only"))
     Check(PackageRules.Check([soft]) == "Choose between 2 and 20 people.", "a package needs at least 2 people");
     Console.WriteLine($"All {checks} flexible rule checks passed."); return;
 }
+if (args.Contains("--package-group-price-only"))
+{
+    // A package with different services per person: from 4 people each person pays their service's group price;
+    // a service without a group price (Bridal) stays at its regular price.
+    var demo = new DemoStore(presentationAccounts: true);
+    var s = demo.Settings; s.EarlyFeeEnabled = false; s.LateFeeEnabled = false;
+    var flow = new BookingService(demo, demo, demo, demo, demo);
+    var soft = demo.Services.First(x => x.Name == "Soft Glam"); soft.GroupPrice = 525; soft.GroupMinimumPeople = 4;
+    var glam = demo.Services.First(x => x.Name.StartsWith("Glamour")); glam.GroupPrice = 675; glam.GroupMinimumPeople = 4;
+    var bridal = demo.Services.First(x => x.Name.StartsWith("Bridal")); bridal.GroupPrice = null; bridal.MaxPerPackage = 1;
+    MixedPersonSelection P(CatalogItem item) => new(item.Id, []);
+    var start = DateTime.Today.AddDays(30).AddHours(8);
+    var bride3 = flow.QuoteMixed([P(bridal), P(soft), P(soft), P(soft)], start);
+    Check(bride3.People.Select(p => p.Service.Price).SequenceEqual(new decimal[] { 1500, 525, 525, 525 }) && bride3.FinalTotal == 3075 && bride3.GroupDiscount == 225,
+        "bride + 3 Soft Glam: the bride stays ₱1,500, each companion pays the ₱525 group price (₱3,075, −₱225)");
+    Check(bride3.People.Select(p => p.RegularPrice).SequenceEqual(new decimal?[] { 1500, 600, 600, 600 }) && bride3.People.Sum(p => p.Total) == bride3.FinalTotal,
+        "each person keeps the regular price for display and the person totals add up to the package total");
+    var mixed4 = flow.QuoteMixed([P(bridal), P(soft), P(soft), P(glam)], start);
+    Check(mixed4.FinalTotal == 3225 && mixed4.GroupDiscount == 225 && mixed4.RequiredDownPayment == 1612.50m, "bride + 2 Soft Glam + 1 Glamour: ₱3,225 with ₱1,612.50 down payment");
+    var three = flow.QuoteMixed([P(bridal), P(soft), P(soft)], start);
+    Check(three.FinalTotal == 2700 && three.GroupDiscount == 0 && three.People.All(p => p.RegularPrice == p.Service.Price), "3 people pay the regular price");
+    Check(flow.QuoteMixed([P(soft), P(soft), P(glam), P(glam)], start) is { FinalTotal: 2400, GroupDiscount: 300 }, "4 people without a bride also get the group price");
+    glam.GroupMinimumPeople = 5;
+    Check(flow.QuoteMixed([P(soft), P(soft), P(glam), P(glam)], start) is { FinalTotal: 2550, GroupDiscount: 150 }, "a service's own group minimum is respected (Glamour needs 5 here)");
+    glam.GroupMinimumPeople = 4;
+    var pkgCustomer = demo.Users.First(u => u.Role == Roles.Customer);
+    var pkgPeople = new[] { P(bridal), P(soft), P(soft), P(soft) };
+    var pkgQuote = flow.QuoteMixed(pkgPeople, start);
+    var savedPackage = flow.CreateMixed(pkgCustomer.Id, pkgPeople, start, "24 Synthetic Street", "Quezon City", pkgQuote.RequiredDownPayment, "GCash", "GROUP-1", "synthetic-proof.png", true, true,
+        pkgQuote.FinalTotal, pkgQuote.RequiredDownPayment, Guid.NewGuid(), demo.Settings.PolicyVersion, demo.Settings.TravelReminderVersion, "GROUP-1", latitude: 14.5547m, longitude: 121.0244m);
+    Check(savedPackage.Total == 3075 && savedPackage.RequiredDownPayment == 1537.50m && savedPackage.MixedPeople.Select(p => p.Service.Price).SequenceEqual(new decimal[] { 1500, 525, 525, 525 }),
+        "the saved package keeps the group prices it was quoted (₱3,075, ₱1,537.50 down payment)");
+    soft.GroupPrice = 500;
+    Check(savedPackage.Total == 3075, "a later catalog change does not alter the saved package");
+    string PkgRefusal(Action action) { try { action(); } catch (InvalidOperationException e) { return e.Message; } return ""; }
+    Check(PkgRefusal(() => flow.QuoteMixed([P(bridal), P(bridal), P(soft), P(soft)], start)) != "", "still only one Bridal per package");
+    var pkgEstimate = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "wwwroot", "js", "mixed-selection-phase2.js"));
+    Check(pkgEstimate.Contains("Group discount") && pkgEstimate.Contains("regularPrice"), "the group estimate shows the group discount and each person's regular price");
+    Console.WriteLine($"All {checks} package group price checks passed."); return;
+}
 if (args.Contains("--flexible-deposit-only"))
 {
     // Phase 7: the customer pays from the down payment (50%) up to the full total.
@@ -2124,9 +2166,9 @@ if (args.Contains("--flexible-booking-only"))
     MixedPersonSelection P(CatalogItem service) => new(service.Id, []);
     var package = new[] { P(bridal), P(soft), P(soft), P(glam), P(glam), P(glam) };
     var mixedQuote = flow.QuoteMixed(package);
-    Check(mixedQuote.FinalTotal == bridal.Price + 2 * soft.Price + 3 * glam.Price && mixedQuote.DurationMinutes == bridal.Minutes + 2 * soft.Minutes + 3 * glam.Minutes
+    Check(mixedQuote.FinalTotal == new[] { bridal, soft, soft, glam, glam, glam }.Sum(x => GlamByMariya.Core.BusinessRules.PackageRules.PricePerPerson(x, 6)) && mixedQuote.DurationMinutes == bridal.Minutes + 2 * soft.Minutes + 3 * glam.Minutes
           && mixedQuote.RequiredDownPayment == Money.Percentage(mixedQuote.FinalTotal, demo.Settings.DownPaymentPercent),
-        "a mixed package costs each person's regular price, takes the summed time and asks the usual down payment");
+        "a 6-person mixed package costs each person's group price where set, takes the summed time and asks the usual down payment");
     string Refusal(Action action) { try { action(); } catch (InvalidOperationException e) { return e.Message; } return ""; }
     Check(Refusal(() => flow.QuoteMixed([P(bridal), P(bridal), P(soft)])) == "Only 1 Bridal Makeup is allowed per package booking.", "the quote refuses two Bridal in one package");
     Booking BookPackage(DateTime start, MixedPersonSelection[] people, decimal? lat, decimal? lng, string reference)

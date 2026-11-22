@@ -86,9 +86,10 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
                     ?? throw new InvalidOperationException("Choose an active service for every person.");
                 var selected = SelectAddOns(person.AddOnIds.ToArray(), 1);
                 var individual = BookingPricing.Calculate(service, selected, 1, store.Settings.TravelFee, "auto", store.Settings.DownPaymentPercent);
-                var serviceSnapshot = new PriceSnapshot(service.Id, service.Name, service.Price, service.Minutes);
+                var applied = PackageRules.PricePerPerson(service, people.Count);
+                var serviceSnapshot = new PriceSnapshot(service.Id, service.Name, applied, service.Minutes);
                 var addonSnapshots = selected.Select(a => new PriceSnapshot(a.Id, a.Name, a.Price, a.Minutes)).ToArray();
-                snapshots.Add(new MixedPersonQuote(serviceSnapshot, Array.AsReadOnly(addonSnapshots), individual.FinalTotal, individual.DurationMinutes));
+                snapshots.Add(new MixedPersonQuote(serviceSnapshot, Array.AsReadOnly(addonSnapshots), individual.FinalTotal - service.Price + applied, individual.DurationMinutes) { RegularPrice = service.Price });
             }
             var duration = checked(snapshots.Sum(p => p.DurationMinutes));
             var serviceTotal = snapshots.Sum(p => p.Service.Price);
@@ -99,7 +100,8 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             var early = start.HasValue && !store.IsPersistent ? EarlyFeeAt(start.Value, store.Settings) : 0;
             var late = start.HasValue && !store.IsPersistent ? LateFeeAt(start.Value, duration, store.Settings) : 0;
             var total = serviceTotal + addonTotal + early + late;
-            return new MixedBookingQuote(snapshots.AsReadOnly(), serviceTotal, addonTotal, 0, early, late, total,
+            var groupDiscount = snapshots.Sum(p => (p.RegularPrice ?? p.Service.Price) - p.Service.Price);
+            return new MixedBookingQuote(snapshots.AsReadOnly(), serviceTotal, addonTotal, groupDiscount, early, late, total,
                 Money.Percentage(total, store.Settings.DownPaymentPercent), store.Settings.DownPaymentPercent, duration);
         }
     }

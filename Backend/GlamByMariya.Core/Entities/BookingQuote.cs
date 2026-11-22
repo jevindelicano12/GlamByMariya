@@ -21,7 +21,11 @@ public record BookingQuote(string Service, int People, string Package, decimal R
     decimal RequiredDownPayment, decimal RemainingBalance, decimal DownPaymentPercent, int DurationMinutes, decimal EarlyFee = 0, decimal LateFee = 0);
 
 public record MixedPersonSelection(Guid ServiceId, IReadOnlyList<Guid> AddOnIds);
-public record MixedPersonQuote(PriceSnapshot Service, IReadOnlyList<PriceSnapshot> AddOns, decimal Total, int DurationMinutes);
+public record MixedPersonQuote(PriceSnapshot Service, IReadOnlyList<PriceSnapshot> AddOns, decimal Total, int DurationMinutes)
+{
+    // The catalog's regular price when this person pays a group price (Service.Price); null on records read back later.
+    public decimal? RegularPrice { get; init; }
+}
 public record MixedBookingQuote(IReadOnlyList<MixedPersonQuote> People, decimal ServiceTotal, decimal AddOnTotal,
     decimal GroupDiscount, decimal EarlyFee, decimal LateFee, decimal FinalTotal, decimal RequiredDownPayment,
     decimal DownPaymentPercent, int DurationMinutes);
