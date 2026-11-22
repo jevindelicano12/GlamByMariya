@@ -545,7 +545,7 @@ document.querySelectorAll('.availability-picker').forEach(picker => {
     // The calendar is hidden on the payment step, so also announce failures there.
     form.dispatchEvent(new CustomEvent('booking-submission-message', { detail: { message: text } }));
   };
-  const clearTime = () => { startInput.value = ''; startInput.dispatchEvent(new Event('change', { bubbles: true })); validatedSelectionKey = ''; validationMessage('Choose an available date, then a time.'); submit.disabled = true; };
+  const clearTime = () => { window.FlexibleTimes?.choose(form, null); startInput.value = ''; startInput.dispatchEvent(new Event('change', { bubbles: true })); validatedSelectionKey = ''; validationMessage('Choose an available date, then a time.'); submit.disabled = true; };
   const beginCalendarRequest = () => {
     calendarController?.abort();
     calendarController = new AbortController();
@@ -599,7 +599,7 @@ document.querySelectorAll('.availability-picker').forEach(picker => {
     const day = snapshot?.days.find(d => d.date === selectedDate);
     picker.querySelector('[data-slots-label]').textContent = day ? dateObject(day.date).toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric' }) : 'Choose an available date';
     if (!day) return;
-    for (const slot of day.slots) {
+    const makeButton = slot => {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'time-slot';
@@ -612,11 +612,14 @@ document.querySelectorAll('.availability-picker').forEach(picker => {
       button.addEventListener('click', () => {
          startInput.value = slot.start;
          startInput.dispatchEvent(new Event('change', { bubbles: true }));
+        window.FlexibleTimes?.choose(form, slot);
         renderSlots();
         validateTime();
       });
-      slotsElement.append(button);
-    }
+      return button;
+    };
+    if (window.FlexibleTimes) window.FlexibleTimes.render(slotsElement, form, day.slots, makeButton);
+    else day.slots.forEach(slot => slotsElement.append(makeButton(slot)));
   };
   const renderDays = () => {
     daysElement.replaceChildren();

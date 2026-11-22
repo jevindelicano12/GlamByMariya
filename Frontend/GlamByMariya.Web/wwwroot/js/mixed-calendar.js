@@ -13,7 +13,7 @@
   const shift = (month, n) => { const d = date(month); d.setMonth(d.getMonth() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
   let today = panel.dataset.today, month = today.slice(0, 7), snapshot, selectedDate = '', selectedStart = '', revision = 0, controllers = [];
   const active = () => form.querySelector('#mixed-mode')?.checked && form.dataset.currentStep === 'schedule';
-  const invalidate = () => { revision++; controllers.forEach(c => c.abort()); controllers = []; panel.setAttribute('aria-busy', 'false'); selectedStart = ''; if (startInput) startInput.value = ''; form.mixedSlot = null; form.dispatchEvent(new Event('mixed-slot-changed')); price.textContent = ''; timeStatus.textContent = ''; suggestions.replaceChildren(); };
+  const invalidate = () => { window.FlexibleTimes?.choose(form, null); revision++; controllers.forEach(c => c.abort()); controllers = []; panel.setAttribute('aria-busy', 'false'); selectedStart = ''; if (startInput) startInput.value = ''; form.mixedSlot = null; form.dispatchEvent(new Event('mixed-slot-changed')); price.textContent = ''; timeStatus.textContent = ''; suggestions.replaceChildren(); };
   const post = async (url, body) => {
     const controller = new AbortController(); controllers.push(controller);
     const response = await fetch(url, { method: 'POST', signal: controller.signal, cache: 'no-store', headers: { 'Content-Type': 'application/json', 'RequestVerificationToken': token }, body: JSON.stringify(body) });
@@ -24,12 +24,19 @@
     slots.replaceChildren();
     heading.textContent = day ? `Makeup start times · ${date(day.date).toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric' })}` : 'Choose a date';
     if (!day) return;
-    for (const slot of day.slots) {
+    const makeButton = slot => {
       const button = document.createElement('button'); button.type = 'button'; button.className = 'time-slot'; button.textContent = slot.label;
       button.disabled = !slot.available; button.title = slot.available ? 'Available for request' : slot.reason || 'Unavailable';
       button.setAttribute('aria-pressed', String(selectedStart === slot.start)); button.dataset.start = slot.start;
-      button.addEventListener('click', () => validate(slot.start)); slots.append(button);
-    }
+      button.addEventListener('click', () => validate(slot.start)); return button;
+    };
+    if (window.FlexibleTimes) window.FlexibleTimes.render(slots, form, day.slots, makeButton);
+    else day.slots.forEach(slot => slots.append(makeButton(slot)));
+  };
+  // Phase 6: the package's pin goes with every availability and slot check (the travel rule).
+  const pin = () => {
+    const latitude = Number(form.querySelector('[name="latitude"]')?.value), longitude = Number(form.querySelector('[name="longitude"]')?.value);
+    return latitude && longitude ? { latitude, longitude } : {};
   };
   const render = () => {
     days.replaceChildren(); monthLabel.textContent = date(month).toLocaleDateString('en-PH', { month: 'long', year: 'numeric' });
@@ -51,7 +58,7 @@
     [...slots.querySelectorAll('button')].find(button => button.dataset.start === start)?.focus({ preventScroll: true });
     timeStatus.textContent = 'Checking this makeup start time…';
     try {
-      const result = await post(panel.dataset.validationUrl, { people, start });
+      const result = await post(panel.dataset.validationUrl, { people, start, ...pin() });
       if (key !== revision || !active()) return;
       if (!result.available || !result.quote) { selectedStart = ''; timeStatus.textContent = result.message || 'This time is no longer available.'; showSlots(snapshot.days.find(d => d.date === selectedDate)); return; }
       const q = result.quote; timeStatus.textContent = result.message;
@@ -59,11 +66,13 @@
       status.textContent = `Selected makeup start: ${chosen?.label ?? start.slice(11)}, ${date(selectedDate).toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric' })}.`;
       price.textContent = `Services ${money(q.serviceTotal)} · Add-ons ${money(q.addOnTotal)} · Early fee ${money(q.earlyFee)} · Late fee ${money(q.lateFee)} · Total ${money(q.finalTotal)} · Minimum down payment ${money(q.requiredDownPayment)}`;
       if (startInput) startInput.value = start;
+      window.FlexibleTimes?.choose(form, chosen);
       form.mixedSlot = { start, quote: q, bufferMinutes: result.bufferMinutes, selection: JSON.stringify(people) };
       form.dispatchEvent(new Event('mixed-slot-changed'));
     } catch (error) { if (key === revision && error.name !== 'AbortError') { selectedStart = ''; timeStatus.textContent = error.message; showSlots(snapshot.days.find(d => d.date === selectedDate)); } }
   };
   const findAlternatives = async after => {
+    if (!panel.dataset.alternativesUrl) return; // the live site has no alternative-date search for packages
     const key = revision, people = form.mixedPeople; suggestions.textContent = 'Searching the next 30 days…';
     try {
       const result = await post(panel.dataset.alternativesUrl, { people, after });
@@ -90,7 +99,7 @@
     invalidate(); snapshot = null; selectedDate = ''; days.replaceChildren(); slots.replaceChildren(); panel.querySelector('#mixed-occupied').textContent = ''; heading.textContent = 'Choose a date';
     const key = revision, requested = month, people = form.mixedPeople; status.textContent = 'Checking availability…'; panel.setAttribute('aria-busy', 'true');
     try {
-      const data = await post(panel.dataset.availabilityUrl, { people, month: requested });
+      const data = await post(panel.dataset.availabilityUrl, { people, month: requested, ...pin() });
       if (key !== revision || !active() || requested !== month) return;
       if (!Array.isArray(data.days) || data.month !== requested || !Number.isFinite(data.durationMinutes) || !Number.isFinite(data.bufferMinutes)) throw new Error('The availability response was incomplete.');
       snapshot = data; today = data.today; status.textContent = 'Choose a date to see makeup start times.'; render(); panel.setAttribute('aria-busy', 'false');
@@ -101,5 +110,6 @@
   previous.addEventListener('click', () => { month = shift(month, -1); refresh(); });
   next.addEventListener('click', () => { month = shift(month, 1); refresh(); });
   form.addEventListener('mixed-selection-invalidated', () => { invalidate(); snapshot = null; days.replaceChildren(); slots.replaceChildren(); panel.querySelector('#mixed-occupied').textContent = ''; });
+  form.addEventListener('booking-location-changed', () => { if (active() && form.dataset.mixedQuoteState === 'ready') refresh(); });
   form.addEventListener('booking-step-shown', () => { if (active() && form.dataset.mixedQuoteState === 'ready') refresh(); });
 })();

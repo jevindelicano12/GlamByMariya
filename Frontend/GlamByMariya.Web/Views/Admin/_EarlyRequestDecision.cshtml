@@ -1,0 +1,25 @@
+@model Booking
+@* Phase 6: an early booking request waits for the artist; approving gives the customer 15 minutes to pay. *@
+@if (Model.IsEarlyRequest || Model.AfterHours)
+{
+    <p class="booking-flags">
+        @if (Model.IsEarlyRequest) { <span class="badge early-request">Early booking request</span> }
+        @if (Model.AfterHours) { <span class="badge after-hours">After hours: the extra fee is agreed with the customer</span> }
+    </p>
+}
+@if (Model.Status == BookingService.EarlyRequestStatus)
+{
+    <section class="panel stack early-request-decision">
+        <h3>Early booking request</h3>
+        <p>The customer asked for @Model.Start.ToString("MMM d, yyyy h:mm tt"), before opening hours. Nothing is held or paid yet. Approve to hold the whole time (until @Model.End.ToString("h:mm tt") plus preparation) and give the customer 15 minutes to pay the down payment. The time and travel are checked again when you approve.</p>
+        <form asp-action="Action" method="post">
+            <input type="hidden" name="id" value="@Model.Id" />
+            <button name="operation" value="approve-request" class="button">Approve early booking</button>
+        </form>
+        <form asp-action="Action" method="post" class="stack">
+            <input type="hidden" name="id" value="@Model.Id" />
+            <label>Reason for declining (the customer sees this)<input name="reason" required maxlength="1000" /></label>
+            <button name="operation" value="decline-request" class="button danger">Decline request</button>
+        </form>
+    </section>
+}

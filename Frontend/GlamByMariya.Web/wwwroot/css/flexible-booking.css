@@ -1,0 +1,10 @@
+/* Phase 6: early / regular / after-hours times, request status and badges. */
+.time-slot-group { grid-column: 1 / -1; margin: 12px 0 2px; font-size: .82rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: #7A5560; }
+.time-slot-group:first-child { margin-top: 0; }
+.time-slot.early { border-style: dashed; }
+.time-slot.after-hours::after { content: " · late"; font-size: .75em; opacity: .8; }
+.flexible-note:not([hidden]) { margin: 8px 0; padding: 10px 12px; border-radius: 10px; background: #FFF4E5; color: #5E4709; }
+.badge.early-request, .badge.awaiting { background: #FFF0C8; color: #5E4709; }
+.badge.after-hours { background: #EFE6FA; color: #45306B; }
+.booking-flags { display: flex; flex-wrap: wrap; gap: 8px; }
+.early-request-decision form + form { margin-top: 8px; }

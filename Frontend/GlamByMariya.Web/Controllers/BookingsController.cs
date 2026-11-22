@@ -316,7 +316,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
             }
             CompleteStaging(path);
             path = null;
-            TempData["Success"] = "Your mixed-service booking is submitted. The artist will verify your payment and confirm the appointment.";
+            TempData["Success"] = booking.IsEarlyRequest ? BookingService.EarlyRequestSentMessage : "Your mixed-service booking is submitted. The artist will verify your payment and confirm the appointment.";
             if (Request.Headers.Accept.ToString().Contains("application/json")) return Json(new { confirmationUrl = Url.Action("Confirmation", new { id = booking.Id }) });
             return RedirectToAction("Confirmation", new { id = booking.Id });
         }

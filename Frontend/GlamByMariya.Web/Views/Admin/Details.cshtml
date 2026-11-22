@@ -1,5 +1,6 @@
 @model Booking
 @{ ViewData["Title"] = "Review " + Model.Reference; decimal paid = ViewBag.Paid; var payments = (List<Payment>)ViewBag.Payments; var travelWarning = ViewBag.TravelFits is false; }
+<partial name="_EarlyRequestDecision" model="Model" />
 @if (Model.MixedPeople.Count > 0) { <partial name="_MixedBookingDetails" model="Model" /> }
 else {
 @if (Model.Status == "Pending Payment" && payments.Any(p => p.ReviewStatus == "Correction Requested")) {

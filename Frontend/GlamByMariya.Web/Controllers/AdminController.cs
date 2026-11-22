@@ -274,7 +274,7 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
     }
     public IActionResult Catalog() { ViewBag.CatalogImages = (Func<string, Guid, string?>)((kind, id) => imageService.GetImageUrl(kind, id)); ViewBag.CatalogPreviewImages = (Func<string, Guid, string?>)((kind, id) => imageService.GetImageUrl(kind, id, "preview")); lock (store.Gate) { ViewBag.AddOns = store.AddOns.ToList(); return View(store.Services.ToList()); } }
     [HttpPost, RequestSizeLimit(6_000_000)]
-    public async Task<IActionResult> SaveCatalog(Guid? id, string kind, string name, string? description, decimal price, int minutes, bool active, string? visualWord = "", string? category = "", IFormFile? image = null, bool removeImage = false, IFormFile? previewImage = null, bool removePreviewImage = false, decimal? groupPrice = null, int groupMinimumPeople = 4)
+    public async Task<IActionResult> SaveCatalog(Guid? id, string kind, string name, string? description, decimal price, int minutes, bool active, string? visualWord = "", string? category = "", IFormFile? image = null, bool removeImage = false, IFormFile? previewImage = null, bool removePreviewImage = false, decimal? groupPrice = null, int groupMinimumPeople = 4, int? maxPerPackage = null)
     {
         byte[]? imageBytes = null;
         if (!removeImage && image != null && image.Length > 0)
@@ -299,6 +299,7 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
             { TempData["Error"] = "Overlay word must be 40 characters or fewer and category 60 characters or fewer."; return RedirectToAction("Catalog"); }
             if (string.IsNullOrWhiteSpace(name) || name.Length > 100 || price < 0 || price > 1000000 || minutes < 0 || minutes > 480 || (kind == "service" && (price <= 0 || minutes <= 0)))
             { TempData["Error"] = "Enter a name, valid price and duration. Services need a positive price and duration."; return RedirectToAction("Catalog"); }
+            if (kind == "service" && maxPerPackage is < 1 or > BookingPricing.MaximumPeople) { TempData["Error"] = $"Max per package must be between 1 and {BookingPricing.MaximumPeople}, or empty for no limit."; return RedirectToAction("Catalog"); }
             var list = kind == "service" ? store.Services : store.AddOns;
             var item = id.HasValue ? list.FirstOrDefault(x => x.Id == id) : new CatalogItem();
             if (item == null) return NotFound();
@@ -310,6 +311,8 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
             item.VisualWord = (visualWord ?? "").Trim();
             item.GroupPrice = kind == "service" ? groupPrice : null;
             item.GroupMinimumPeople = groupMinimumPeople;
+            if (!Request.Form.ContainsKey("maxPerPackage")) maxPerPackage = item.MaxPerPackage; // forms without the field keep the limit
+            item.MaxPerPackage = kind == "service" ? maxPerPackage : null;
             item.Category = string.IsNullOrWhiteSpace(category) ? "Signature" : category.Trim();
             try { store.SaveCatalog(kind, item, UserId); }
             catch (InvalidOperationException e) { TempData["Error"] = e.Message; return RedirectToAction("Catalog"); }
@@ -453,12 +456,16 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
         }
     }
     [HttpPost]
-    public IActionResult Settings(int openHour, int closeHour, int bufferMinutes, decimal travelFee, decimal downPaymentPercent, string serviceAreas, string? paymentInstructions, bool confirmAffected = false, decimal? travelSpeedKmh = null, int? travelMinimumMinutes = null)
+    public IActionResult Settings(int openHour, int closeHour, int bufferMinutes, decimal travelFee, decimal downPaymentPercent, string serviceAreas, string? paymentInstructions, bool confirmAffected = false, decimal? travelSpeedKmh = null, int? travelMinimumMinutes = null, int? earlyRequestStartHour = null, int? afterHoursEndHour = null)
     {
         lock (store.Gate)
         {
             var speed = travelSpeedKmh ?? store.Settings.TravelSpeedKmh; var minimum = travelMinimumMinutes ?? store.Settings.TravelMinimumMinutes;
-            if (speed < 5 || speed > 60) TempData["Error"] = TravelSpeedMessage;
+            // Phase 6: empty means "same as opening / closing"; only the SuperAdmin changes hours.
+            var hoursIssue = BookingWindow.ValidateSettings(openHour, closeHour, earlyRequestStartHour, afterHoursEndHour);
+            if (hoursIssue != null) TempData["Error"] = hoursIssue;
+            else if (!Roles.IsSuperAdmin(User) && (earlyRequestStartHour != store.Settings.EarlyRequestStartHour || afterHoursEndHour != store.Settings.AfterHoursEndHour)) TempData["Error"] = "Only the SuperAdmin can change the early booking or latest end hours.";
+            else if (speed < 5 || speed > 60) TempData["Error"] = TravelSpeedMessage;
             else if (minimum < 0 || minimum > 180) TempData["Error"] = TravelMinimumMessage;
             else if (!ModelState.IsValid || openHour < 0 || closeHour > 24 || openHour >= closeHour || bufferMinutes < 0 || bufferMinutes > 180 || travelFee < 0 || Money.Round(travelFee) != travelFee || downPaymentPercent is < 1 or > 100 || decimal.Round(downPaymentPercent) != downPaymentPercent || string.IsNullOrWhiteSpace(serviceAreas)) TempData["Error"] = "Enter valid hours, buffer, travel fee, down payment percentage (whole numbers 1–100) and service areas.";
             else if (!Roles.IsSuperAdmin(User) && downPaymentPercent != store.Settings.DownPaymentPercent) TempData["Error"] = "Only the SuperAdmin can change the down payment percentage.";
@@ -470,7 +477,7 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
             else
             {
                 var affected = workflow.BookingsOutsideHours(openHour, closeHour);
-                var s = store.Settings; var oldPercent = s.DownPaymentPercent; s.OpenHour = openHour; s.CloseHour = closeHour; s.BufferMinutes = bufferMinutes; s.TravelFee = travelFee; s.TravelSpeedKmh = speed; s.TravelMinimumMinutes = minimum; s.DownPaymentPercent = downPaymentPercent; s.ServiceAreas = serviceAreas; s.PaymentInstructions = paymentInstructions ?? "";
+                var s = store.Settings; var oldPercent = s.DownPaymentPercent; s.OpenHour = openHour; s.CloseHour = closeHour; s.EarlyRequestStartHour = earlyRequestStartHour; s.AfterHoursEndHour = afterHoursEndHour; s.BufferMinutes = bufferMinutes; s.TravelFee = travelFee; s.TravelSpeedKmh = speed; s.TravelMinimumMinutes = minimum; s.DownPaymentPercent = downPaymentPercent; s.ServiceAreas = serviceAreas; s.PaymentInstructions = paymentInstructions ?? "";
                 var saved = false;
                 try { store.SaveSettings(s, UserId); saved = true; if (store is DemoStore settingsDemo) settingsDemo.RecordAdminActivity(UserId, "Business settings updated", "Settings", Guid.Empty); TempData["Success"] = "Settings saved. Existing appointments and prices are unchanged."; }
                 catch (InvalidOperationException e) { TempData["Error"] = e.Message; }

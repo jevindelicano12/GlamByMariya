@@ -8,8 +8,11 @@
     ViewData["Title"] = (confirmed ? "Booking confirmed · " : "Booking submitted · ") + Model.Reference;
     // Xendit sends the customer back before its webhook arrives, so a pending Xendit booking
     // is usually seconds away from Confirmed.
+    var payApproved = ViewBag.PayApprovedRequest is true;
     var (heading, lead) = (xendit, Model.Status) switch
     {
+        (_, BookingService.EarlyRequestStatus) => ("Early booking request sent.", BookingService.EarlyRequestNote),
+        (true, "Pending Payment") when payApproved => ("Your early booking was approved.", BookingService.EarlyRequestApprovedMessage),
         (true, "Confirmed" or "Completed") => ("You’re booked!", "Your down payment was received and your appointment is confirmed. We’ve saved everything below."),
         (true, "Pending Payment") => ("Almost there.", "We’re waiting for Xendit to confirm your down payment. This usually takes a few seconds — refresh this page if it doesn’t update."),
         (true, "Expired") => ("This booking expired.", "The down payment wasn’t received within 15 minutes, so the time was released. Nothing was charged. You can book again anytime."),
@@ -20,6 +23,7 @@
 }
 <link rel="stylesheet" href="~/css/mixed-payment.css" asp-append-version="true" />
 <div class="booking-receipt">
+    @if (payApproved) { <form asp-action="PayRequest" method="post" class="pay-now"><input type="hidden" name="id" value="@Model.Id" /><button class="button">Pay ₱@Model.RequiredDownPayment.ToString("N2") down payment on Xendit <span aria-hidden="true">↗</span></button></form> }
     <header class="booking-receipt-header @(confirmed ? "is-confirmed" : null)">
         @if (confirmed) { <span class="receipt-check" aria-hidden="true">✓</span> }
         <h1>@heading</h1><p>@lead</p><strong class="booking-reference">@Model.Reference</strong>
@@ -41,7 +45,7 @@
         else
         {
             <div class="detail-row"><span>Claimed payment submitted</span><strong>₱@(Model.MixedSubmission?.ClaimedAmount.ToString("N2") ?? payments.Sum(p => p.Amount).ToString("N2"))</strong></div>
-            <p class="mixed-review-note">An uploaded screenshot is a payment claim, not proof of a confirmed transfer. An authorized Admin must review the transfer and appointment. Travel feasibility has not been verified; transportation is separate.</p>
+            <p class="mixed-review-note">An uploaded screenshot is a payment claim, not proof of a confirmed transfer. An authorized Admin must review the transfer and appointment. Times include travel from the artist's other appointments that day; transportation is separate.</p>
         }
         <partial name="_MixedPeople" model="Model" />
         <div class="button-row">

@@ -52,6 +52,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
     public const string EarlyRequestApprovedMessage = "Your early booking request was approved. Pay the down payment within 15 minutes to keep this time.";
     public const string EarlyRequestDeclinedMessage = "Your early booking request was declined: {0}";
     public const string EarlyRequestDecidedMessage = "This early booking request was already decided. Reload the booking.";
+    public const string EarlyRequestNote = "This is an early booking request: nothing is charged now. The artist confirms the time first, then you have 15 minutes to pay the down payment.";
     public const string EarlyRequestSentMessage = "Early booking request sent. The artist will confirm this time before you pay.";
 
     // The bookable day: the admin's early-request start and latest end (Phase 6), widened by the

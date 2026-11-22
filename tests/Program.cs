@@ -1904,6 +1904,59 @@ if (args.Contains("--flexible-rules-only"))
     Check(PackageRules.Check([soft]) == "Choose between 2 and 20 people.", "a package needs at least 2 people");
     Console.WriteLine($"All {checks} flexible rule checks passed."); return;
 }
+if (args.Contains("--flexible-screens-only"))
+{
+    // Phase 6, Task 6: the screens — settings, catalog limit, booking form copy, approve/decline.
+    var demo = new DemoStore(presentationAccounts: true);
+    demo.Settings.EarlyFeeEnabled = false; demo.Settings.LateFeeEnabled = false;
+    var owner = demo.Users.Single(u => u.Role == Roles.SuperAdmin);
+    AdminController Admin(Dictionary<string, Microsoft.Extensions.Primitives.StringValues>? form = null)
+    {
+        var http = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+        http.User = new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim(ClaimTypes.NameIdentifier, owner.Id.ToString()), new Claim(ClaimTypes.Role, owner.Role) }, "Cookies"));
+        http.Request.Form = new Microsoft.AspNetCore.Http.FormCollection(form ?? new());
+        var controller = new AdminController(demo, new BookingService(demo, demo, demo, demo, demo), null!, new MemoryInvitationService(TimeProvider.System), null!)
+        { ControllerContext = new ControllerContext { HttpContext = http } };
+        controller.TempData = new Microsoft.AspNetCore.Mvc.ViewFeatures.TempDataDictionary(http, new NoTempData());
+        return controller;
+    }
+    var st = demo.Settings; var open = st.OpenHour; var close = st.CloseHour;
+    string? SaveHours(int? early, int? latest)
+    {
+        var c = Admin();
+        c.Settings(open, close, st.BufferMinutes, st.TravelFee, st.DownPaymentPercent, st.ServiceAreas, "", confirmAffected: true, earlyRequestStartHour: early, afterHoursEndHour: latest);
+        return c.TempData["Error"] as string;
+    }
+    Check(SaveHours(null, close - 1) == "Latest end cannot be before closing." && st.AfterHoursEndHour == null, "a latest end before closing is refused with a clear message and nothing is saved");
+    Check(SaveHours(open + 1, null) == "Early booking cannot start after opening." && st.EarlyRequestStartHour == null, "an early start after opening is refused with a clear message");
+    Check(SaveHours(4, 22) == null && st.EarlyRequestStartHour == 4 && st.AfterHoursEndHour == 22, "early 4 and latest 22 are saved");
+    Check(SaveHours(null, null) == null && st.EarlyRequestStartHour == null && st.AfterHoursEndHour == null, "empty fields go back to the opening and closing hours");
+
+    var glamour = demo.Services.First(x => x.Name == "Glamour Makeup");
+    await Admin(new() { ["maxPerPackage"] = "2" }).SaveCatalog(glamour.Id, "service", glamour.Name, glamour.Description, glamour.Price, glamour.Minutes, true, maxPerPackage: 2);
+    Check(glamour.MaxPerPackage == 2, "the catalog saves Max per package");
+    var refusedLimit = Admin(new() { ["maxPerPackage"] = "0" });
+    await refusedLimit.SaveCatalog(glamour.Id, "service", "Changed name", glamour.Description, glamour.Price, glamour.Minutes, true, maxPerPackage: 0);
+    Check(glamour.MaxPerPackage == 2 && glamour.Name == "Glamour Makeup" && ((string?)refusedLimit.TempData["Error"])!.StartsWith("Max per package must be between 1 and"), "an invalid limit is refused before anything changes");
+    await Admin().SaveCatalog(glamour.Id, "service", glamour.Name, glamour.Description, glamour.Price, glamour.Minutes, true);
+    Check(glamour.MaxPerPackage == 2, "a save without the field keeps the limit");
+
+    string Source(params string[] parts) => File.ReadAllText(Path.Combine([Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", .. parts]));
+    var create = Source("Views", "Bookings", "Create.cshtml");
+    Check(create.Contains("data-early-label=\"@BookingWindow.EarlyGroupLabel\"") && create.Contains("data-after-hours-note=\"@string.Format(BookingWindow.AfterHoursNote,"),
+        "the booking form carries the early group label and the after-hours note");
+    Check(!create.Contains("@if (!DataStore.IsPersistent) { <script src=\"~/js/mixed-selection-phase2.js\"") && create.Contains("~/js/flexible-times.js"), "packages and the time groups are on the live booking form too");
+    var times = Source("wwwroot", "js", "flexible-times.js");
+    Check(times.Contains("'Send early booking request'") && times.Contains("slot.kind === 'early'") && times.Contains("slot.afterHours"), "an early time changes the submit label and an after-hours time shows the note");
+    Check(Source("wwwroot", "js", "mixed-calendar.js").Contains("...pin()"), "the package calendar sends the pin");
+    var decision = Source("Views", "Admin", "_EarlyRequestDecision.cshtml");
+    Check(decision.Contains("@if (Model.Status == BookingService.EarlyRequestStatus)") && decision.Contains("value=\"approve-request\"") && decision.Contains("value=\"decline-request\"") && decision.Contains("name=\"reason\" required"),
+        "Approve / Decline (with a required reason) show only while the request awaits approval");
+    Check(Source("Controllers", "AdminController.cs").Contains("[Authorize(Roles = \"Admin,SuperAdmin\")]") && !Source("Views", "Bookings", "Details.cshtml").Contains("approve-request"),
+        "only Admin and SuperAdmin see the decision; the customer page has no approve button");
+    Check(Source("Views", "Bookings", "Details.cshtml").Contains("asp-action=\"PayRequest\""), "the customer page has the pay button for an approved request");
+    Console.WriteLine($"All {checks} flexible screen checks passed."); return;
+}
 if (args.Contains("--flexible-booking-only"))
 {
     // Phase 6, Task 3: early / regular / after-hours times and single bookings on the demo store.
@@ -2195,9 +2248,9 @@ if (args.Contains("--travel-form-only"))
     Check(mixedValidate.Contains("Travel feasibility has not yet been verified.") && mixedValidate.Contains("request.Latitude.HasValue ? \"Available for request at this moment. Times include travel"), "the mixed slot message mentions travel only when the package is pinned");
     var mixedBlock = create[create.IndexOf("id=\"mixed-calendar\"", StringComparison.Ordinal)..];
     mixedBlock = mixedBlock[..mixedBlock.IndexOf("</section>", StringComparison.Ordinal)];
-    Check(mixedBlock.Contains("Travel feasibility has not yet been verified.") && !mixedBlock.Contains("Times include travel"), "the mixed calendar block keeps its accurate wording");
+    Check(mixedBlock.Contains("includes travel once your location is pinned.") && !mixedBlock.Contains("Travel feasibility has not yet been verified."), "the package calendar says travel counts once the location is pinned");
     Check(Web("Views", "Bookings", "Details.cshtml").Contains("Travel feasibility has not been verified.") && !Web("Views", "Bookings", "Details.cshtml").Contains("Times include travel"), "booking details keep the old wording in the mixed payment-claim block");
-    Check(Web("Views", "Bookings", "Confirmation.cshtml").Contains("Travel feasibility has not been verified; transportation is separate.") && !Web("Views", "Bookings", "Confirmation.cshtml").Contains("Times include travel"), "the mixed confirmation keeps the old wording");
+    Check(Web("Views", "Bookings", "Confirmation.cshtml").Contains("Times include travel from the artist's other appointments that day; transportation is separate.") && !Web("Views", "Bookings", "Confirmation.cshtml").Contains("Travel feasibility has not been verified"), "the package confirmation says times include travel (packages are travel-checked now)");
     var reschedule = Web("Views", "Bookings", "RescheduleReview.cshtml");
     Check(reschedule.Contains("ViewBag.MixedBooking == true ? \"Travel feasibility has not been verified.\" : \"Times include travel from the artist's other appointments that day.\""), "the reschedule review shows the travel copy only for single bookings");
     var copyFiles = Directory.GetFiles(Path.Combine(webRoot, "Views", "Bookings"), "*.cshtml")
