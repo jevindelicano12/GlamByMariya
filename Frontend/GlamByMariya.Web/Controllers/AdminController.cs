@@ -187,7 +187,9 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
                 };
                 if (operation is "approve-request" or "decline-request")
                     EmailCustomer(b.CustomerId, $"Glam by Mariya {b.Reference}: early booking request",
-                        operation == "approve-request" ? BookingService.EarlyRequestApprovedMessage : string.Format(BookingService.EarlyRequestDeclinedMessage, reason.Trim()));
+                        operation == "approve-request"
+                            ? $"{BookingService.EarlyRequestApprovedMessage}{Environment.NewLine}{Environment.NewLine}Open your booking to pay: {Url.Action("Details", "Bookings", new { id }, Request.Scheme)}"
+                            : string.Format(BookingService.EarlyRequestDeclinedMessage, reason.Trim()));
             }
             catch (InvalidOperationException e) { TempData["Error"] = e.Message; }
             return RedirectToAction("Details", new { id });
@@ -472,11 +474,11 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
             else if (!Roles.IsSuperAdmin(User) && (openHour != store.Settings.OpenHour || closeHour != store.Settings.CloseHour || bufferMinutes != store.Settings.BufferMinutes)) TempData["Error"] = "Only the SuperAdmin can change service hours or the preparation buffer.";
             else if (!store.IsPersistent && store.Settings.EarlyFeeEnabled && openHour <= store.Settings.EarlyStartHour) TempData["Error"] = "Opening hour must be later than the configured early start.";
             else if (!store.IsPersistent && store.Settings.LateFeeEnabled && (closeHour > store.Settings.LateEndHour || openHour > store.Settings.LateStartHour)) TempData["Error"] = "Regular opening must not be later than the late fee boundary, and regular closing must not be later than final closing.";
-            else if (workflow.BookingsOutsideHours(openHour, closeHour) is { Count: > 0 } outside && !confirmAffected)
+            else if (workflow.BookingsOutsideHours(openHour, closeHour, earlyRequestStartHour, afterHoursEndHour) is { Count: > 0 } outside && !confirmAffected)
                 TempData["Error"] = $"{Upcoming(outside)} {(outside.Count == 1 ? "falls" : "fall")} outside the new hours: {References(outside)}. Nothing was saved. Tick \"Save anyway\" to change the hours; these bookings keep their booked times.";
             else
             {
-                var affected = workflow.BookingsOutsideHours(openHour, closeHour);
+                var affected = workflow.BookingsOutsideHours(openHour, closeHour, earlyRequestStartHour, afterHoursEndHour);
                 var s = store.Settings; var oldPercent = s.DownPaymentPercent; s.OpenHour = openHour; s.CloseHour = closeHour; s.EarlyRequestStartHour = earlyRequestStartHour; s.AfterHoursEndHour = afterHoursEndHour; s.BufferMinutes = bufferMinutes; s.TravelFee = travelFee; s.TravelSpeedKmh = speed; s.TravelMinimumMinutes = minimum; s.DownPaymentPercent = downPaymentPercent; s.ServiceAreas = serviceAreas; s.PaymentInstructions = paymentInstructions ?? "";
                 var saved = false;
                 try { store.SaveSettings(s, UserId); saved = true; if (store is DemoStore settingsDemo) settingsDemo.RecordAdminActivity(UserId, "Business settings updated", "Settings", Guid.Empty); TempData["Success"] = "Settings saved. Existing appointments and prices are unchanged."; }

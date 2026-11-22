@@ -788,6 +788,13 @@ if (Run("--flexible"))
         COMMIT;
         """);
     Check(sneak.Contains("package"), $"the database refuses a person added outside the booking (second Bridal) ({sneak})");
+    // Final review C1: lowering a limit later must not break updates of packages booked under the old limit.
+    await Exec("UPDATE public.services SET max_per_package=2 WHERE name='Glamour Makeup'");
+    var expireAfterLower = await State($"UPDATE public.reservations SET payment_expires_at=now()-interval '1 minute' WHERE app_id='{mixed.Id}'; SELECT public.mvc_expire_overdue();");
+    Check(expireAfterLower == "" && await Status(mixed.Id) == "Expired", $"after the owner lowers Glamour to 2, the older 3-Glamour package still expires ({expireAfterLower})");
+    var afterLower = Book(15.25);
+    Check(afterLower.Status == "Pending Payment", "and new bookings keep working");
+    await Exec("UPDATE public.services SET max_per_package=NULL WHERE name='Glamour Makeup'");
 
     // Task 5: the admin approves or declines through the store.
     string FlexRefusal(Action action) { try { action(); } catch (InvalidOperationException e) { return e.Message; } return ""; }
@@ -808,6 +815,13 @@ if (Run("--flexible"))
     App().ManageBooking(toDecline.Id, "decline-request", owner.Id, "Fully booked that morning.", 0, "");
     Check(await Status(toDecline.Id) == "Rejected" && (string)(await Scalar($"SELECT notes FROM public.reservations WHERE app_id='{toDecline.Id}'"))! == "Your early booking request was declined: Fully booked that morning.",
         "a declined request is Rejected with the reason the customer sees");
+    // Final review I2: an early request still has to be a future time inside the owner's early hours.
+    var outside = await State("UPDATE public.business_settings SET early_request_start_hour=6 WHERE id=1");
+    var tooEarly = ""; try { BookOn(laterDay.AddDays(3).AddHours(5)); } catch (InvalidOperationException e) { tooEarly = e.Message; }
+    Check(outside == "" && tooEarly != "", $"a request before the owner's early hour is refused ({tooEarly})");
+    await Exec("UPDATE public.business_settings SET early_request_start_hour=4 WHERE id=1");
+    var rawEarly = await State($"SELECT public.mvc_check_request_window(artist_id, now()-interval '1 day', now()-interval '23 hours', 45) FROM public.reservations WHERE app_id='{toDecline.Id}'");
+    Check(rawEarly.Contains("early time") || rawEarly.Contains("future"), $"the database refuses an early request in the past ({rawEarly})");
     Console.WriteLine($"All {checks - before} flexible booking database checks passed.");
 }
 

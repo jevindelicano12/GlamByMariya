@@ -102,6 +102,28 @@ BEGIN
  AND starts<coalesce(reserved_until,end_at) AND finish>start_at) THEN RAISE EXCEPTION 'This slot overlaps a reserved appointment. Please choose another time.'; END IF;
 END $$;
 
+-- An early request holds no time, so other bookings do not refuse it; the future, the owner's
+-- early/latest hours, weekly availability and blocked time still do (checked again at approval).
+CREATE OR REPLACE FUNCTION public.mvc_check_request_window(aid bigint,starts timestamptz,ends timestamptz,buffer int)
+RETURNS void LANGUAGE plpgsql SET search_path=public,pg_catalog AS $$
+DECLARE s public.business_settings%ROWTYPE; local_start timestamp; local_end timestamp; finish timestamptz;
+BEGIN
+ PERFORM 1 FROM public.makeup_artists WHERE id=aid AND is_active;
+ IF NOT FOUND THEN RAISE EXCEPTION 'Choose an active makeup artist'; END IF;
+ SELECT * INTO STRICT s FROM public.business_settings WHERE id=1;
+ finish:=ends+make_interval(mins=>buffer);local_start:=starts AT TIME ZONE s.time_zone;local_end:=finish AT TIME ZONE s.time_zone;
+ IF starts<=clock_timestamp() OR ends<=starts OR ends-starts>interval '24 hours' OR buffer NOT BETWEEN 0 AND 180
+ OR s.early_request_start_hour IS NULL OR local_start>=date_trunc('day',local_start)+make_interval(hours=>s.open_hour)
+ OR local_start<date_trunc('day',local_start)+make_interval(hours=>s.early_request_start_hour)
+ OR local_end>date_trunc('day',local_start)+make_interval(hours=>coalesce(s.after_hours_end_hour,s.close_hour)) THEN RAISE EXCEPTION 'Choose a future early time that fits the studio hours including travel time'; END IF;
+ IF EXISTS(SELECT 1 FROM public.artist_availability WHERE artist_id=aid) AND NOT EXISTS
+ (SELECT 1 FROM public.artist_availability WHERE artist_id=aid AND weekday=extract(dow FROM local_start)::int
+ AND local_start>=local_start::date+start_time AND local_end<=local_start::date+end_time) THEN RAISE EXCEPTION 'The artist is outside weekly availability'; END IF;
+ IF EXISTS(SELECT 1 FROM public.blocked_slots WHERE artist_id=aid AND starts<end_at AND finish>start_at) THEN RAISE EXCEPTION 'This slot overlaps a reserved appointment. Please choose another time.'; END IF;
+END $$;
+REVOKE ALL ON FUNCTION public.mvc_check_request_window(bigint,timestamptz,timestamptz,int) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.mvc_check_request_window(bigint,timestamptz,timestamptz,int) TO makeup_backend;
+
 -- Guard: 0019 plus the early-request insert path and the Awaiting Approval transitions.
 CREATE OR REPLACE FUNCTION public.mvc_reservation_guard() RETURNS trigger LANGUAGE plpgsql SET search_path=public,pg_catalog AS $$
 DECLARE s public.business_settings%ROWTYPE; svc public.services%ROWTYPE; coverage public.service_areas%ROWTYPE;
@@ -135,7 +157,8 @@ BEGIN
   NEW.total_price:=CASE WHEN NEW.booking_type='mixed' THEN NEW.package_total_snapshot ELSE NEW.applied_price_per_person*NEW.people END+NEW.addons_total_snapshot;
   NEW.end_at:=NEW.start_at+make_interval(mins=>CASE WHEN NEW.booking_type='mixed' THEN NEW.package_minutes_snapshot ELSE NEW.service_minutes_snapshot*NEW.people END+NEW.addons_minutes_snapshot);
   NEW.reserved_until:=NEW.end_at+make_interval(mins=>NEW.buffer_minutes_snapshot);
-  IF NOT NEW.is_early_request THEN PERFORM public.mvc_check_slot(NEW.artist_id,NEW.start_at,NEW.end_at,NEW.buffer_minutes_snapshot,NULL); END IF;
+  IF NEW.is_early_request THEN PERFORM public.mvc_check_request_window(NEW.artist_id,NEW.start_at,NEW.end_at,NEW.buffer_minutes_snapshot);
+  ELSE PERFORM public.mvc_check_slot(NEW.artist_id,NEW.start_at,NEW.end_at,NEW.buffer_minutes_snapshot,NULL); END IF;
  END IF;
  IF TG_OP='UPDATE' THEN
   IF ROW(NEW.app_id,NEW.app_managed,NEW.customer_id,NEW.artist_id,NEW.service_id,NEW.reference,NEW.location,NEW.total_price,
@@ -274,7 +297,9 @@ BEGIN
  RETURN NULL;
 END $$;
 DROP TRIGGER IF EXISTS mvc_package_integrity ON public.reservations;
-CREATE CONSTRAINT TRIGGER mvc_package_integrity AFTER INSERT OR UPDATE ON public.reservations DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.mvc_package_integrity();
+-- On reservations only at INSERT: the guard keeps people, totals and snapshots immutable afterwards, and a
+-- package booked under an older (higher) limit must still expire, confirm or cancel after the owner lowers it.
+CREATE CONSTRAINT TRIGGER mvc_package_integrity AFTER INSERT ON public.reservations DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.mvc_package_integrity();
 DROP TRIGGER IF EXISTS mvc_package_integrity ON public.reservation_people;
 CREATE CONSTRAINT TRIGGER mvc_package_integrity AFTER INSERT OR UPDATE ON public.reservation_people DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.mvc_package_integrity();
 DROP TRIGGER IF EXISTS mvc_package_integrity ON public.reservation_people_addons;

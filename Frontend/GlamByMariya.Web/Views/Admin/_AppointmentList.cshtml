@@ -4,7 +4,7 @@
 <section class="admin-appointments" id="appointments">
     @if (!fullPage) { <div class="appointments-heading"><div><div class="eyebrow">BOOKING MANAGEMENT</div><h2>Appointment requests</h2><p>Manage booking requests, approvals and status.</p></div><a class="button secondary" asp-controller="Admin" asp-action="Appointments">All appointments</a></div> }
     <nav class="appointment-filters" aria-label="Filter appointments by status">
-    @foreach (var filter in new[] { "", "Pending Payment", "Confirmed", "Completed", "Cancelled", "Rejected", "Expired" }) {
+    @foreach (var filter in new[] { "", BookingService.EarlyRequestStatus, "Pending Payment", "Confirmed", "Completed", "Cancelled", "Rejected", "Expired" }) {
         var count = filter == "" ? all.Count : all.Count(b => b.Status == filter);
         <a class="@(selected == filter ? "active" : "")" aria-current="@(selected == filter ? "page" : null)" asp-controller="Admin" asp-action="Appointments" asp-route-mode="list" asp-route-status="@filter">@(filter == "" ? "All" : filter) (@count)</a>
     }

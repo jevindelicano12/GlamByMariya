@@ -187,6 +187,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
 
     // Pay after approval: opens (or reopens) the Xendit page for an approved early request. If Xendit
     // cannot open it, the approval stays and the customer can try again within the 15 minutes.
+    public const string PayRequestTooLateMessage = "The 15-minute payment time after approval has ended (or is about to). Nothing was charged; ask the artist to approve the time again.";
     [HttpPost, ValidateAntiForgeryToken]
     public async Task<IActionResult> PayRequest(Guid id)
     {
@@ -200,12 +201,19 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
         }
         var database = (IPersistentStudioStore)store;
         if (database.PendingCheckoutUrl(id) is { } open) return Redirect(open);
+        // The hold started at approval, so the Xendit page must close before it ends.
+        var seconds = b.PaymentDueAt is { } due ? GlamByMariya.Infrastructure.Integrations.XenditClient.SecondsBefore(due, store.Now) : null;
+        if (seconds == null)
+        {
+            TempData["Error"] = PayRequestTooLateMessage;
+            return RedirectToAction("Details", new { id });
+        }
         try
         {
             var email = User.FindFirstValue(ClaimTypes.Email) ?? "";
             var done = Url.Action("Confirmation", "Bookings", new { id }, Request.Scheme)!;
             var invoice = await xendit!.CreateInvoiceAsync(b.Reference, b.RequiredDownPayment, email,
-                $"Glam by Mariya down payment for {b.Reference} ({b.ServiceDescription})", done, done);
+                $"Glam by Mariya down payment for {b.Reference} ({b.ServiceDescription})", done, done, durationSeconds: seconds);
             database.AttachInvoice(id, invoice.Id, invoice.InvoiceUrl);
             return Redirect(invoice.InvoiceUrl);
         }

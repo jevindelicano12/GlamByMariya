@@ -8,3 +8,5 @@
 .badge.after-hours { background: #EFE6FA; color: #45306B; }
 .booking-flags { display: flex; flex-wrap: wrap; gap: 8px; }
 .early-request-decision form + form { margin-top: 8px; }
+.early-requests-waiting { display: block; margin: 0 0 16px; padding: 14px 16px; border-radius: 12px; background: #FFF0C8; color: #5E4709; text-decoration: none; }
+.early-requests-waiting:hover, .early-requests-waiting:focus-visible { background: #FFE7A8; }

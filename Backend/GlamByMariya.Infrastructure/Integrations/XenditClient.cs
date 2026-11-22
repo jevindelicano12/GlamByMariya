@@ -16,11 +16,20 @@ public sealed class XenditClient(IHttpClientFactory http, IConfiguration config)
 {
     // One minute shorter than the 15-minute hold, so a payment always lands while the slot is still held.
     public const int InvoiceSeconds = 14 * 60;
+    public const int MinimumInvoiceSeconds = 2 * 60;
+
+    // A hold that started earlier (an approved early request): the page closes one minute before the
+    // hold ends, or is not opened at all (null) when less than two minutes would remain.
+    public static int? SecondsBefore(DateTime paymentDue, DateTime now)
+    {
+        var seconds = (int)Math.Floor((paymentDue - now).TotalSeconds) - 60;
+        return seconds < MinimumInvoiceSeconds ? null : Math.Min(seconds, InvoiceSeconds);
+    }
 
     public bool Enabled => !string.IsNullOrWhiteSpace(config["Xendit:SecretKey"]) && !string.IsNullOrWhiteSpace(config["Xendit:CallbackToken"]);
 
     public async Task<XenditInvoice> CreateInvoiceAsync(string externalId, decimal amount, string payerEmail, string description,
-        string successUrl, string failureUrl, CancellationToken ct = default)
+        string successUrl, string failureUrl, CancellationToken ct = default, int? durationSeconds = null)
     {
         var key = config["Xendit:SecretKey"] ?? throw new InvalidOperationException("Xendit is not configured.");
         if (!key.StartsWith("xnd_development_", StringComparison.Ordinal) && !config.GetValue("Xendit:AllowLiveKeys", false))
@@ -35,7 +44,7 @@ public sealed class XenditClient(IHttpClientFactory http, IConfiguration config)
                 currency = "PHP",
                 payer_email = payerEmail,
                 description,
-                invoice_duration = InvoiceSeconds,
+                invoice_duration = durationSeconds ?? InvoiceSeconds,
                 success_redirect_url = successUrl,
                 failure_redirect_url = failureUrl,
             })

@@ -1930,6 +1930,18 @@ if (args.Contains("--flexible-screens-only"))
     Check(SaveHours(null, close - 1) == "Latest end cannot be before closing." && st.AfterHoursEndHour == null, "a latest end before closing is refused with a clear message and nothing is saved");
     Check(SaveHours(open + 1, null) == "Early booking cannot start after opening." && st.EarlyRequestStartHour == null, "an early start after opening is refused with a clear message");
     Check(SaveHours(4, 22) == null && st.EarlyRequestStartHour == 4 && st.AfterHoursEndHour == 22, "early 4 and latest 22 are saved");
+    // Final review I4: an early booking inside the early hours does not block unrelated saves; narrowing warns.
+    Check(SaveHours(4, 22) == null, "early 4 and latest 22 set again");
+    var flowS = new BookingService(demo, demo, demo, demo, demo); var customerS = demo.Users.First(u => u.Role == Roles.Customer);
+    var softS = demo.Services.First(x => x.Name == "Soft Glam"); var dayS = DateTime.Today.AddDays(20);
+    var qS = flowS.Quote(softS.Id, [], 1, "auto", dayS.AddHours(5));
+    var earlyS = flowS.Create(customerS.Id, softS.Id, [], dayS.AddHours(5), "24 Synthetic Street", "Quezon City", qS.RequiredDownPayment, "GCash", "SCREEN-EARLY", "synthetic-proof.png", true, 1, "auto", true, qS.FinalTotal, qS.RequiredDownPayment, latitude: 14.5547m, longitude: 121.0244m);
+    flowS.AdminAction(earlyS, "approve-request", owner.Id, "", 0, "");
+    var travelSave = Admin(); travelSave.Settings(open, close, st.BufferMinutes, st.TravelFee, st.DownPaymentPercent, st.ServiceAreas, "", earlyRequestStartHour: 4, afterHoursEndHour: 22);
+    Check(travelSave.TempData["Error"] == null, "with an approved 5 AM booking, saving settings that keep early 4 is not blocked");
+    var narrow = Admin(); narrow.Settings(open, close, st.BufferMinutes, st.TravelFee, st.DownPaymentPercent, st.ServiceAreas, "", earlyRequestStartHour: 6, afterHoursEndHour: 22);
+    Check(((string?)narrow.TempData["Error"])?.Contains("outside the new hours") == true && st.EarlyRequestStartHour == 4, "moving the early hour past that booking warns first and saves nothing");
+    flowS.Cancel(earlyS, customerS.Id, true);
     Check(SaveHours(null, null) == null && st.EarlyRequestStartHour == null && st.AfterHoursEndHour == null, "empty fields go back to the opening and closing hours");
 
     var glamour = demo.Services.First(x => x.Name == "Glamour Makeup");
@@ -1955,6 +1967,11 @@ if (args.Contains("--flexible-screens-only"))
     Check(Source("Controllers", "AdminController.cs").Contains("[Authorize(Roles = \"Admin,SuperAdmin\")]") && !Source("Views", "Bookings", "Details.cshtml").Contains("approve-request"),
         "only Admin and SuperAdmin see the decision; the customer page has no approve button");
     Check(Source("Views", "Bookings", "Details.cshtml").Contains("asp-action=\"PayRequest\""), "the customer page has the pay button for an approved request");
+    // Final review I3: admins find waiting requests from the dashboard and the appointment filters.
+    Check(Source("Views", "Admin", "_AppointmentList.cshtml").Contains("new[] { \"\", BookingService.EarlyRequestStatus,") &&
+          Source("Views", "Admin", "Index.cshtml").Contains("waiting for your approval") && Source("Views", "Admin", "Index.cshtml").Contains("b.Status == BookingService.EarlyRequestStatus)"),
+        "the dashboard says how many early requests are waiting and the appointments list can filter them");
+    Check(Source("Controllers", "AdminController.cs").Contains("Open your booking to pay: {Url.Action(\"Details\", \"Bookings\", new { id }, Request.Scheme)}"), "the approval email links to the booking's pay button");
     Console.WriteLine($"All {checks} flexible screen checks passed."); return;
 }
 if (args.Contains("--flexible-booking-only"))
@@ -2045,6 +2062,17 @@ if (args.Contains("--flexible-booking-only"))
     flow.AdminAction(second, "decline-request", plainAdmin.Id, "The artist has a family event that morning.", 0, "");
     Check(second.Status == "Rejected" && demo.Notifications.Any(n => n.UserId == flexCustomer.Id && n.Message.EndsWith("Your early booking request was declined: The artist has a family event that morning.")),
         "a declined request is Rejected and the customer sees the reason");
+    // Final review M3: the artist (a plain Admin) may decide an early package request too.
+    var adminPackage = BookPackage(packageDay.AddDays(3).AddHours(4), package, 14.5547m, 121.0244m, "FLEX-PKG-3");
+    Check(flow.CanManageBooking(adminPackage, plainAdmin.Id), "a plain Admin can open an early package request");
+    flow.AdminAction(adminPackage, "approve-request", plainAdmin.Id, "", 0, "");
+    Check(adminPackage.Status == "Pending Payment" && !flow.CanManageBooking(adminPackage, plainAdmin.Id), "a plain Admin approves it; afterwards other package actions stay SuperAdmin-only");
+    // Final review I1: the Xendit page for an approved request closes one minute before the hold ends.
+    var clock = new DateTime(2030, 1, 2, 10, 0, 0);
+    Check(XenditClient.SecondsBefore(clock.AddMinutes(15), clock) == 14 * 60 && XenditClient.SecondsBefore(clock.AddMinutes(5), clock) == 4 * 60,
+        "paying right after approval gets 14 minutes; paying 10 minutes later gets 4");
+    Check(XenditClient.SecondsBefore(clock.AddSeconds(150), clock) == null && XenditClient.SecondsBefore(clock.AddMinutes(-1), clock) == null,
+        "with under two minutes left (or none) no payment page is opened");
     Console.WriteLine($"All {checks} flexible booking checks passed."); return;
 }
 if (args.Contains("--travel-rule-only"))

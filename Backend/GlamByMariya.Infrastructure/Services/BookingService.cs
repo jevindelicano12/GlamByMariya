@@ -175,11 +175,13 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
     // Upcoming bookings that still hold their slot but would start before, or end after,
     // the bookable day if the regular hours became openHour..closeHour. Early and late
     // fee windows (Demo only) still extend the day, the same way the slot list does.
-    public List<Booking> BookingsOutsideHours(int openHour, int closeHour)
+    // Phase 6: the owner's early and latest hours (when set) widen the day too.
+    public List<Booking> BookingsOutsideHours(int openHour, int closeHour, int? earlyHour = null, int? latestHour = null)
     {
         var settings = store.Settings; var now = store.Now;
-        var open = TimeSpan.FromHours(!store.IsPersistent && settings.EarlyFeeEnabled ? settings.EarlyStartHour : openHour);
-        var close = TimeSpan.FromHours(!store.IsPersistent && settings.LateFeeEnabled ? settings.LateEndHour : closeHour);
+        var first = Math.Min(earlyHour ?? openHour, openHour); var last = Math.Max(latestHour ?? closeHour, closeHour);
+        var open = TimeSpan.FromHours(!store.IsPersistent && settings.EarlyFeeEnabled ? Math.Min(settings.EarlyStartHour, first) : first);
+        var close = TimeSpan.FromHours(!store.IsPersistent && settings.LateFeeEnabled ? Math.Max(settings.LateEndHour, last) : last);
         return bookings.Bookings
             .Where(b => b.Start > now && HoldsReservation(b))
             .Where(b => b.Start.TimeOfDay < open || b.End > b.Start.Date + close)
@@ -436,8 +438,9 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
     }
     public bool CanManageBooking(Booking b, Guid actor)
     {
+        // An Admin (the artist) may also decide an early package request; other package actions stay SuperAdmin-only.
         lock (store.Gate) return store.Users.Any(u => u.Id == actor && u.IsActive &&
-            (u.Role == Roles.SuperAdmin || (u.Role == Roles.Admin && b.MixedPeople.Count == 0)));
+            (u.Role == Roles.SuperAdmin || (u.Role == Roles.Admin && (b.MixedPeople.Count == 0 || b.Status == EarlyRequestStatus))));
     }
     private void RecordDecision(Booking b, Guid actor, string action, string reason)
     {
@@ -623,6 +626,9 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
         if (store is PublicStudioStore live)
         {
             var liveQuote = QuoteMixed(people, start);
+            // The same time rules as a single booking: a start the owner opened, in the future, clear of
+            // blocked time and (for a regular time) other bookings.
+            CheckSlot(start, liveQuote.DurationMinutes);
             return live.SubmitPackage(userId, people!, start, address, area ?? "", deposit, method, reference ?? "", agreed, travelAcknowledged,
                 expectedTotal, expectedMinimum, latitude!.Value, longitude!.Value);
         }
