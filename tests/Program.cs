@@ -1963,6 +1963,35 @@ if (args.Contains("--flexible-booking-only"))
         "creating a package with two Bridal is refused, not only the quote");
     var earlyPackage = BookPackage(packageDay.AddHours(4), package, 14.5547m, 121.0244m, "FLEX-PKG-2");
     Check(earlyPackage is { Status: "Awaiting Approval", IsEarlyRequest: true } && earlyPackage.MixedPeople.Count == 6, "a package at an early time is an early request with six people");
+
+    // Task 5: the artist approves or declines; an approved request is paid within 15 minutes.
+    var super = demo.Users.First(u => u.Role == Roles.SuperAdmin && u.IsActive);
+    var plainAdmin = demo.Users.First(u => u.Role == Roles.Admin && u.IsActive);
+    var spanMinutes = (int)(earlyPackage.End - earlyPackage.Start).TotalMinutes;
+    var regular = Book(packageDay.AddHours(8), soft, "FLEX-REG-1");
+    var overlap = Refusal(() => flow.CheckSlot(earlyPackage.Start, spanMinutes, earlyPackage.Id));
+    Check(overlap != "" && Refusal(() => flow.AdminAction(earlyPackage, "approve-request", super.Id, "", 0, "")) == overlap && earlyPackage.Status == "Awaiting Approval",
+        "approving a request whose time was taken meanwhile is refused with the overlap message and the request is unchanged");
+    flow.Cancel(regular, flexCustomer.Id, true);
+    flow.AdminAction(earlyPackage, "approve-request", super.Id, "", 0, "");
+    Check(earlyPackage is { Status: "Pending Payment", PaymentDueAt: { } due } && Math.Abs((due - DateTime.Now.AddMinutes(15)).TotalSeconds) < 60,
+        "approving makes the request Pending Payment with a 15-minute deadline");
+    Check(demo.Notifications.Any(n => n.UserId == flexCustomer.Id && n.Message.EndsWith("Your early booking request was approved. Pay the down payment within 15 minutes to keep this time.")),
+        "the customer is told the request was approved and to pay within 15 minutes");
+    Check(Refusal(() => Book(packageDay.AddHours(8), soft, "FLEX-REG-2")) != "", "once approved, the whole early span (4:00 to past 12:00) blocks a regular 8:00 booking");
+    Check(Refusal(() => flow.AdminAction(earlyPackage, "approve-request", super.Id, "", 0, "")) == BookingService.EarlyRequestDecidedMessage, "a decided request cannot be approved twice");
+    earlyPackage.PaymentDueAt = DateTime.Now.AddSeconds(-1); // 15 minutes pass without payment
+    flow.ExpireOverduePayments();
+    Check(earlyPackage.Status == PaymentWindow.ExpiredStatus && Book(packageDay.AddHours(8), soft, "FLEX-REG-3").Status == "Pending Payment",
+        "unpaid 15 minutes after approval, the request expires and the time is free again");
+    flow.AdminAction(request, "approve-request", plainAdmin.Id, "", 0, "");
+    Check(request.Status == "Pending Payment", "a plain Admin may approve an early request");
+    var second = Book(day.AddDays(2).AddHours(4), soft, "FLEX-EARLY-2");
+    Check(Refusal(() => flow.AdminAction(second, "decline-request", plainAdmin.Id, " ", 0, "")) == "Enter a reason for declining this early booking request." && second.Status == "Awaiting Approval",
+        "declining needs a reason");
+    flow.AdminAction(second, "decline-request", plainAdmin.Id, "The artist has a family event that morning.", 0, "");
+    Check(second.Status == "Rejected" && demo.Notifications.Any(n => n.UserId == flexCustomer.Id && n.Message.EndsWith("Your early booking request was declined: The artist has a family event that morning.")),
+        "a declined request is Rejected and the customer sees the reason");
     Console.WriteLine($"All {checks} flexible booking checks passed."); return;
 }
 if (args.Contains("--travel-rule-only"))

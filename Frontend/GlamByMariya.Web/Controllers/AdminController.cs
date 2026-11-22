@@ -176,11 +176,36 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
                 }
                 if ((b.MixedPeople.Count > 0 || store.IsPersistent) && (operation is "reschedule" or "decline") && (!requestedStart.HasValue || b.RequestedStart != requestedStart))
                     throw new InvalidOperationException("The requested time changed. Reload this booking before deciding.");
-                workflow.AdminAction(b, operation, UserId, reason, amount, reference, confirmed, paymentId, reviewRevision, reviewVersion, travelOverride); TempData["Success"] = operation == "cancel" ? "Appointment cancelled. Payment and refund arrangements require personal review." : operation == "complete" ? "Appointment marked completed. Payment status was not changed." : "Booking updated successfully.";
+                workflow.AdminAction(b, operation, UserId, reason, amount, reference, confirmed, paymentId, reviewRevision, reviewVersion, travelOverride);
+                TempData["Success"] = operation switch
+                {
+                    "cancel" => "Appointment cancelled. Payment and refund arrangements require personal review.",
+                    "complete" => "Appointment marked completed. Payment status was not changed.",
+                    "approve-request" => "Early booking request approved. The customer has 15 minutes to pay the down payment.",
+                    "decline-request" => "Early booking request declined. The customer was told why.",
+                    _ => "Booking updated successfully."
+                };
+                if (operation is "approve-request" or "decline-request")
+                    EmailCustomer(b.CustomerId, $"Glam by Mariya {b.Reference}: early booking request",
+                        operation == "approve-request" ? BookingService.EarlyRequestApprovedMessage : string.Format(BookingService.EarlyRequestDeclinedMessage, reason.Trim()));
             }
             catch (InvalidOperationException e) { TempData["Error"] = e.Message; }
             return RedirectToAction("Details", new { id });
         }
+    }
+    // Best-effort email after an early request is decided; the in-app notification is already saved,
+    // so a missing Brevo key or a slow send never undoes or delays the decision.
+    private void EmailCustomer(Guid customerId, string subject, string text)
+    {
+        var to = store.Users.FirstOrDefault(u => u.Id == customerId)?.Email;
+        var brevo = HttpContext?.RequestServices.GetService(typeof(GlamByMariya.Infrastructure.Integrations.BrevoEmailSender)) as GlamByMariya.Infrastructure.Integrations.BrevoEmailSender;
+        var log = HttpContext?.RequestServices.GetService(typeof(ILogger<AdminController>)) as ILogger<AdminController>;
+        if (string.IsNullOrWhiteSpace(to) || brevo == null) return;
+        _ = Task.Run(async () =>
+        {
+            try { await brevo.SendAsync(to, subject, text); }
+            catch (Exception e) { log?.LogWarning("Early request email was not sent: {Reason}", e.Message); }
+        });
     }
     [HttpGet, ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
     public IActionResult Proof(Guid id, Guid? bookingId = null, long? reviewRevision = null, string? reviewVersion = null)

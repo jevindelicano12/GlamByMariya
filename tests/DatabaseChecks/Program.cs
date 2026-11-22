@@ -788,6 +788,26 @@ if (Run("--flexible"))
         COMMIT;
         """);
     Check(sneak.Contains("package"), $"the database refuses a person added outside the booking (second Bridal) ({sneak})");
+
+    // Task 5: the admin approves or declines through the store.
+    string FlexRefusal(Action action) { try { action(); } catch (InvalidOperationException e) { return e.Message; } return ""; }
+    var taken = FlexRefusal(() => App().ManageBooking(storeRequest.Id, "approve-request", owner.Id, "", 0, ""));
+    Check(taken.Contains("overlaps") && await Status(storeRequest.Id) == "Awaiting Approval", $"the store refuses to approve a request whose time is taken, leaving it unchanged ({taken})");
+    var laterDay = DateTime.Today.AddDays(7);
+    GlamByMariya.Core.Entities.Booking BookOn(DateTime at) => App().SubmitBooking(customer.Id, soft.Id, [], at, "24 Synthetic Street, Quezon City", "Quezon City",
+        quote.RequiredDownPayment, "Xendit", $"XENDIT-FLEX-{++n}", null, true, true, 1, "auto", quote.FinalTotal, quote.RequiredDownPayment, latitude: 14.5547m, longitude: 121.0244m);
+    var toApprove = BookOn(laterDay.AddHours(5));
+    App().ManageBooking(toApprove.Id, "approve-request", owner.Id, "", 0, "");
+    var approvedMinutes = Convert.ToDouble(await Scalar($"SELECT extract(epoch FROM payment_expires_at-now())/60 FROM public.reservations WHERE app_id='{toApprove.Id}'"));
+    Check(await Status(toApprove.Id) == "Pending Payment" && approvedMinutes is > 14 and <= 15.1, $"the store approval starts the 15-minute payment hold ({approvedMinutes:F1} min)");
+    Check(Convert.ToInt32(await Scalar($"SELECT count(*) FROM public.notifications n JOIN public.account_identities a ON a.id=n.user_id JOIN public.reservations r ON r.id=n.reservation_id WHERE r.app_id='{toApprove.Id}' AND a.customer_id IS NOT NULL AND n.message LIKE '%Your early booking request was approved. Pay the down payment within 15 minutes to keep this time.'")) == 1,
+        "the customer gets the approval notification once");
+    Check(FlexRefusal(() => App().ManageBooking(toApprove.Id, "approve-request", owner.Id, "", 0, "")) == GlamByMariya.Infrastructure.Services.BookingService.EarlyRequestDecidedMessage, "a decided request cannot be approved twice");
+    var toDecline = BookOn(laterDay.AddDays(1).AddHours(5));
+    Check(FlexRefusal(() => App().ManageBooking(toDecline.Id, "decline-request", owner.Id, "", 0, "")) == "Enter a reason for declining this early booking request.", "declining needs a reason");
+    App().ManageBooking(toDecline.Id, "decline-request", owner.Id, "Fully booked that morning.", 0, "");
+    Check(await Status(toDecline.Id) == "Rejected" && (string)(await Scalar($"SELECT notes FROM public.reservations WHERE app_id='{toDecline.Id}'"))! == "Your early booking request was declined: Fully booked that morning.",
+        "a declined request is Rejected with the reason the customer sees");
     Console.WriteLine($"All {checks - before} flexible booking database checks passed.");
 }
 

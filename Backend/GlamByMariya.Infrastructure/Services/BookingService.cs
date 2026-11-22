@@ -49,6 +49,9 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
     }
 
     public const string EarlyRequestStatus = "Awaiting Approval";
+    public const string EarlyRequestApprovedMessage = "Your early booking request was approved. Pay the down payment within 15 minutes to keep this time.";
+    public const string EarlyRequestDeclinedMessage = "Your early booking request was declined: {0}";
+    public const string EarlyRequestDecidedMessage = "This early booking request was already decided. Reload the booking.";
     public const string EarlyRequestSentMessage = "Early booking request sent. The artist will confirm this time before you pay.";
 
     // The bookable day: the admin's early-request start and latest end (Phase 6), widened by the
@@ -441,7 +444,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
     }
     public void Cancel(Booking b, Guid actor, bool confirmed, string? reason = null)
     {
-        if (store.IsPersistent && b.MixedPeople.Count > 0) throw new InvalidOperationException("Persistent mixed booking operations are unavailable.");
+        if (store.IsPersistent && store is not PublicStudioStore && b.MixedPeople.Count > 0) throw new InvalidOperationException("Persistent mixed booking operations are unavailable.");
         if (store is IPersistentStudioStore database) { database.CancelBooking(b.Id, actor, confirmed); return; }
         lock (store.Gate)
         {
@@ -484,7 +487,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
     }
     public void AdminAction(Booking b, string action, Guid actor, string reason, decimal amount, string reference, bool confirmed = false, Guid? paymentId = null, long? reviewRevision = null, string? reviewVersion = null, bool travelOverride = false)
     {
-        if (store.IsPersistent && b.MixedPeople.Count > 0) throw new InvalidOperationException("Persistent mixed booking operations are unavailable.");
+        if (store.IsPersistent && store is not PublicStudioStore && b.MixedPeople.Count > 0) throw new InvalidOperationException("Persistent mixed booking operations are unavailable.");
         if (store.IsPersistent && action == "cancel" && !confirmed) throw new InvalidOperationException("Confirm the cancellation before continuing.");
         if (store.IsPersistent && action == "complete" && !confirmed) throw new InvalidOperationException("Confirm that all makeup services are finished and the balance was received before completing this appointment.");
         if (store.IsPersistent && (action is "verify" or "approve" or "proof"))
@@ -574,6 +577,20 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
                     b.RequestedStart = null; b.PendingReschedule = null; b.RescheduleOffer = null;
                     b.Note = "Glam by Mariya has cancelled this appointment. Mariya will contact you about verified payments and any applicable refund. Refund arrangements are handled personally.";
                     break;
+                case "approve-request":
+                    // The artist accepts an early time: the whole span is held from now and the
+                    // customer has the usual 15 minutes to pay, so the slot and travel are checked again.
+                    if (b.Status != EarlyRequestStatus) throw new InvalidOperationException(EarlyRequestDecidedMessage);
+                    CheckSlot(b.Start, (int)(b.End - b.Start).TotalMinutes, b.Id);
+                    if (!TravelFits(store, b.Start, (int)(b.End - b.Start).TotalMinutes, b.BufferMinutesSnapshot ?? store.Settings.BufferMinutes, b.Latitude, b.Longitude, b.Id))
+                        throw new InvalidOperationException(TravelPlanner.RefusalMessage);
+                    b.Status = "Pending Payment"; b.PaymentDueAt = PaymentWindow.DueAt(store.Now); b.Note = EarlyRequestApprovedMessage;
+                    break;
+                case "decline-request":
+                    if (b.Status != EarlyRequestStatus) throw new InvalidOperationException(EarlyRequestDecidedMessage);
+                    if (string.IsNullOrWhiteSpace(reason)) throw new InvalidOperationException("Enter a reason for declining this early booking request.");
+                    b.Status = "Rejected"; b.Note = string.Format(EarlyRequestDeclinedMessage, reason);
+                    break;
                 default: throw new InvalidOperationException("Unknown booking action.");
             }
             if (action is not ("cancel" or "complete")) UpdatePaymentStatus(b);
@@ -591,9 +608,11 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
                 "noshow" => "Appointment marked no-show",
                 "incomplete" => "Appointment marked incomplete",
                 "refund" => "Refund recorded",
+                "approve-request" => "Early booking request approved",
+                "decline-request" => "Early booking request declined",
                 _ => "Appointment updated"
             }, "Booking", b.Id);
-            Notify(b, $"{action}: {b.Status}. {b.Note}", actor);
+            Notify(b, action is "approve-request" or "decline-request" ? b.Note : $"{action}: {b.Status}. {b.Note}", actor);
         }
     }
     public Booking CreateMixed(Guid userId, IReadOnlyList<MixedPersonSelection>? people, DateTime start, string address, string? area, decimal deposit, string method, string? reference, string? proof, bool agreed, bool travelAcknowledged, decimal expectedTotal, decimal expectedMinimum, Guid? submissionId = null, string? policyVersion = null, string? travelReminderVersion = null, string? imageFingerprint = null, decimal? latitude = null, decimal? longitude = null)
@@ -669,7 +688,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
     private RescheduleQuote ReschedulePrice(Booking b, DateTime start, Guid quoteId, bool travel = true)
     {
         // Database mode has no early/late fees, so the quote keeps the same total.
-        if (store.IsPersistent && b.MixedPeople.Count > 0) throw new InvalidOperationException("Persistent mixed booking operations are unavailable.");
+        if (store.IsPersistent && store is not PublicStudioStore && b.MixedPeople.Count > 0) throw new InvalidOperationException("Persistent mixed booking operations are unavailable.");
         if (b.Status != "Confirmed" || b.Start <= store.Now) throw new InvalidOperationException("Only future confirmed appointments can be rescheduled.");
         var duration = (int)(b.End - b.Start).TotalMinutes;
         var calendar = travel ? GetAvailability(start, duration, b.Id) : BuildAvailability(start, duration, b.Id, false, null, null, default);
@@ -714,7 +733,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
     }
     public void CorrectProof(Booking b, Guid actor, string reference, string? proof, long? expectedPaymentRevision = null, string? expectedPaymentVersion = null)
     {
-        if (store.IsPersistent && b.MixedPeople.Count > 0) throw new InvalidOperationException("Persistent mixed booking operations are unavailable.");
+        if (store.IsPersistent && store is not PublicStudioStore && b.MixedPeople.Count > 0) throw new InvalidOperationException("Persistent mixed booking operations are unavailable.");
         if (store.IsPersistent)
         {
             ValidatePersistentCorrectionToken(expectedPaymentRevision, expectedPaymentVersion);

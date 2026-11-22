@@ -683,7 +683,7 @@ public sealed class PublicStudioStore(
         if (travelOverride && action != "reschedule") throw new InvalidOperationException("A travel override applies only to a reschedule approval.");
         if (travelOverride && pdb.Database.SqlQuery<int>($"SELECT count(*)::int AS \"Value\" FROM public.admin_users WHERE app_id={admin} AND role='SuperAdmin' AND is_active").Single() == 0)
             throw new InvalidOperationException(BookingService.TravelOverrideRefused);
-        if (action == "reschedule") LockTravel(ResolveArtist().Id); // before the booking row, same order as SubmitBooking
+        if (action is "reschedule" or "approve-request") LockTravel(ResolveArtist().Id); // before the booking row, same order as SubmitBooking
         var b = LockBooking(booking);
         if (action is "verify" or "approve") CheckPaymentReview(booking, paymentId, reviewRevision, reviewVersion, b.Status == "Confirmed");
         var reservationId = ReservationBigId(booking);
@@ -749,6 +749,21 @@ public sealed class PublicStudioStore(
                 var bank = pdb.Set<MethodRow>().Single(x => x.Name == "Bank Transfer").Id;
                 pdb.Database.ExecuteSqlInterpolated($"INSERT INTO public.refunds(closure_id, method_id, amount, transfer_reference, sent_at, recorded_by) VALUES({closure}, {bank}, {amount}, {reference.Trim()}, now(), {admin})");
                 Notify(booking, $"Manual refund recorded: ₱{amount:N2}.");
+                break;
+            case "approve-request":
+                // Accepting an early time: the guard gives the customer 15 minutes to pay (the status trigger
+                // notifies the customer with the notes) and
+                // refuses the change if the span now overlaps another booking.
+                if (b.Status != BookingService.EarlyRequestStatus) throw new InvalidOperationException(BookingService.EarlyRequestDecidedMessage);
+                if (!BookingService.TravelFits(this, Local(b.StartsAt), (int)(b.EndsAt - b.StartsAt).TotalMinutes, b.BufferMinutesSnapshot, b.LocationLat, b.LocationLng, booking))
+                    throw new InvalidOperationException(TravelPlanner.RefusalMessage);
+                pdb.Database.ExecuteSqlInterpolated($"UPDATE public.reservations SET status='Pending Payment', notes={BookingService.EarlyRequestApprovedMessage}, reviewed_by={admin}, reviewed_at=now() WHERE app_id={booking}");
+                break;
+            case "decline-request":
+                if (b.Status != BookingService.EarlyRequestStatus) throw new InvalidOperationException(BookingService.EarlyRequestDecidedMessage);
+                if (string.IsNullOrWhiteSpace(reason)) throw new InvalidOperationException("Enter a reason for declining this early booking request.");
+                var declined = string.Format(BookingService.EarlyRequestDeclinedMessage, reason.Trim());
+                pdb.Database.ExecuteSqlInterpolated($"UPDATE public.reservations SET status='Rejected', notes={declined}, reviewed_by={admin}, reviewed_at=now() WHERE app_id={booking}");
                 break;
             default: throw new InvalidOperationException("Unknown booking action.");
         }

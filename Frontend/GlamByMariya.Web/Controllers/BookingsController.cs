@@ -181,6 +181,39 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
         ViewBag.PaidOnXendit = ((List<Payment>)ViewBag.Payments).Any(p => p.Method == "Xendit");
         ViewBag.CheckoutUrl = UsesXendit && booking.Status == "Pending Payment"
             ? ((IPersistentStudioStore)store).PendingCheckoutUrl(booking.Id) : null;
+        // An approved early request has no Xendit page yet: the customer opens it with "Pay down payment".
+        ViewBag.PayApprovedRequest = UsesXendit && booking.IsEarlyRequest && booking.Status == "Pending Payment" && ViewBag.CheckoutUrl == null;
+    }
+
+    // Pay after approval: opens (or reopens) the Xendit page for an approved early request. If Xendit
+    // cannot open it, the approval stays and the customer can try again within the 15 minutes.
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> PayRequest(Guid id)
+    {
+        Booking? b;
+        lock (store.Gate) b = store.FindBooking(id) is { } owned && owned.CustomerId == UserId ? owned : null;
+        if (b == null) return NotFound();
+        if (!UsesXendit || !b.IsEarlyRequest || b.Status != "Pending Payment")
+        {
+            TempData["Error"] = b.Status == BookingService.EarlyRequestStatus ? "The artist has not approved this early time yet." : "This booking is not waiting for a down payment.";
+            return RedirectToAction("Details", new { id });
+        }
+        var database = (IPersistentStudioStore)store;
+        if (database.PendingCheckoutUrl(id) is { } open) return Redirect(open);
+        try
+        {
+            var email = User.FindFirstValue(ClaimTypes.Email) ?? "";
+            var done = Url.Action("Confirmation", "Bookings", new { id }, Request.Scheme)!;
+            var invoice = await xendit!.CreateInvoiceAsync(b.Reference, b.RequiredDownPayment, email,
+                $"Glam by Mariya down payment for {b.Reference} ({b.ServiceDescription})", done, done);
+            database.AttachInvoice(id, invoice.Id, invoice.InvoiceUrl);
+            return Redirect(invoice.InvoiceUrl);
+        }
+        catch (Exception e) when (e is InvalidOperationException or HttpRequestException or TaskCanceledException)
+        {
+            TempData["Error"] = "We could not open the Xendit payment page. Nothing was charged; please try again before the payment time ends.";
+            return RedirectToAction("Details", new { id });
+        }
     }
     // Database mode with Xendit configured: the down payment is paid on Xendit's checkout.
     private bool UsesXendit => xendit?.Enabled == true && store is IPersistentStudioStore;
