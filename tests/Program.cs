@@ -1976,6 +1976,7 @@ if (args.Contains("--flexible-screens-only"))
     Check(Source("Views", "Bookings", "Details.cshtml").Contains("Withdraw your early booking request"), "the customer page offers to withdraw an early request");
     var sending = Source("wwwroot", "js", "mixed-booking-phase3.js");
     Check(sending.Contains("'Sending your early booking request…'") && sending.Contains("'Saving your booking and opening the secure Xendit payment page…'"), "sending a package says early request or Xendit, not payment claim review, on the live site");
+    Check(Source("Controllers", "BookingsController.cs").Contains("\"The artist confirms this early time first; you pay the down payment after approval.\""), "choosing an early time says the artist confirms it first, not that paying confirms it");
     Console.WriteLine($"All {checks} flexible screen checks passed."); return;
 }
 if (args.Contains("--flexible-booking-only"))
@@ -2278,7 +2279,7 @@ if (args.Contains("--travel-form-only"))
     Check(Web("wwwroot", "js", "booking-location.js").Contains("booking-location-changed"), "the pin map announces booking-location-changed");
     Check(site.Contains("'booking-location-changed'") && site.Contains("refresh("), "the calendar reloads availability when the pin changes");
     var controller = Web("Controllers", "BookingsController.cs");
-    Check(controller.Split("Times include travel from the artist's other appointments that day.").Length - 1 == 3, "the single-booking and package slot validation messages use the new travel copy");
+    Check(controller.Split("Times include travel from the artist's other appointments that day.").Length - 1 == 2, "the single-booking and package slot validation messages use the new travel copy");
     var mixedValidate = controller[controller.IndexOf("MixedValidateSlot", StringComparison.Ordinal)..];
     mixedValidate = mixedValidate[..mixedValidate.IndexOf("[HttpGet", StringComparison.Ordinal)];
     Check(mixedValidate.Contains("Travel feasibility has not yet been verified.") && mixedValidate.Contains("request.Latitude.HasValue ? \"Available for request at this moment. Times include travel"), "the mixed slot message mentions travel only when the package is pinned");

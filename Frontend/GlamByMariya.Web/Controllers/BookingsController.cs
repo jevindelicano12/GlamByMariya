@@ -110,9 +110,12 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
                 if (selection == null) return NotFound(new { error = "This appointment cannot be rescheduled." });
                 workflow.CheckSlot(date, selection.Value.Duration, selection.Value.Exclude);
                 workflow.CheckTravel(date, selection.Value.Duration, selection.Value.Exclude, latitude, longitude);
-                 return Json(new { available = true, message = UsesXendit
-                     ? "This time is available. Times include travel from the artist's other appointments that day. Your booking is confirmed once the down payment goes through."
-                     : "Available for request at this moment. Times include travel from the artist's other appointments that day. Confirmation requires payment review and approval." });
+                // An early time (new booking) is a request: the artist confirms it before anything is paid.
+                var early = bookingId == null && BookingWindow.KindOf(date, store.Settings) == SlotKind.Early;
+                var next = early ? "The artist confirms this early time first; you pay the down payment after approval."
+                    : UsesXendit ? "Your booking is confirmed once the down payment goes through." : "Confirmation requires payment review and approval.";
+                return Json(new { available = true, message = (UsesXendit ? "This time is available." : "Available for request at this moment.")
+                    + " Times include travel from the artist's other appointments that day. " + next });
             }
             catch (InvalidOperationException e) { return Json(new { available = false, message = e.Message }); }
         }
