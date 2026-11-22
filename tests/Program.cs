@@ -1190,14 +1190,19 @@ if (args.Contains("--mixed-read-model-only"))
           adminController.Proof(claim.Id) is Microsoft.AspNetCore.Mvc.ForbidResult,
         "ordinary Admin cannot access mixed details, action or proof");
     Actor(adminController, super);
-    Check(adminController.Details(bookingId) is Microsoft.AspNetCore.Mvc.NotFoundResult &&
-          adminController.Action(bookingId,"reject") is Microsoft.AspNetCore.Mvc.NotFoundResult &&
-          adminController.Proof(claim.Id) is Microsoft.AspNetCore.Mvc.NotFoundResult,
-        "persistent mixed details, action and proof stay closed even to SuperAdmin");
+    // Phase 6: live packages are real bookings now; the fake store answers "Unexpected repository call."
+    // once a page goes past the access checks, which proves it was not refused.
+    static bool Opens(Func<Microsoft.AspNetCore.Mvc.IActionResult> open)
+    {
+        try { return open() is not (Microsoft.AspNetCore.Mvc.NotFoundResult or Microsoft.AspNetCore.Mvc.ForbidResult); }
+        catch (InvalidOperationException e) when (e.Message == "Unexpected repository call.") { return true; }
+        catch (NullReferenceException) { return true; } // reached a service the test leaves as null!, past the access checks
+    }
+    Check(Opens(() => adminController.Details(bookingId)) && Opens(() => adminController.Action(bookingId,"reject")) && Opens(() => adminController.Proof(claim.Id)),
+        "SuperAdmin can open live package details, actions and proof");
     Actor(customerController, owner);
-    Check(customerController.Details(bookingId) is Microsoft.AspNetCore.Mvc.NotFoundResult &&
-          customerController.Proof(claim.Id) is Microsoft.AspNetCore.Mvc.NotFoundResult,
-        "persistent mixed Customer detail and proof stay closed");
+    Check(Opens(() => customerController.Details(bookingId)) && Opens(() => customerController.Proof(claim.Id)),
+        "the customer can open their own live package and its proof");
     Actor(customerController, new AppUser { Id=Guid.NewGuid(), Role=Roles.Customer });
     Check(customerController.Details(bookingId) is Microsoft.AspNetCore.Mvc.NotFoundResult &&
           customerController.Proof(claim.Id) is Microsoft.AspNetCore.Mvc.NotFoundResult,
@@ -1213,7 +1218,7 @@ if (args.Contains("--mixed-read-model-only"))
     Actor(adminController, super);
     adminController.Index(null);
     corrections = (HashSet<Guid>)adminController.ViewBag.CorrectionBookingIds;
-    Check(corrections.SetEquals([standard.Id]), "persistent mixed correction remains hidden even from SuperAdmin lists");
+    Check(corrections.SetEquals([standard.Id, mixed.Id]), "SuperAdmin lists show a live package that needs a proof correction");
     var demoMixed = new Booking { Id=Guid.NewGuid(), CustomerId=customer.Id, MixedPeople=result };
     store.Bookings.Add(demoMixed);
     store.Payments.Add(new Payment { BookingId=demoMixed.Id, ReviewStatus="Correction Requested" });
@@ -1245,19 +1250,12 @@ if (args.Contains("--persistent-mixed-guard-only"))
         throw new Exception("Expected precise persistent mixed guard: " + label);
     }
     var people = new[] { new MixedPersonSelection(service.Id, []), new MixedPersonSelection(service.Id, []) };
-    Unavailable(() => flow.QuoteMixed(people), "persistent mixed quote fails closed");
     Unavailable(() => flow.FindMixedAlternatives(people, DateTime.Today, 1), "persistent mixed alternatives fail closed");
     Unavailable(() => flow.CreateMixed(customer.Id, people, DateTime.Today.AddDays(10), "Synthetic address", "Quezon City", 500,
-        "GCash", "SYNTHETIC", "proof", true, true, 1000, 500), "persistent mixed creation fails closed");
+        "GCash", "SYNTHETIC", "proof", true, true, 1000, 500, latitude: 14.5547m, longitude: 121.0244m), "a database other than the live store still refuses to create a package");
     Check(proxy.Arguments == null, "no persistent booking command ran");
     var controller = new BookingsController(persistent, flow, null!, null!, null!);
-    Check(controller.MixedSelection() is Microsoft.AspNetCore.Mvc.NotFoundResult, "persistent mixed selection route fails closed");
-    Check(controller.MixedQuote(people) is Microsoft.AspNetCore.Mvc.NotFoundResult, "persistent mixed quote route fails closed");
-    Check(controller.MixedAvailability(null!) is Microsoft.AspNetCore.Mvc.NotFoundResult, "persistent mixed availability route fails closed");
     Check(controller.MixedAlternatives(null!) is Microsoft.AspNetCore.Mvc.NotFoundResult, "persistent mixed alternatives route fails closed");
-    Check(controller.MixedValidateSlot(null!) is Microsoft.AspNetCore.Mvc.NotFoundResult, "persistent mixed slot route fails closed");
-    var submit = controller.CreateMixed(default, "", "", 0, "", "", null, false, false, null, null, null, Guid.Empty, null, null).GetAwaiter().GetResult();
-    Check(submit is Microsoft.AspNetCore.Mvc.NotFoundResult, "persistent mixed submission route fails closed");
     Console.WriteLine($"{checks} persistent mixed guard checks passed; no PostgreSQL was opened.");
     return;
 }
@@ -1352,7 +1350,7 @@ if (args.Contains("--mixed-retry-only"))
         var people = new[] { new MixedPersonSelection(services[0].Id, [addons[0].Id, addons[1].Id]), new MixedPersonSelection(services[1].Id, []) };
         var quote = flow.QuoteMixed(people, start); var policy = demo.Settings.PolicyVersion; var travel = demo.Settings.TravelReminderVersion;
         Booking Submit(MixedPersonSelection[] selected, DateTime time, string address, string area, decimal amount, string method, string reference, string proof, bool agreed, bool acknowledged, decimal total, decimal minimum, string version, string travelVersion, Guid? customerId = null) =>
-            flow.CreateMixed(customerId ?? actor.Id, selected, time, address, area, amount, method, reference, proof, agreed, acknowledged, total, minimum, id, version, travelVersion);
+            flow.CreateMixed(customerId ?? actor.Id, selected, time, address, area, amount, method, reference, proof, agreed, acknowledged, total, minimum, id, version, travelVersion, latitude: 14.5547m, longitude: 121.0244m);
         var initialMixed = Submit(people, start, "Synthetic address", "Quezon City", quote.RequiredDownPayment, "GCash", "Ref-A", "proof-A", true, true, quote.FinalTotal, quote.RequiredDownPayment, policy, travel);
         var payment = demo.Payments.Single(x => x.BookingId == initialMixed.Id);
         var bookingBefore = System.Text.Json.JsonSerializer.Serialize(initialMixed); var paymentBefore = System.Text.Json.JsonSerializer.Serialize(payment);
@@ -1388,12 +1386,12 @@ if (args.Contains("--mixed-retry-only"))
         var start = DateTime.Today.AddDays(25).AddHours(8); var people = new[] { new MixedPersonSelection(item.Id, []), new MixedPersonSelection(item.Id, []) };
         var quote = flow.QuoteMixed(people, start); var id = Guid.NewGuid();
         var before = demo.Bookings.Count; var paymentBefore = demo.Payments.Count;
-        try { flow.CreateMixed(actor.Id, people, start, "Synthetic address", "Quezon City", quote.RequiredDownPayment, "GCash", "PIXEL", "staged-a", true, true, quote.FinalTotal, quote.RequiredDownPayment, id, "old", demo.Settings.TravelReminderVersion, "PIXELS-A"); throw new Exception("Expected stale policy rejection"); }
+        try { flow.CreateMixed(actor.Id, people, start, "Synthetic address", "Quezon City", quote.RequiredDownPayment, "GCash", "PIXEL", "staged-a", true, true, quote.FinalTotal, quote.RequiredDownPayment, id, "old", demo.Settings.TravelReminderVersion, "PIXELS-A", latitude: 14.5547m, longitude: 121.0244m); throw new Exception("Expected stale policy rejection"); }
         catch (InvalidOperationException e) when (e.Message == "The booking policies changed. Reload and review them before submitting.") { Check(true, "initial stale policy receives precise rejection"); }
-        try { flow.CreateMixed(actor.Id, people, start, "Synthetic address", "Quezon City", quote.RequiredDownPayment, "GCash", "PIXEL", "staged-a", true, true, quote.FinalTotal, quote.RequiredDownPayment, id, demo.Settings.PolicyVersion, "old", "PIXELS-A"); throw new Exception("Expected stale travel policy rejection"); }
+        try { flow.CreateMixed(actor.Id, people, start, "Synthetic address", "Quezon City", quote.RequiredDownPayment, "GCash", "PIXEL", "staged-a", true, true, quote.FinalTotal, quote.RequiredDownPayment, id, demo.Settings.PolicyVersion, "old", "PIXELS-A", latitude: 14.5547m, longitude: 121.0244m); throw new Exception("Expected stale travel policy rejection"); }
         catch (InvalidOperationException e) when (e.Message == "The booking policies changed. Reload and review them before submitting.") { Check(true, "initial stale travel version receives precise rejection"); }
         Check(demo.Bookings.Count == before && demo.Payments.Count == paymentBefore, "stale policy creates no records");
-        Booking SubmitImage(string path, string fingerprint) => flow.CreateMixed(actor.Id, people, start, "Synthetic address", "Quezon City", quote.RequiredDownPayment, "GCash", "PIXEL", path, true, true, quote.FinalTotal, quote.RequiredDownPayment, id, demo.Settings.PolicyVersion, demo.Settings.TravelReminderVersion, fingerprint);
+        Booking SubmitImage(string path, string fingerprint) => flow.CreateMixed(actor.Id, people, start, "Synthetic address", "Quezon City", quote.RequiredDownPayment, "GCash", "PIXEL", path, true, true, quote.FinalTotal, quote.RequiredDownPayment, id, demo.Settings.PolicyVersion, demo.Settings.TravelReminderVersion, fingerprint, latitude: 14.5547m, longitude: 121.0244m);
         var initialImage = SubmitImage("staged-a", "PIXELS-A");
         Check(SubmitImage("staged-b", "PIXELS-A").Id == initialImage.Id, "same image fingerprint ignores different staged paths");
         try { SubmitImage("staged-c", "PIXELS-B"); throw new Exception("Expected proof mismatch"); }
@@ -1409,7 +1407,7 @@ if (args.Contains("--mixed-retry-only"))
         Booking SubmitNullable(IReadOnlyList<MixedPersonSelection>? people, string? area, string? reference) =>
             flow.CreateMixed(actor.Id, people, start, "Synthetic address", area, quote.RequiredDownPayment,
                 "GCash", reference, "proof", true, true, quote.FinalTotal, quote.RequiredDownPayment,
-                id, demo.Settings.PolicyVersion, demo.Settings.TravelReminderVersion);
+                id, demo.Settings.PolicyVersion, demo.Settings.TravelReminderVersion, latitude: 14.5547m, longitude: 121.0244m);
         var initialBookings = demo.Bookings.Count; var initialPayments = demo.Payments.Count;
         foreach (var (label, action, expected) in new (string, Action, string)[] {
             ("people", () => SubmitNullable(null, "Quezon City", "Ref-null"), $"Choose between 2 and {BookingPricing.MaximumPeople} people."),
@@ -1503,7 +1501,7 @@ if (args.Contains("--boundary-regression-only"))
     var submission = Guid.NewGuid();
     Booking SubmitMixed(Guid actor, DateTime at, string reference) => flow.CreateMixed(actor, selection, at,
         "Synthetic service address", "Quezon City", mixedQuote.RequiredDownPayment, "GCash", reference,
-        "synthetic-proof.png", true, true, mixedQuote.FinalTotal, mixedQuote.RequiredDownPayment, submission, demo.Settings.PolicyVersion, demo.Settings.TravelReminderVersion);
+        "synthetic-proof.png", true, true, mixedQuote.FinalTotal, mixedQuote.RequiredDownPayment, submission, demo.Settings.PolicyVersion, demo.Settings.TravelReminderVersion, latitude: 14.5547m, longitude: 121.0244m);
     var beforeMixedBookings = demo.Bookings.Count; var beforeMixedPayments = demo.Payments.Count;
     using (var retryBarrier = new Barrier(2))
     {
@@ -1643,7 +1641,7 @@ if (args.Contains("--mixed-admin-only"))
     var member = demo.Users.Single(u => u.Role == Roles.Customer); var staff = demo.Users.Single(u => u.Role == Roles.Admin); var owner = demo.Users.Single(u => u.Role == Roles.SuperAdmin);
     var look = demo.Services.First(); MixedPersonSelection[] selection = [new(look.Id, []), new(look.Id, []), new(look.Id, [])];
     var date = DateTime.Today.AddDays(30).AddHours(8);
-    Booking Make(int day) { var q = flow.QuoteMixed(selection, date.AddDays(day)); return flow.CreateMixed(member.Id, selection, date.AddDays(day), "Synthetic test address", "Quezon City", q.RequiredDownPayment, "GCash", Guid.NewGuid().ToString(), "synthetic-proof.png", true, true, q.FinalTotal, q.RequiredDownPayment, policyVersion: demo.Settings.PolicyVersion, travelReminderVersion: demo.Settings.TravelReminderVersion); }
+    Booking Make(int day) { var q = flow.QuoteMixed(selection, date.AddDays(day)); return flow.CreateMixed(member.Id, selection, date.AddDays(day), "Synthetic test address", "Quezon City", q.RequiredDownPayment, "GCash", Guid.NewGuid().ToString(), "synthetic-proof.png", true, true, q.FinalTotal, q.RequiredDownPayment, policyVersion: demo.Settings.PolicyVersion, travelReminderVersion: demo.Settings.TravelReminderVersion, latitude: 14.5547m, longitude: 121.0244m); }
     var managedBooking = Make(0); var payment = demo.Payments.Single(p => p.BookingId == managedBooking.Id); var total = managedBooking.Total; var duration = managedBooking.End - managedBooking.Start;
     Check(!flow.CanManageBooking(managedBooking, staff.Id) && flow.CanManageBooking(managedBooking, owner.Id), "mixed management fails closed for ordinary Admin; SuperAdmin permitted");
     Reject(() => flow.AdminAction(managedBooking, "verify", staff.Id, "", 0, ""), "ordinary Admin cannot verify mixed claims");
@@ -1708,6 +1706,7 @@ if (args.Contains("--mixed-pricing-only"))
     var softMixed = mixedStore.Services.Single(s => s.Name == "Soft Glam");
     var glamourMixed = mixedStore.Services.Single(s => s.Name == "Glamour Makeup");
     var bridalMixed = mixedStore.Services.Single(s => s.Name == "Bridal Makeup");
+    bridalMixed.MaxPerPackage = null; // price math only here; the 1-Bridal limit is checked in --flexible-booking-only
     var lashMixed = mixedStore.AddOns.Single(s => s.Name == "Lash application");
     var hairMixed = mixedStore.AddOns.Single(s => s.Name == "Hair styling");
     MixedPersonSelection[] threeMixed = [new(bridalMixed.Id, [lashMixed.Id]), new(glamourMixed.Id, [hairMixed.Id]), new(softMixed.Id, [])];
@@ -1716,10 +1715,12 @@ if (args.Contains("--mixed-pricing-only"))
     Check(mixed.GroupDiscount == 0 && mixed.DurationMinutes == 330 && mixed.RequiredDownPayment == 1950, "mixed group has no unapproved discount and sums sequential duration");
     var pair = mixedFlow.QuoteMixed(threeMixed.Take(2).ToArray());
     Check(pair.FinalTotal == 3300 && pair.DurationMinutes == 270, "two-person mixed pricing and duration");
+    mixedStore.Settings.AfterHoursEndHour = 22; // Phase 6: a quote must fit the artist's day, so give the five-person quote a late latest hour
     var fiveMixed = mixedFlow.QuoteMixed(Enumerable.Range(0, 5).Select(i => threeMixed[i % 3]).ToArray());
     Check(fiveMixed.People.Count == 5 && fiveMixed.FinalTotal == 7200 && fiveMixed.DurationMinutes == 600, "five-person mixed totals and duration");
-    var tenMixed = mixedFlow.QuoteMixed(Enumerable.Repeat(new MixedPersonSelection(bridalMixed.Id, [hairMixed.Id]), 10).ToArray());
-    Check(tenMixed.People.Count == 10 && tenMixed.FinalTotal == 23000 && tenMixed.DurationMinutes == 1650, "ten-person selection retains full duration without inventing availability");
+    var tenSelection = Enumerable.Repeat(new MixedPersonSelection(bridalMixed.Id, [hairMixed.Id]), 10).ToArray();
+    Reject(() => mixedFlow.QuoteMixed(tenSelection), "a ten-person package longer than the artist's day is refused at the quote");
+    mixedStore.Settings.AfterHoursEndHour = null;
     Reject(() => mixedFlow.QuoteMixed([new(Guid.Empty, []), threeMixed[1]]), "missing mixed service rejected");
     Reject(() => mixedFlow.QuoteMixed([new(Guid.NewGuid(), []), threeMixed[1]]), "unknown mixed service rejected");
     Reject(() => mixedFlow.QuoteMixed([new(softMixed.Id, [lashMixed.Id, lashMixed.Id]), threeMixed[1]]), "duplicate per-person add-on rejected");
@@ -1744,16 +1745,16 @@ if (args.Contains("--mixed-pricing-only"))
     Check(suggestions.Dates.Count == 3 && suggestions.Dates[0].Date == busyMixed.AddDays(2).ToString("yyyy-MM-dd") && suggestions.Dates.All(d => d.Slots.Any(s => s.Available)), "suggestions skip the blocked date and contain server-checked start times");
     var none = mixedFlow.FindMixedAlternatives(tenHourMixed, busyMixed, 1);
     Check(none.Dates.Count == 0 && none.DaysChecked == 1 && none.CheckedThrough == busyMixed.AddDays(1), "no results report the checked range without inventing dates");
-    Reject(() => mixedFlow.FindMixedAlternatives(tenMixed.People.Select(p => new MixedPersonSelection(p.Service.ItemId, p.AddOns.Select(a => a.ItemId).ToArray())).ToArray(), busyMixed, 3), "overlong selections cannot produce suggestions");
+    Reject(() => mixedFlow.FindMixedAlternatives(tenSelection, busyMixed, 3), "overlong selections cannot produce suggestions");
     var bookingDay = busyMixed.AddDays(12).AddHours(8);
     var claim = mixedFlow.QuoteMixed(threeMixed, bookingDay);
     var mixedCustomer = mixedStore.Users.First(u => u.Role == Roles.Customer);
-    Reject(() => mixedFlow.CreateMixed(mixedStore.Users.First(u => u.Role == Roles.Admin).Id, threeMixed, bookingDay, "Synthetic address", "Quezon City", claim.RequiredDownPayment, "GCash", "MIXED-ADMIN", "synthetic-proof.png", true, true, claim.FinalTotal, claim.RequiredDownPayment, policyVersion: mixedStore.Settings.PolicyVersion, travelReminderVersion: mixedStore.Settings.TravelReminderVersion), "mixed booking rejects a non-customer actor");
-    Reject(() => mixedFlow.CreateMixed(mixedCustomer.Id, threeMixed, bookingDay, "Synthetic address", "Quezon City", claim.RequiredDownPayment - 1, "GCash", "MIXED-LOW", "synthetic-proof.png", true, true, claim.FinalTotal, claim.RequiredDownPayment, policyVersion: mixedStore.Settings.PolicyVersion, travelReminderVersion: mixedStore.Settings.TravelReminderVersion), "mixed booking rejects payment below minimum");
-    Reject(() => mixedFlow.CreateMixed(mixedCustomer.Id, threeMixed, bookingDay, "Synthetic address", "Quezon City", claim.RequiredDownPayment, "GCash", "MIXED-NO-AGREEMENT", "synthetic-proof.png", false, true, claim.FinalTotal, claim.RequiredDownPayment, policyVersion: mixedStore.Settings.PolicyVersion, travelReminderVersion: mixedStore.Settings.TravelReminderVersion), "mixed booking rejects missing agreement");
+    Reject(() => mixedFlow.CreateMixed(mixedStore.Users.First(u => u.Role == Roles.Admin).Id, threeMixed, bookingDay, "Synthetic address", "Quezon City", claim.RequiredDownPayment, "GCash", "MIXED-ADMIN", "synthetic-proof.png", true, true, claim.FinalTotal, claim.RequiredDownPayment, policyVersion: mixedStore.Settings.PolicyVersion, travelReminderVersion: mixedStore.Settings.TravelReminderVersion, latitude: 14.5547m, longitude: 121.0244m), "mixed booking rejects a non-customer actor");
+    Reject(() => mixedFlow.CreateMixed(mixedCustomer.Id, threeMixed, bookingDay, "Synthetic address", "Quezon City", claim.RequiredDownPayment - 1, "GCash", "MIXED-LOW", "synthetic-proof.png", true, true, claim.FinalTotal, claim.RequiredDownPayment, policyVersion: mixedStore.Settings.PolicyVersion, travelReminderVersion: mixedStore.Settings.TravelReminderVersion, latitude: 14.5547m, longitude: 121.0244m), "mixed booking rejects payment below minimum");
+    Reject(() => mixedFlow.CreateMixed(mixedCustomer.Id, threeMixed, bookingDay, "Synthetic address", "Quezon City", claim.RequiredDownPayment, "GCash", "MIXED-NO-AGREEMENT", "synthetic-proof.png", false, true, claim.FinalTotal, claim.RequiredDownPayment, policyVersion: mixedStore.Settings.PolicyVersion, travelReminderVersion: mixedStore.Settings.TravelReminderVersion, latitude: 14.5547m, longitude: 121.0244m), "mixed booking rejects missing agreement");
     using (var mixedBarrier = new Barrier(2))
     {
-        var attemptsMixed = Enumerable.Range(0, 2).Select(i => Task.Run(() => { mixedBarrier.SignalAndWait(); try { return mixedFlow.CreateMixed(mixedCustomer.Id, threeMixed, bookingDay.AddMinutes(i * 15), "Synthetic address", "Quezon City", claim.RequiredDownPayment, "GCash", "MIXED-CLAIM-" + i, "synthetic-proof.png", true, true, claim.FinalTotal, claim.RequiredDownPayment, policyVersion: mixedStore.Settings.PolicyVersion, travelReminderVersion: mixedStore.Settings.TravelReminderVersion); } catch (InvalidOperationException) { return null; } })).ToArray();
+        var attemptsMixed = Enumerable.Range(0, 2).Select(i => Task.Run(() => { mixedBarrier.SignalAndWait(); try { return mixedFlow.CreateMixed(mixedCustomer.Id, threeMixed, bookingDay.AddMinutes(i * 15), "Synthetic address", "Quezon City", claim.RequiredDownPayment, "GCash", "MIXED-CLAIM-" + i, "synthetic-proof.png", true, true, claim.FinalTotal, claim.RequiredDownPayment, policyVersion: mixedStore.Settings.PolicyVersion, travelReminderVersion: mixedStore.Settings.TravelReminderVersion, latitude: 14.5547m, longitude: 121.0244m); } catch (InvalidOperationException) { return null; } })).ToArray();
         Task.WaitAll(attemptsMixed);
         var winner = attemptsMixed.Select(x => x.Result).OfType<Booking>().Single();
         Check(winner.MixedPeople.Count == 3 && winner.Total == claim.FinalTotal && (winner.End - winner.Start).TotalMinutes == claim.DurationMinutes, "mixed reservation preserves each service, total and duration");
@@ -1769,24 +1770,24 @@ if (args.Contains("--mixed-pricing-only"))
         var paymentStart = bookingDay.AddDays(index);
         var paymentQuote = mixedFlow.QuoteMixed(threeMixed, paymentStart);
         var paymentsBefore = mixedStore.Payments.Count;
-        Reject(() => mixedFlow.CreateMixed(mixedCustomer.Id, threeMixed, paymentStart, "Synthetic address", "Quezon City", amount, "GCash", "MIXED-AMOUNT-" + index, "synthetic-proof.png", true, true, paymentQuote.FinalTotal, paymentQuote.RequiredDownPayment, policyVersion: mixedStore.Settings.PolicyVersion, travelReminderVersion: mixedStore.Settings.TravelReminderVersion),
+        Reject(() => mixedFlow.CreateMixed(mixedCustomer.Id, threeMixed, paymentStart, "Synthetic address", "Quezon City", amount, "GCash", "MIXED-AMOUNT-" + index, "synthetic-proof.png", true, true, paymentQuote.FinalTotal, paymentQuote.RequiredDownPayment, policyVersion: mixedStore.Settings.PolicyVersion, travelReminderVersion: mixedStore.Settings.TravelReminderVersion, latitude: 14.5547m, longitude: 121.0244m),
             index == 1 ? "custom mixed payment is rejected; only the exact down payment is accepted" : "full mixed payment is rejected; only the exact down payment is accepted");
         Check(mixedStore.Payments.Count == paymentsBefore, "rejected mixed payment amount creates no payment");
     }
     var replayKey = Guid.NewGuid();
     var replayDay = bookingDay.AddDays(5);
-    var replayBooking = mixedFlow.CreateMixed(mixedCustomer.Id, threeMixed, replayDay, "Synthetic address", "Quezon City", claim.RequiredDownPayment, "GCash", "MIXED-REPLAY", "synthetic-proof.png", true, true, claim.FinalTotal, claim.RequiredDownPayment, replayKey, mixedStore.Settings.PolicyVersion, mixedStore.Settings.TravelReminderVersion);
-    var replayBookingAgain = mixedFlow.CreateMixed(mixedCustomer.Id, threeMixed, replayDay, "Synthetic address", "Quezon City", claim.RequiredDownPayment, "GCash", "MIXED-REPLAY", "synthetic-proof.png", true, true, claim.FinalTotal, claim.RequiredDownPayment, replayKey, mixedStore.Settings.PolicyVersion, mixedStore.Settings.TravelReminderVersion);
+    var replayBooking = mixedFlow.CreateMixed(mixedCustomer.Id, threeMixed, replayDay, "Synthetic address", "Quezon City", claim.RequiredDownPayment, "GCash", "MIXED-REPLAY", "synthetic-proof.png", true, true, claim.FinalTotal, claim.RequiredDownPayment, replayKey, mixedStore.Settings.PolicyVersion, mixedStore.Settings.TravelReminderVersion, latitude: 14.5547m, longitude: 121.0244m);
+    var replayBookingAgain = mixedFlow.CreateMixed(mixedCustomer.Id, threeMixed, replayDay, "Synthetic address", "Quezon City", claim.RequiredDownPayment, "GCash", "MIXED-REPLAY", "synthetic-proof.png", true, true, claim.FinalTotal, claim.RequiredDownPayment, replayKey, mixedStore.Settings.PolicyVersion, mixedStore.Settings.TravelReminderVersion, latitude: 14.5547m, longitude: 121.0244m);
     Check(replayBooking.Id == replayBookingAgain.Id && mixedStore.Payments.Count(p => p.BookingId == replayBooking.Id) == 1, "idempotent mixed replay returns one booking and payment");
-    Reject(() => mixedFlow.CreateMixed(mixedCustomer.Id, threeMixed, replayDay.AddDays(1), "Synthetic address", "Quezon City", claim.RequiredDownPayment, "GCash", "MIXED-NO-PROOF", null, true, true, claim.FinalTotal, claim.RequiredDownPayment, policyVersion: mixedStore.Settings.PolicyVersion, travelReminderVersion: mixedStore.Settings.TravelReminderVersion), "mixed service requires a stored proof");
+    Reject(() => mixedFlow.CreateMixed(mixedCustomer.Id, threeMixed, replayDay.AddDays(1), "Synthetic address", "Quezon City", claim.RequiredDownPayment, "GCash", "MIXED-NO-PROOF", null, true, true, claim.FinalTotal, claim.RequiredDownPayment, policyVersion: mixedStore.Settings.PolicyVersion, travelReminderVersion: mixedStore.Settings.TravelReminderVersion, latitude: 14.5547m, longitude: 121.0244m), "mixed service requires a stored proof");
     bridalMixed.Archived = true;
-    Reject(() => mixedFlow.CreateMixed(mixedCustomer.Id, threeMixed, replayDay.AddDays(1), "Synthetic address", "Quezon City", claim.RequiredDownPayment, "GCash", "MIXED-ARCHIVED", "synthetic-proof.png", true, true, claim.FinalTotal, claim.RequiredDownPayment, policyVersion: mixedStore.Settings.PolicyVersion, travelReminderVersion: mixedStore.Settings.TravelReminderVersion), "submission rechecks current catalog activation");
+    Reject(() => mixedFlow.CreateMixed(mixedCustomer.Id, threeMixed, replayDay.AddDays(1), "Synthetic address", "Quezon City", claim.RequiredDownPayment, "GCash", "MIXED-ARCHIVED", "synthetic-proof.png", true, true, claim.FinalTotal, claim.RequiredDownPayment, policyVersion: mixedStore.Settings.PolicyVersion, travelReminderVersion: mixedStore.Settings.TravelReminderVersion, latitude: 14.5547m, longitude: 121.0244m), "submission rechecks current catalog activation");
     bridalMixed.Archived = false;
     bridalMixed.Price = 1800; bridalMixed.Minutes = 150; lashMixed.Price = 400;
-    Reject(() => mixedFlow.CreateMixed(mixedCustomer.Id, threeMixed, replayDay.AddDays(1), "Synthetic address", "Quezon City", claim.RequiredDownPayment, "GCash", "MIXED-PRICE-CHANGED", "synthetic-proof.png", true, true, claim.FinalTotal, claim.RequiredDownPayment, policyVersion: mixedStore.Settings.PolicyVersion, travelReminderVersion: mixedStore.Settings.TravelReminderVersion), "submission refuses an obsolete catalog quote");
+    Reject(() => mixedFlow.CreateMixed(mixedCustomer.Id, threeMixed, replayDay.AddDays(1), "Synthetic address", "Quezon City", claim.RequiredDownPayment, "GCash", "MIXED-PRICE-CHANGED", "synthetic-proof.png", true, true, claim.FinalTotal, claim.RequiredDownPayment, policyVersion: mixedStore.Settings.PolicyVersion, travelReminderVersion: mixedStore.Settings.TravelReminderVersion, latitude: 14.5547m, longitude: 121.0244m), "submission refuses an obsolete catalog quote");
     Check(replayBooking.Total == claim.FinalTotal && replayBooking.MixedSubmission!.ClaimedAmount == claim.RequiredDownPayment && replayBooking.MixedSubmission.Total == claim.FinalTotal && replayBooking.MixedSubmission.BufferMinutes == 45, "booking and immutable submission snapshot survive catalog changes");
     Check(mixed.People[0].Service.Price == 1500 && mixed.People[0].Service.Minutes == 120 && mixed.People[0].AddOns[0].Price == 250 && mixed.FinalTotal == 3900, "mixed quote snapshots survive later catalog changes");
-    Console.WriteLine($"All {checks} mixed pricing and reservation checks passed; persistent mixed bookings remain unavailable."); return;
+    Console.WriteLine($"All {checks} mixed pricing and reservation checks passed."); return;
 }
 if (args.Contains("--late-fees-only"))
 {
@@ -1939,6 +1940,29 @@ if (args.Contains("--flexible-booking-only"))
     Check(late is { AfterHours: true, Status: "Pending Payment" } && late.Total == flow.Quote(bridal.Id, [], 1, "auto", day.AddHours(17)).FinalTotal,
         "a regular booking ending after closing is after-hours and its total has no after-hours fee");
     Check(flow.Quote(soft.Id, [], 10, "group").DurationMinutes == 600, "ten Soft Glam people fit once the latest hour is 10 PM");
+
+    // Task 4: mixed packages (1 Bridal + 2 Soft Glam + 3 Glamour) with the admin's per-service limit.
+    var glam = demo.Services.First(x => x.Name == "Glamour Makeup");
+    MixedPersonSelection P(CatalogItem service) => new(service.Id, []);
+    var package = new[] { P(bridal), P(soft), P(soft), P(glam), P(glam), P(glam) };
+    var mixedQuote = flow.QuoteMixed(package);
+    Check(mixedQuote.FinalTotal == bridal.Price + 2 * soft.Price + 3 * glam.Price && mixedQuote.DurationMinutes == bridal.Minutes + 2 * soft.Minutes + 3 * glam.Minutes
+          && mixedQuote.RequiredDownPayment == Money.Percentage(mixedQuote.FinalTotal, demo.Settings.DownPaymentPercent),
+        "a mixed package costs each person's regular price, takes the summed time and asks the usual down payment");
+    string Refusal(Action action) { try { action(); } catch (InvalidOperationException e) { return e.Message; } return ""; }
+    Check(Refusal(() => flow.QuoteMixed([P(bridal), P(bridal), P(soft)])) == "Only 1 Bridal Makeup is allowed per package booking.", "the quote refuses two Bridal in one package");
+    Booking BookPackage(DateTime start, MixedPersonSelection[] people, decimal? lat, decimal? lng, string reference)
+    {
+        var q = flow.QuoteMixed(people, start);
+        return flow.CreateMixed(flexCustomer.Id, people, start, "24 Synthetic Street", "Quezon City", q.RequiredDownPayment, "GCash", reference, "synthetic-proof.png", true, true,
+            q.FinalTotal, q.RequiredDownPayment, null, demo.Settings.PolicyVersion, demo.Settings.TravelReminderVersion, latitude: lat, longitude: lng);
+    }
+    var packageDay = day.AddDays(1);
+    Check(Refusal(() => BookPackage(packageDay.AddHours(9), package, null, null, "FLEX-PKG-0")) == BookingLocation.Message, "a package needs the customer's pin");
+    Check(Refusal(() => BookPackage(packageDay.AddHours(9), [P(bridal), P(bridal)], 14.5547m, 121.0244m, "FLEX-PKG-1")) == "Only 1 Bridal Makeup is allowed per package booking.",
+        "creating a package with two Bridal is refused, not only the quote");
+    var earlyPackage = BookPackage(packageDay.AddHours(4), package, 14.5547m, 121.0244m, "FLEX-PKG-2");
+    Check(earlyPackage is { Status: "Awaiting Approval", IsEarlyRequest: true } && earlyPackage.MixedPeople.Count == 6, "a package at an early time is an early request with six people");
     Console.WriteLine($"All {checks} flexible booking checks passed."); return;
 }
 if (args.Contains("--travel-rule-only"))
@@ -2136,10 +2160,10 @@ if (args.Contains("--travel-form-only"))
     Check(Web("wwwroot", "js", "booking-location.js").Contains("booking-location-changed"), "the pin map announces booking-location-changed");
     Check(site.Contains("'booking-location-changed'") && site.Contains("refresh("), "the calendar reloads availability when the pin changes");
     var controller = Web("Controllers", "BookingsController.cs");
-    Check(controller.Split("Times include travel from the artist's other appointments that day.").Length - 1 == 2, "the single-booking slot validation messages use the new travel copy");
+    Check(controller.Split("Times include travel from the artist's other appointments that day.").Length - 1 == 3, "the single-booking and package slot validation messages use the new travel copy");
     var mixedValidate = controller[controller.IndexOf("MixedValidateSlot", StringComparison.Ordinal)..];
     mixedValidate = mixedValidate[..mixedValidate.IndexOf("[HttpGet", StringComparison.Ordinal)];
-    Check(mixedValidate.Contains("Travel feasibility has not yet been verified.") && !mixedValidate.Contains("Times include travel"), "the mixed slot message keeps its accurate wording (mixed bookings are not travel-checked)");
+    Check(mixedValidate.Contains("Travel feasibility has not yet been verified.") && mixedValidate.Contains("request.Latitude.HasValue ? \"Available for request at this moment. Times include travel"), "the mixed slot message mentions travel only when the package is pinned");
     var mixedBlock = create[create.IndexOf("id=\"mixed-calendar\"", StringComparison.Ordinal)..];
     mixedBlock = mixedBlock[..mixedBlock.IndexOf("</section>", StringComparison.Ordinal)];
     Check(mixedBlock.Contains("Travel feasibility has not yet been verified.") && !mixedBlock.Contains("Times include travel"), "the mixed calendar block keeps its accurate wording");

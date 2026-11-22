@@ -67,7 +67,6 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
     // Demo-only pricing; persistent booking remains separately guarded.
     public MixedBookingQuote QuoteMixed(IReadOnlyList<MixedPersonSelection>? people, DateTime? start = null)
     {
-        if (store.IsPersistent) throw new InvalidOperationException("Mixed-service bookings are not available in persistent storage.");
         lock (store.Gate)
         {
             if (people == null || people.Count is < 2 or > BookingPricing.MaximumPeople)
@@ -90,8 +89,11 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             var duration = checked(snapshots.Sum(p => p.DurationMinutes));
             var serviceTotal = snapshots.Sum(p => p.Service.Price);
             var addonTotal = snapshots.Sum(p => p.AddOns.Sum(a => a.Price));
-            var early = start.HasValue ? EarlyFeeAt(start.Value, store.Settings) : 0;
-            var late = start.HasValue ? LateFeeAt(start.Value, duration, store.Settings) : 0;
+            // Phase 6: the admin's per-service package limits, and the whole package must fit the bookable day.
+            if (PackageRules.Check(snapshots.Select(p => services.Services.First(s => s.Id == p.Service.ItemId)).ToList()) is { } refused) throw new InvalidOperationException(refused);
+            RequireFitsInDay("this package", snapshots.Count, duration);
+            var early = start.HasValue && !store.IsPersistent ? EarlyFeeAt(start.Value, store.Settings) : 0;
+            var late = start.HasValue && !store.IsPersistent ? LateFeeAt(start.Value, duration, store.Settings) : 0;
             var total = serviceTotal + addonTotal + early + late;
             return new MixedBookingQuote(snapshots.AsReadOnly(), serviceTotal, addonTotal, 0, early, late, total,
                 Money.Percentage(total, store.Settings.DownPaymentPercent), store.Settings.DownPaymentPercent, duration);
@@ -303,8 +305,8 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
     public AvailabilityCalendar GetAvailability(DateTime month, int duration, Guid? exclude = null, decimal? latitude = null, decimal? longitude = null, CancellationToken cancellationToken = default) =>
         BuildAvailability(month, duration, exclude, true, latitude, longitude, cancellationToken);
     // Mixed-service bookings (Demo only) carry no pin: service and preparation time only.
-    public AvailabilityCalendar GetMixedAvailability(DateTime month, int duration, CancellationToken cancellationToken = default) =>
-        BuildAvailability(month, duration, null, false, null, null, cancellationToken);
+    public AvailabilityCalendar GetMixedAvailability(DateTime month, int duration, decimal? latitude = null, decimal? longitude = null, CancellationToken cancellationToken = default) =>
+        BuildAvailability(month, duration, null, latitude.HasValue || longitude.HasValue, latitude, longitude, cancellationToken);
     private AvailabilityCalendar BuildAvailability(DateTime month, int duration, Guid? exclude, bool travel, decimal? latitude, decimal? longitude, CancellationToken cancellationToken)
     {
         lock (store.Gate)
@@ -594,8 +596,17 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             Notify(b, $"{action}: {b.Status}. {b.Note}", actor);
         }
     }
-    public Booking CreateMixed(Guid userId, IReadOnlyList<MixedPersonSelection>? people, DateTime start, string address, string? area, decimal deposit, string method, string? reference, string? proof, bool agreed, bool travelAcknowledged, decimal expectedTotal, decimal expectedMinimum, Guid? submissionId = null, string? policyVersion = null, string? travelReminderVersion = null, string? imageFingerprint = null)
+    public Booking CreateMixed(Guid userId, IReadOnlyList<MixedPersonSelection>? people, DateTime start, string address, string? area, decimal deposit, string method, string? reference, string? proof, bool agreed, bool travelAcknowledged, decimal expectedTotal, decimal expectedMinimum, Guid? submissionId = null, string? policyVersion = null, string? travelReminderVersion = null, string? imageFingerprint = null, decimal? latitude = null, decimal? longitude = null)
     {
+        // Phase 6: every package needs the customer's pin; the live site stores it as one mixed booking.
+        if (!BookingLocation.IsValid(latitude, longitude)) throw new InvalidOperationException(BookingLocation.Message);
+        if (store is PublicStudioStore live)
+        {
+            var liveQuote = QuoteMixed(people, start);
+            return live.SubmitPackage(userId, people!, start, address, area ?? "", deposit, method, reference ?? "", agreed, travelAcknowledged,
+                expectedTotal, expectedMinimum, latitude!.Value, longitude!.Value);
+        }
+        // Only the live store can save a package; other databases keep refusing rather than writing to memory.
         if (store.IsPersistent) throw new InvalidOperationException("Mixed-service bookings are not available in persistent storage.");
         lock (store.Gate)
         {
@@ -622,12 +633,13 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             if (string.IsNullOrWhiteSpace(address) || address.Length < 8 || address.Length > 500) throw new InvalidOperationException("Enter your complete home-service address (8–500 characters).");
             if (!store.Settings.ServiceAreas.Split(',').Any(x => x.Trim().Equals(area, StringComparison.OrdinalIgnoreCase)) || area is null) throw new InvalidOperationException("The address must be within our service area.");
             var quote = QuoteMixed(people, start);
-            var calendar = GetMixedAvailability(start, quote.DurationMinutes);
+            var calendar = GetMixedAvailability(start, quote.DurationMinutes, latitude, longitude);
             if (!calendar.Days.SelectMany(d => d.Slots).Any(s => s.Start == start.ToString("yyyy-MM-ddTHH:mm") && s.Available)
                 || start.Ticks % TimeSpan.TicksPerMinute != 0)
                 throw new InvalidOperationException("This makeup start time is no longer available. Choose another available time.");
             if (expectedTotal != quote.FinalTotal || expectedMinimum != quote.RequiredDownPayment) throw new InvalidOperationException("The booking price or minimum payment changed. Please review the updated quote before submitting.");
             CheckSlot(start, quote.DurationMinutes);
+            if (!TravelFits(store, start, quote.DurationMinutes, store.Settings.BufferMinutes, latitude, longitude, null)) throw new InvalidOperationException(TravelPlanner.RefusalMessage);
             Money.RequireExactDeposit(deposit, quote.RequiredDownPayment);
             if (method == "Cash") throw new InvalidOperationException("Use GCash, Maya or Bank Transfer for your down payment.");
             CheckReference(method, reference);
@@ -642,8 +654,11 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
                 EarlyFeeSnapshot = quote.EarlyFee, LateFeeSnapshot = quote.LateFee, TransportationPolicyAcknowledgedAt = store.Now,
                 People = quote.People.Count, Package = "group", DownPaymentPercentSnapshot = quote.DownPaymentPercent,
                 // The customer already submitted a payment claim, so the booking waits for review without a deadline.
-                RequiredDownPaymentSnapshot = quote.RequiredDownPayment
+                RequiredDownPaymentSnapshot = quote.RequiredDownPayment,
+                Latitude = latitude, Longitude = longitude,
+                AfterHours = BookingWindow.IsAfterHours(start, quote.DurationMinutes, store.Settings)
             };
+            if (KindFor(start, store.Settings) == SlotKind.Early) { booking.IsEarlyRequest = true; booking.Status = EarlyRequestStatus; }
             bookings.Bookings.Add(booking);
             payments.Payments.Add(new() { BookingId = booking.Id, Amount = deposit, Method = method, Reference = reference.Trim(), ProofPath = proof });
             Notify(booking, "Booking submitted. Your payment and appointment are awaiting review.", userId);

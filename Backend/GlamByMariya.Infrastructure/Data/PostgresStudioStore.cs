@@ -72,15 +72,20 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
             .Select(b => new TravelAppointment(b.Start, b.End, b.BufferMinutesSnapshot ?? Settings.BufferMinutes, b.Latitude, b.Longitude))
             .Where(s => s.Start < until && s.End > from).OrderBy(s => s.End).ToList();
     public virtual Booking? FindBooking(Guid id) => LoadBookings(VisibleBookings.Where(b => b.Id == id)).SingleOrDefault();
+    // Mixed package people (public schema only, Phase 6); the legacy makeup schema has none.
+    protected virtual IReadOnlyDictionary<Guid, IReadOnlyList<MixedPersonQuote>> PackagePeople(IReadOnlyCollection<Guid> bookingIds) =>
+        new Dictionary<Guid, IReadOnlyList<MixedPersonQuote>>();
     private List<Booking> LoadBookings(IQueryable<BookingRow> query)
     {
             var rows = query.ToList();
             var ids = rows.Select(x => x.Id).ToArray();
             var extras = db.Set<BookingAddonRow>().AsNoTracking().Where(x => ids.Contains(x.BookingId)).ToList().ToLookup(x => x.BookingId);
             var quantityLines = PreparedPersistentBooking.Enabled ? PreparedPersistentBooking.ReadLines(db, ids, db is PublicMakeupDbContext) : null;
+            var package = PackagePeople(ids);
             var transfers = (from c in db.Set<ClosureRow>() join r in db.Set<RefundRow>() on c.Id equals r.ClosureId
                 where ids.Contains(c.BookingId) orderby r.SentAt descending select new { c.BookingId,r.TransferReference }).ToList().ToLookup(x=>x.BookingId);
             return rows.Select(b => new Booking { Id=b.Id,StoredReference=b.Reference,CustomerId=b.CustomerId,CustomerName=b.CustomerNameSnapshot,
+                MixedPeople=package.GetValueOrDefault(b.Id) ?? Array.Empty<MixedPersonQuote>(),
                 Service=new(b.ServiceId,b.ServiceNameSnapshot,b.RegularPriceSnapshot,b.ServiceMinutesSnapshot),
                 AddOns=quantityLines != null ? quantityLines.GetValueOrDefault(b.Id) ?? [] : extras[b.Id].Select(a=>new PriceSnapshot(a.AddonId,a.NameSnapshot,a.PriceSnapshot,a.MinutesSnapshot)).ToList(),
                 Start=Local(b.StartsAt),BufferMinutesSnapshot=b.BufferMinutesSnapshot,People=b.People,Package=b.BookingType=="package"?"group":"auto",

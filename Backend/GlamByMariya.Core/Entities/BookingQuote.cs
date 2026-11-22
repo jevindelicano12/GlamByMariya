@@ -24,9 +24,10 @@ public record MixedBookingQuote(IReadOnlyList<MixedPersonQuote> People, decimal 
     decimal GroupDiscount, decimal EarlyFee, decimal LateFee, decimal FinalTotal, decimal RequiredDownPayment,
     decimal DownPaymentPercent, int DurationMinutes);
 public record MixedDateAlternatives(IReadOnlyList<AvailableDate> Dates, DateTime CheckedThrough, int DaysChecked);
-public record MixedAvailabilityRequest(MixedPersonSelection[] People, string Month);
+// Phase 6: packages carry the customer's pin so times include the artist's travel.
+public record MixedAvailabilityRequest(MixedPersonSelection[] People, string Month, decimal? Latitude = null, decimal? Longitude = null);
 public record MixedAlternativesRequest(MixedPersonSelection[] People, string After);
-public record MixedSlotRequest(MixedPersonSelection[] People, string Start);
+public record MixedSlotRequest(MixedPersonSelection[] People, string Start, decimal? Latitude = null, decimal? Longitude = null);
 public record MixedSubmissionSnapshot(int BufferMinutes, decimal EarlyFee, decimal LateFee,
     decimal Total, decimal Minimum, decimal ClaimedAmount, string Method, string Reference, DateTime SubmittedAt,
     string PolicyVersion, string TravelReminderVersion, string RequestFingerprint);

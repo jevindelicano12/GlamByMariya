@@ -20,7 +20,7 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
     {
         var corrected = payments.Where(p => p.ReviewStatus == "Correction Requested").Select(p => p.BookingId).ToHashSet();
         return bookings.Where(b => b.Status == "Pending Payment" && corrected.Contains(b.Id) &&
-            !(store.IsPersistent && b.MixedPeople.Count > 0) && workflow.CanManageBooking(b, UserId))
+            workflow.CanManageBooking(b, UserId))
             .Select(b => b.Id).ToHashSet();
     }
 
@@ -128,7 +128,6 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
         {
             var b = store.FindBooking(id); if (b == null) return NotFound();
             if (!workflow.CanManageBooking(b, UserId)) return Forbid();
-            if (store.IsPersistent && b.MixedPeople.Count > 0) return NotFound();
             ViewBag.TravelFits = RescheduleTravelFits(b); ViewBag.Paid = workflow.Paid(b); ViewBag.Payments = store is IPersistentStudioStore persistent ? persistent.ReviewPayments(id) : store.Payments.Where(p => p.BookingId == id).ToList(); return View(b);
         }
     }
@@ -139,7 +138,6 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
         {
             var b = store.FindBooking(id); if (b == null) return NotFound();
             if (!workflow.CanManageBooking(b, UserId)) return Forbid();
-            if (store.IsPersistent && b.MixedPeople.Count > 0) return NotFound();
             try
             {
                 if (operation == "verify" && !store.IsPersistent && b.MixedPeople.Count == 0 &&
@@ -194,7 +192,6 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
             var booking = store.FindBooking(p.BookingId);
             if (booking == null || (bookingId.HasValue && bookingId != booking.Id)) return NotFound();
             if (!workflow.CanManageBooking(booking, UserId)) return Forbid();
-            if (store.IsPersistent && booking.MixedPeople.Count > 0) return NotFound();
             if (p.ProofKey != null && store is IPersistentStudioStore persistent)
             {
                 var current = persistent.ReviewPayments(booking.Id).SingleOrDefault(x => x.Id == id);

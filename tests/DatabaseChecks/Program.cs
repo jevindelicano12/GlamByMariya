@@ -762,6 +762,32 @@ if (Run("--flexible"))
     Check(evening is { Status: "Pending Payment", AfterHours: true, IsEarlyRequest: false }, "the store flags a session ending after closing as after-hours");
     var flags = await Scalar($"SELECT is_early_request::text||'/'||after_hours::text FROM public.mvc_booking_summary WHERE id='{second.Id}'");
     Check((string)flags! == "true/false", $"the booking summary shows the request and after-hours flags ({flags})");
+    // Task 4: a mixed package (1 Bridal + 2 Soft Glam + 3 Glamour) on the live schema.
+    var bridal = App().Services.Single(x => x.Name == "Bridal Makeup");
+    var glam = App().Services.Single(x => x.Name == "Glamour Makeup");
+    var package = new[] { bridal, soft, soft, glam, glam, glam }.Select(x => new GlamByMariya.Core.Entities.MixedPersonSelection(x.Id, Array.Empty<Guid>())).ToArray();
+    var packageTotal = bridal.Price + 2 * soft.Price + 3 * glam.Price;
+    var packageMinutes = bridal.Minutes + 2 * soft.Minutes + 3 * glam.Minutes;
+    var packageDeposit = GlamByMariya.Core.Entities.Money.Percentage(packageTotal, App().Settings.DownPaymentPercent);
+    var packageDay = DateTime.Today.AddDays(6);
+    var mixed = App().SubmitPackage(customer.Id, package, packageDay.AddHours(9), "24 Synthetic Street, Quezon City", "Quezon City", packageDeposit, "Xendit", "XENDIT-PACKAGE-1",
+        true, true, packageTotal, packageDeposit, 14.5547m, 121.0244m);
+    var stored = App().FindBooking(mixed.Id)!;
+    Check(stored.MixedPeople.Count == 6 && stored.Total == packageTotal && (stored.End - stored.Start).TotalMinutes == packageMinutes,
+        $"a mixed package stores six people, the summed total and duration ({stored.MixedPeople.Count}, {stored.Total}, {(stored.End - stored.Start).TotalMinutes})");
+    Check((string)(await Scalar($"SELECT booking_type FROM public.reservations WHERE app_id='{mixed.Id}'"))! == "mixed", "the package is saved as a mixed booking");
+    var twoBridal = "";
+    try { App().SubmitPackage(customer.Id, [package[0], package[0], package[1]], packageDay.AddHours(15), "24 Synthetic Street, Quezon City", "Quezon City", packageDeposit, "Xendit", "XENDIT-PACKAGE-2",
+        true, true, packageTotal, packageDeposit, 14.5547m, 121.0244m); }
+    catch (InvalidOperationException e) { twoBridal = e.Message; }
+    Check(twoBridal == "Only 1 Bridal Makeup is allowed per package booking.", $"the store refuses two Bridal in one package ({twoBridal})");
+    var sneak = await State($"""
+        BEGIN;
+        INSERT INTO public.reservation_people(reservation_id, position, service_id, service_name_snapshot, price_snapshot, minutes_snapshot)
+        SELECT r.id, 7, s.id, s.name, s.price, s.duration_minutes FROM public.reservations r, public.services s WHERE r.app_id='{mixed.Id}' AND s.name='Bridal Makeup';
+        COMMIT;
+        """);
+    Check(sneak.Contains("package"), $"the database refuses a person added outside the booking (second Bridal) ({sneak})");
     Console.WriteLine($"All {checks - before} flexible booking database checks passed.");
 }
 

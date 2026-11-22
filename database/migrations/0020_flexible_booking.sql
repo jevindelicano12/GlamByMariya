@@ -24,7 +24,10 @@ CREATE OR REPLACE VIEW public.mvc_services WITH(security_invoker=true) AS SELECT
 
 ALTER TABLE public.reservations
   ADD COLUMN IF NOT EXISTS is_early_request boolean NOT NULL DEFAULT false,
-  ADD COLUMN IF NOT EXISTS after_hours boolean NOT NULL DEFAULT false;
+  ADD COLUMN IF NOT EXISTS after_hours boolean NOT NULL DEFAULT false,
+  -- A mixed package (booking_type mixed) carries its summed price and minutes; reservation_people must agree.
+  ADD COLUMN IF NOT EXISTS package_total_snapshot numeric(14,2),
+  ADD COLUMN IF NOT EXISTS package_minutes_snapshot int;
 ALTER TABLE public.reservations DROP CONSTRAINT IF EXISTS reservations_status_check;
 ALTER TABLE public.reservations ADD CONSTRAINT reservations_status_check CHECK(status IN
  ('Pending','Pending Payment','Awaiting Approval','Confirmed','InProgress','Completed','Cancelled','Rejected','NoShow','No-show','Incomplete','Expired'));
@@ -49,6 +52,10 @@ CREATE INDEX IF NOT EXISTS ix_reservation_people_reservation ON public.reservati
 CREATE INDEX IF NOT EXISTS ix_reservation_people_addons_person ON public.reservation_people_addons(person_id);
 ALTER TABLE public.reservation_people ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.reservation_people_addons ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS mvc_backend ON public.reservation_people;
+CREATE POLICY mvc_backend ON public.reservation_people TO makeup_backend USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS mvc_backend ON public.reservation_people_addons;
+CREATE POLICY mvc_backend ON public.reservation_people_addons TO makeup_backend USING (true) WITH CHECK (true);
 REVOKE ALL ON public.reservation_people, public.reservation_people_addons FROM PUBLIC, anon, authenticated;
 GRANT SELECT, INSERT ON public.reservation_people, public.reservation_people_addons TO makeup_backend;
 GRANT USAGE, SELECT ON SEQUENCE public.reservation_people_id_seq, public.reservation_people_addons_id_seq TO makeup_backend;
@@ -112,7 +119,8 @@ BEGIN
   SELECT * INTO STRICT svc FROM public.services WHERE id=NEW.service_id AND is_active AND NOT is_archived;
   SELECT * INTO STRICT coverage FROM public.service_areas WHERE id=NEW.area_id AND is_active;
   IF NOT EXISTS(SELECT 1 FROM public.customers WHERE id=NEW.customer_id AND is_active) THEN RAISE EXCEPTION 'An active customer is required'; END IF;
-  IF NEW.people NOT BETWEEN 1 AND 20 OR NEW.booking_type NOT IN ('individual','package') OR (NEW.booking_type='individual' AND NEW.people<>1)
+  IF NEW.people NOT BETWEEN 1 AND 20 OR NEW.booking_type NOT IN ('individual','package','mixed') OR (NEW.booking_type='individual' AND NEW.people<>1)
+  OR (NEW.booking_type='mixed' AND (NEW.people<2 OR NEW.package_total_snapshot IS NULL OR NEW.package_total_snapshot<=0 OR NEW.package_minutes_snapshot IS NULL OR NEW.package_minutes_snapshot<=0))
   OR (NEW.booking_type='package' AND svc.group_price IS NULL) THEN RAISE EXCEPTION 'Invalid party size or package selection'; END IF;
   IF NEW.policy_accepted_at IS NULL OR NEW.travel_reminder_acknowledged_at IS NULL OR NEW.policy_version IS DISTINCT FROM s.policy_version
   OR NEW.travel_reminder_version IS DISTINCT FROM s.travel_reminder_version THEN RAISE EXCEPTION 'Accept the current policies and travel fee reminder'; END IF;
@@ -124,8 +132,8 @@ BEGIN
   NEW.buffer_minutes_snapshot:=s.buffer_minutes;NEW.time_zone_snapshot:=s.time_zone;NEW.travel_fee_informational_snapshot:=0;
   NEW.area_name_snapshot:=coverage.name;
   IF NEW.addons_total_snapshot<0 OR NEW.addons_minutes_snapshot<0 THEN RAISE EXCEPTION 'Invalid extras quote'; END IF;
-  NEW.total_price:=NEW.applied_price_per_person*NEW.people+NEW.addons_total_snapshot;
-  NEW.end_at:=NEW.start_at+make_interval(mins=>NEW.service_minutes_snapshot*NEW.people+NEW.addons_minutes_snapshot);
+  NEW.total_price:=CASE WHEN NEW.booking_type='mixed' THEN NEW.package_total_snapshot ELSE NEW.applied_price_per_person*NEW.people END+NEW.addons_total_snapshot;
+  NEW.end_at:=NEW.start_at+make_interval(mins=>CASE WHEN NEW.booking_type='mixed' THEN NEW.package_minutes_snapshot ELSE NEW.service_minutes_snapshot*NEW.people END+NEW.addons_minutes_snapshot);
   NEW.reserved_until:=NEW.end_at+make_interval(mins=>NEW.buffer_minutes_snapshot);
   IF NOT NEW.is_early_request THEN PERFORM public.mvc_check_slot(NEW.artist_id,NEW.start_at,NEW.end_at,NEW.buffer_minutes_snapshot,NULL); END IF;
  END IF;
@@ -134,12 +142,12 @@ BEGIN
    NEW.regular_price_snapshot,NEW.applied_price_per_person,NEW.people,NEW.booking_type,NEW.service_name_snapshot,NEW.service_minutes_snapshot,
    NEW.group_price_snapshot,NEW.group_minimum_snapshot,NEW.addons_total_snapshot,NEW.addons_minutes_snapshot,NEW.buffer_minutes_snapshot,
    NEW.area_id,NEW.area_name_snapshot,NEW.travel_fee_informational_snapshot,NEW.policy_accepted_at,NEW.policy_version,
-   NEW.travel_reminder_acknowledged_at,NEW.travel_reminder_version,NEW.time_zone_snapshot,NEW.customer_name_snapshot)
+   NEW.travel_reminder_acknowledged_at,NEW.travel_reminder_version,NEW.time_zone_snapshot,NEW.customer_name_snapshot,NEW.package_total_snapshot,NEW.package_minutes_snapshot)
   IS DISTINCT FROM ROW(OLD.app_id,OLD.app_managed,OLD.customer_id,OLD.artist_id,OLD.service_id,OLD.reference,OLD.location,OLD.total_price,
    OLD.regular_price_snapshot,OLD.applied_price_per_person,OLD.people,OLD.booking_type,OLD.service_name_snapshot,OLD.service_minutes_snapshot,
    OLD.group_price_snapshot,OLD.group_minimum_snapshot,OLD.addons_total_snapshot,OLD.addons_minutes_snapshot,OLD.buffer_minutes_snapshot,
    OLD.area_id,OLD.area_name_snapshot,OLD.travel_fee_informational_snapshot,OLD.policy_accepted_at,OLD.policy_version,
-   OLD.travel_reminder_acknowledged_at,OLD.travel_reminder_version,OLD.time_zone_snapshot,OLD.customer_name_snapshot) THEN RAISE EXCEPTION 'Historical booking identities, prices, location and consent are immutable'; END IF;
+   OLD.travel_reminder_acknowledged_at,OLD.travel_reminder_version,OLD.time_zone_snapshot,OLD.customer_name_snapshot,OLD.package_total_snapshot,OLD.package_minutes_snapshot) THEN RAISE EXCEPTION 'Historical booking identities, prices, location and consent are immutable'; END IF;
   IF NEW.start_at<>OLD.start_at THEN
    IF NOT EXISTS(SELECT 1 FROM public.reschedule_requests WHERE reservation_id=OLD.id AND status='Approved' AND original_start=OLD.start_at AND requested_start=NEW.start_at)
    THEN RAISE EXCEPTION 'An approved reschedule request is required'; END IF;
@@ -238,3 +246,37 @@ BEGIN
  END IF;
  RETURN NEW;
 END $$;
+
+-- A mixed package's people must agree with the booking at commit: count, summed price and minutes
+-- (service + per-person add-ons), and each service's per-package limit (e.g. one Bridal Makeup).
+-- Only a mixed booking may have package people.
+CREATE OR REPLACE FUNCTION public.mvc_package_integrity() RETURNS trigger LANGUAGE plpgsql SET search_path=public,pg_catalog AS $$
+DECLARE rid bigint; r public.reservations%ROWTYPE; n int; total numeric; minutes int; over record;
+BEGIN
+ IF TG_TABLE_NAME='reservations' THEN rid:=NEW.id;
+ ELSIF TG_TABLE_NAME='reservation_people' THEN rid:=NEW.reservation_id;
+ ELSE SELECT reservation_id INTO rid FROM public.reservation_people WHERE id=NEW.person_id; END IF;
+ SELECT * INTO STRICT r FROM public.reservations WHERE id=rid;
+ IF r.booking_type<>'mixed' THEN
+  IF EXISTS(SELECT 1 FROM public.reservation_people WHERE reservation_id=rid) THEN RAISE EXCEPTION 'Only a mixed package booking can list package people'; END IF;
+  RETURN NULL;
+ END IF;
+ SELECT count(*), coalesce(sum(p.price_snapshot+coalesce(a.price,0)),0), coalesce(sum(p.minutes_snapshot+coalesce(a.minutes,0)),0)
+   INTO n, total, minutes
+   FROM public.reservation_people p
+   LEFT JOIN (SELECT person_id, sum(price_snapshot) AS price, sum(minutes_snapshot) AS minutes FROM public.reservation_people_addons GROUP BY person_id) a ON a.person_id=p.id
+  WHERE p.reservation_id=rid;
+ IF n<>r.people OR total<>r.package_total_snapshot OR minutes<>r.package_minutes_snapshot THEN
+  RAISE EXCEPTION 'The package people disagree with the booking'; END IF;
+ SELECT s.name, s.max_per_package INTO over FROM public.reservation_people p JOIN public.services s ON s.id=p.service_id
+  WHERE p.reservation_id=rid GROUP BY s.name, s.max_per_package HAVING s.max_per_package IS NOT NULL AND count(*)>s.max_per_package LIMIT 1;
+ IF FOUND THEN RAISE EXCEPTION 'Only % % allowed per package booking', over.max_per_package, over.name; END IF;
+ RETURN NULL;
+END $$;
+DROP TRIGGER IF EXISTS mvc_package_integrity ON public.reservations;
+CREATE CONSTRAINT TRIGGER mvc_package_integrity AFTER INSERT OR UPDATE ON public.reservations DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.mvc_package_integrity();
+DROP TRIGGER IF EXISTS mvc_package_integrity ON public.reservation_people;
+CREATE CONSTRAINT TRIGGER mvc_package_integrity AFTER INSERT OR UPDATE ON public.reservation_people DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.mvc_package_integrity();
+DROP TRIGGER IF EXISTS mvc_package_integrity ON public.reservation_people_addons;
+CREATE CONSTRAINT TRIGGER mvc_package_integrity AFTER INSERT OR UPDATE ON public.reservation_people_addons DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.mvc_package_integrity();
+REVOKE ALL ON FUNCTION public.mvc_package_integrity() FROM PUBLIC, anon, authenticated;

@@ -490,6 +490,97 @@ public sealed class PublicStudioStore(
         return created ?? throw new InvalidOperationException("Could not create the booking. Please retry.");
     }
 
+    // Phase 6: one booking for a mixed package (e.g. 1 Bridal + 2 Soft Glam + 3 Glamour). Each person pays
+    // their service's regular price plus add-ons; the admin's per-package limits apply (checked here and
+    // again by the database at commit). Same locks, travel rule and early/after-hours rules as SubmitBooking.
+    public Booking SubmitPackage(Guid customer, IReadOnlyList<MixedPersonSelection> people, DateTime start, string address, string area,
+        decimal deposit, string method, string reference, bool agreed, bool travelAcknowledged, decimal expectedTotal, decimal expectedMinimum,
+        decimal latitude, decimal longitude)
+    {
+        if (!BookingLocation.IsValid(latitude, longitude)) throw new InvalidOperationException(BookingLocation.Message);
+        if (!agreed || !travelAcknowledged) throw new InvalidOperationException("Read and accept the Transportation Fee Policy before submitting payment.");
+        BookingService.ValidatePayment(method, reference);
+        Booking? created = null;
+        for (var attempt = 0; attempt < 3 && created == null; attempt++)
+        {
+            var appId = Guid.NewGuid();
+            try
+            {
+                Transaction(customer, () =>
+                {
+                    pdb.Database.ExecuteSqlRaw("SELECT id FROM public.business_settings WHERE id=1 FOR SHARE");
+                    settings = null;
+                    var services = Services; var addOns = AddOns;
+                    var chosen = people.Select(p => services.FirstOrDefault(s => s.Id == p.ServiceId && s.Active && !s.Archived)
+                        ?? throw new InvalidOperationException("Choose an active service for every person.")).ToList();
+                    if (PackageRules.Check(chosen) is { } refused) throw new InvalidOperationException(refused);
+                    var extras = people.Select(p => p.AddOnIds.Distinct().Select(id => addOns.FirstOrDefault(a => a.Id == id && a.Active && !a.Archived)
+                        ?? throw new InvalidOperationException("An add-on is no longer available.")).ToList()).ToList();
+                    var total = chosen.Sum(s => s.Price) + extras.Sum(e => e.Sum(a => a.Price));
+                    var minutes = chosen.Sum(s => s.Minutes) + extras.Sum(e => e.Sum(a => a.Minutes));
+                    var required = Money.Percentage(total, Settings.DownPaymentPercent);
+                    if (expectedTotal != total || expectedMinimum != required) throw new InvalidOperationException("The booking price or minimum payment changed. Please review the updated quote.");
+                    Money.RequireExactDeposit(deposit, required);
+                    var coverage = pdb.Set<AreaRow>().SingleOrDefault(x => x.IsActive && x.Name.ToLower() == area.Trim().ToLower()) ?? throw new InvalidOperationException("The address must be within the service area.");
+                    var (artistId, _) = ResolveArtist();
+                    LockTravel(artistId);
+                    if (!BookingService.TravelFits(this, start, minutes, Settings.BufferMinutes, latitude, longitude, null, Settings))
+                        throw new InvalidOperationException(TravelPlanner.RefusalMessage);
+                    var early = BookingWindow.KindOf(start, Settings) == SlotKind.Early;
+                    var afterHours = BookingWindow.IsAfterHours(start, minutes, Settings);
+                    var bookingRef = NewReference(appId);
+                    pdb.Database.ExecuteSqlInterpolated($"INSERT INTO public.reservations(app_id, app_managed, snapshot_source, reference, customer_id, artist_id, service_id, start_at, location, area_id, booking_type, people, addons_total_snapshot, addons_minutes_snapshot, package_total_snapshot, package_minutes_snapshot, down_payment_percent_snapshot, required_down_payment_snapshot, policy_accepted_at, policy_version, travel_reminder_acknowledged_at, travel_reminder_version, status, location_lat, location_lng, is_early_request, after_hours) VALUES({appId}, true, 'booking_creation', {bookingRef}, {CustomerBigId(customer)}, {artistId}, {ServiceBigId(chosen[0].Id)}, {Utc(start)}, {address.Trim()}, {coverage.Id}, 'mixed', {people.Count}, 0, 0, {total}, {minutes}, {Settings.DownPaymentPercent}, {required}, now(), {Settings.PolicyVersion}, now(), {Settings.TravelReminderVersion}, {(early ? BookingService.EarlyRequestStatus : "Pending Payment")}, {latitude}, {longitude}, {early}, {afterHours})");
+                    var reservationId = pdb.Database.SqlQueryRaw<long>("SELECT id AS \"Value\" FROM public.reservations WHERE app_id = {0}", appId).Single();
+                    for (var i = 0; i < chosen.Count; i++)
+                    {
+                        var personId = pdb.Database.SqlQuery<long>($"INSERT INTO public.reservation_people(reservation_id, position, service_id, service_name_snapshot, price_snapshot, minutes_snapshot) VALUES({reservationId}, {i + 1}, {ServiceBigId(chosen[i].Id)}, {chosen[i].Name}, {chosen[i].Price}, {chosen[i].Minutes}) RETURNING id AS \"Value\"").AsEnumerable().Single();
+                        foreach (var extra in extras[i])
+                            pdb.Database.ExecuteSqlInterpolated($"INSERT INTO public.reservation_people_addons(person_id, addon_id, name_snapshot, price_snapshot, minutes_snapshot) VALUES({personId}, {extra.Id}, {extra.Name}, {extra.Price}, {extra.Minutes})");
+                    }
+                    pdb.Database.ExecuteSqlInterpolated($"INSERT INTO public.payments(reservation_id, app_id, app_managed, purpose, amount, method, reference, status, verification_status, proof_asset_id, submitted_by) VALUES({reservationId}, {Guid.NewGuid()}, true, 'down_payment', {deposit}, {method}, {reference.Trim()}, 'Pending', 'Pending Verification', {(Guid?)null}, {customer})");
+                    if (method != "Xendit") pdb.Database.ExecuteSqlInterpolated($"UPDATE public.reservations SET payment_expires_at = NULL WHERE id = {reservationId}");
+                });
+                created = Bookings.Single(x => x.Id == appId);
+            }
+            catch (InvalidOperationException e) when (e.InnerException is PostgresException pg && pg.ConstraintName == "reservations_reference_key" && attempt < 2)
+            {
+                continue;
+            }
+        }
+        return created ?? throw new InvalidOperationException("Could not create the booking. Please retry.");
+    }
+
+    // Package people for the given bookings (Phase 6), in position order with their add-ons.
+    protected override IReadOnlyDictionary<Guid, IReadOnlyList<MixedPersonQuote>> PackagePeople(IReadOnlyCollection<Guid> bookingIds)
+    {
+        if (bookingIds.Count == 0) return new Dictionary<Guid, IReadOnlyList<MixedPersonQuote>>();
+        var ids = bookingIds.ToArray();
+        var people = pdb.Database.SqlQueryRaw<PackagePersonRow>("""
+            SELECT r.app_id AS "BookingId", p.id AS "PersonId", p.position AS "Position", s.app_id AS "ServiceId", p.service_name_snapshot AS "Name", p.price_snapshot AS "Price", p.minutes_snapshot AS "Minutes"
+              FROM public.reservation_people p JOIN public.reservations r ON r.id = p.reservation_id JOIN public.services s ON s.id = p.service_id
+             WHERE r.app_id = ANY({0})
+            """, ids).ToList();
+        var personIds = people.Select(p => p.PersonId).ToArray();
+        var extras = (personIds.Length == 0 ? [] : pdb.Database.SqlQueryRaw<PackageAddonRow>("""
+            SELECT person_id AS "PersonId", addon_id AS "AddonId", name_snapshot AS "Name", price_snapshot AS "Price", minutes_snapshot AS "Minutes"
+              FROM public.reservation_people_addons WHERE person_id = ANY({0})
+            """, personIds).ToList()).ToLookup(a => a.PersonId);
+        return people.GroupBy(p => p.BookingId).ToDictionary(g => g.Key, g => (IReadOnlyList<MixedPersonQuote>)g.OrderBy(p => p.Position).Select(p =>
+        {
+            var addOns = extras[p.PersonId].Select(a => new PriceSnapshot(a.AddonId, a.Name, a.Price, a.Minutes)).ToArray();
+            return new MixedPersonQuote(new PriceSnapshot(p.ServiceId, p.Name, p.Price, p.Minutes), addOns, p.Price + addOns.Sum(a => a.Price), p.Minutes + addOns.Sum(a => a.Minutes));
+        }).ToList());
+    }
+    private sealed class PackagePersonRow
+    {
+        public Guid BookingId { get; set; } public long PersonId { get; set; } public int Position { get; set; } public Guid ServiceId { get; set; }
+        public string Name { get; set; } = ""; public decimal Price { get; set; } public int Minutes { get; set; }
+    }
+    private sealed class PackageAddonRow
+    {
+        public long PersonId { get; set; } public Guid AddonId { get; set; } public string Name { get; set; } = ""; public decimal Price { get; set; } public int Minutes { get; set; }
+    }
+
     public override int ExpireOverduePayments() =>
         Transaction(null, () => pdb.Database.SqlQueryRaw<int>("SELECT public.mvc_expire_overdue() AS \"Value\"").AsEnumerable().Single());
 
