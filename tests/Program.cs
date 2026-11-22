@@ -457,8 +457,8 @@ if (args.Contains("--travel-admin-only"))
     var artistMapScript = File.ReadAllText(Path.Combine(adminWeb, "wwwroot", "js", "artist-location.js"));
     Check(locationView.Contains("data-artist-location-query") && locationView.Contains("data-artist-location-search") && locationView.Contains("aria-label=\"Search a place or address\""),
         "the artist location card has a labelled place search");
-    Check(artistMapScript.Contains("https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ph&q=") && artistMapScript.Contains("lastSearch + 1000 > Date.now()"),
-        "the artist search uses Nominatim limited to the Philippines, at most once a second");
+    Check(artistMapScript.Contains("https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ph&viewbox=120.85,14.95,121.65,14.20&bounded=1&q=") && artistMapScript.Contains("lastSearch + 1000 > Date.now()"),
+        "the artist search only returns places inside Metro Manila and Rizal, at most once a second");
     Check(artistMapScript.Contains("No match found. Try another name, or drag the pin.") && artistMapScript.Contains("Search is busy right now. Try again in a moment, or drag the pin."),
         "the artist search says when nothing matched or the search is busy");
     Check(artistMapScript.Contains("event.key !== 'Enter'") && artistMapScript.Contains("event.preventDefault()"), "Enter in the artist search box searches instead of submitting a form");
@@ -962,7 +962,9 @@ if (args.Contains("--booking-location-only"))
         Check(File.Exists(Path.Combine(web, "wwwroot", "lib", "leaflet", file)), $"Leaflet {file} is in wwwroot/lib/leaflet");
     var locationScriptPath = Path.Combine(web, "wwwroot", "js", "booking-location.js");
     var locationScript = File.Exists(locationScriptPath) ? File.ReadAllText(locationScriptPath) : "";
-    Check(locationScript.Contains("https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ph&q="), "the search uses Nominatim limited to the Philippines");
+    // Bounded to the service box: an unbounded "pagasa" search returned Pagasa, Southern Leyte, which cleared the pin.
+    Check(locationScript.Contains("https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ph&viewbox=120.85,14.95,121.65,14.20&bounded=1&q="), "the search only returns places inside Metro Manila and Rizal");
+    Check(locationScript.Contains("No match found in Metro Manila or Rizal; drag the pin instead"), "a search with no match in the service area says so");
     Check(locationScript.Contains("We couldn't get your location. Drag the pin instead."), "a geolocation error tells the customer to drag the pin");
     var artistScriptPath = Path.Combine(Path.GetDirectoryName(locationScriptPath)!, "artist-location.js");
     var artistScript = File.Exists(artistScriptPath) ? File.ReadAllText(artistScriptPath) : "";
@@ -972,11 +974,10 @@ if (args.Contains("--booking-location-only"))
             $"the {who} map says when the browser blocks location for this site");
         Check(script.Contains("error?.code === 2") && script.Contains("Turn on location services on your device"), $"the {who} map says when the device location is off");
     }
-    Check(locationScript.Contains("No match found; drag the pin instead"), "a search with no result tells the customer to drag the pin");
     Check(locationScript.Contains("© OpenStreetMap contributors"), "the map shows the OpenStreetMap attribution");
     Check(locationScript.Contains("1000") && locationScript.Contains("lastSearch"), "searches are limited to one request per second");
     Check(locationScript.Contains("toFixed(6)"), "the pin is written with six decimals");
-    foreach (var (area, centre) in new[] { ("Quezon City", "14.6760, 121.0437"), ("Makati", "14.5547, 121.0244"), ("Manila", "14.5995, 120.9842"), ("Pasig", "14.5764, 121.0851"), ("Taguig", "14.5176, 121.0509"), ("Mandaluyong", "14.5794, 121.0359") })
+    foreach (var (area, centre) in new[] { ("Quezon City", "14.6760, 121.0437"), ("Makati", "14.5547, 121.0244"), ("Manila", "14.5995, 120.9842"), ("Pasig", "14.5764, 121.0851"), ("Taguig", "14.5176, 121.0509"), ("Mandaluyong", "14.5794, 121.0359"), ("Marikina", "14.6507, 121.1029"), ("Rizal", "14.6255, 121.1245") })
         Check(locationScript.Contains($"'{area}': [{centre}]"), $"{area} has its map centre");
     foreach (var stepScript in new[] { "booking-steps.js", "booking-steps-phase2.js" })
     {

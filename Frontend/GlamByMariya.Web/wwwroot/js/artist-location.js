@@ -81,7 +81,7 @@
     searchButton.disabled = true;
     say('Searching…');
     try {
-      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ph&q=${encodeURIComponent(text)}`, {
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ph&viewbox=120.85,14.95,121.65,14.20&bounded=1&q=${encodeURIComponent(text)}`, {
         headers: { Accept: 'application/json' }, credentials: 'omit', referrerPolicy: 'strict-origin-when-cross-origin'
       });
       if (!response.ok) throw new Error('search failed');

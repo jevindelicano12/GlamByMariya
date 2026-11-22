@@ -12,7 +12,9 @@
     'Manila': [14.5995, 120.9842],
     'Pasig': [14.5764, 121.0851],
     'Taguig': [14.5176, 121.0509],
-    'Mandaluyong': [14.5794, 121.0359]
+    'Mandaluyong': [14.5794, 121.0359],
+    'Marikina': [14.6507, 121.1029],
+    'Rizal': [14.6255, 121.1245]
   };
   const metroManila = [14.5995, 120.9842];
   const bounds = { minLat: 14.20, maxLat: 14.95, minLng: 120.85, maxLng: 121.65 };
@@ -24,7 +26,7 @@
     : error?.code === 2
       ? "Your device couldn't find its location. Turn on location services on your device and try again, or drag the pin."
       : error?.code === 3 ? "Finding your location took too long. Try again, or drag the pin." : geolocationMessage;
-  const noMatchMessage = 'No match found; drag the pin instead';
+  const noMatchMessage = 'No match found in Metro Manila or Rizal; drag the pin instead';
   const busyMessage = 'Search is busy right now. Try again in a moment, or drag the pin.';
 
   const latitude = root.querySelector('[name="latitude"]');
@@ -106,7 +108,7 @@
     searchButton.disabled = true;
     say('Searching…');
     try {
-      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ph&q=${encodeURIComponent(text)}`, {
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ph&viewbox=120.85,14.95,121.65,14.20&bounded=1&q=${encodeURIComponent(text)}`, {
         headers: { Accept: 'application/json' }, credentials: 'omit', referrerPolicy: 'strict-origin-when-cross-origin'
       });
       if (!response.ok) throw new Error('search failed');
