@@ -180,6 +180,8 @@ if (bookingForm) {
   const packagePeopleSlot = bookingForm.querySelector('.package-people-slot');
   const deposit = document.querySelector('#deposit');
   const flexible = bookingForm.dataset.flexible === 'true';
+  // Phase 7: the customer chooses 50%, full or an amount in between on every site.
+  const depositChoice = flexible || bookingForm.dataset.depositChoice === 'true';
   const addonValues = bookingForm.querySelector('#addon-values');
   const addonQuantities = [...bookingForm.querySelectorAll('.addon-quantity')];
   const addonFields = addonQuantities.map((input, index) => {
@@ -215,7 +217,7 @@ if (bookingForm) {
   if (addonFields.length) bookingForm.querySelector('.extras-panel').append(addonTotal);
   let currentQuote = null;
   const updatePayment = () => {
-    if (!currentQuote || !flexible) return;
+    if (!currentQuote || !depositChoice) return;
     const choice = bookingForm.querySelector('[name="paymentChoice"]:checked')?.value;
     deposit.min = Number(currentQuote.requiredDownPayment).toFixed(2);
     deposit.max = Number(currentQuote.finalTotal).toFixed(2);
@@ -223,6 +225,9 @@ if (bookingForm) {
     if (choice === 'minimum') deposit.value = deposit.min;
     if (choice === 'full') deposit.value = deposit.max;
     const value = Number(deposit.value);
+    // Same rule and words as the server: from the down payment up to the full total.
+    deposit.setCustomValidity(deposit.value && (value < Number(deposit.min) || value > Number(deposit.max) || Math.round(value * 100) !== value * 100)
+      ? `Enter a down payment between ${money(Number(deposit.min))} and ${money(Number(deposit.max))}.` : '');
     document.querySelector('#summary-balance').textContent = deposit.value && deposit.validity.valid ? money(Math.max(0, Number(currentQuote.finalTotal) - value)) + ' after claimed payment' : '—';
   };
   const syncAddons = people => {
@@ -350,7 +355,7 @@ if (bookingForm) {
       bookingForm.elements.expectedTotal.value = Number(quote.finalTotal).toFixed(2);
       bookingForm.elements.expectedMinimum.value = Number(quote.requiredDownPayment).toFixed(2);
       bookingForm.dataset.serviceMinutes = String(quote.durationMinutes);
-      if (flexible) updatePayment(); else deposit.value = Number(quote.requiredDownPayment).toFixed(2);
+      if (depositChoice) updatePayment(); else deposit.value = Number(quote.requiredDownPayment).toFixed(2);
       if (flexible) document.querySelector('#summary-addons').textContent = addonQuantities.filter(a => Number(a.value) > 0).map(a => `${a.dataset.name} × ${a.value}: ${money(Number(a.dataset.price) * Number(a.value))}`).join(', ') || 'None';
       else document.querySelector('#summary-addons').textContent = [...bookingForm.querySelectorAll('[name="addOnIds"]:checked')].map(a => `${a.closest('label').querySelector('strong').textContent} × 1: ${money(Number(a.dataset.price))}`).join(', ') || 'None';
       document.querySelector('#look-selection-caption').textContent = `${quote.service} · ${quote.people} people · ${quote.durationMinutes} minutes`;

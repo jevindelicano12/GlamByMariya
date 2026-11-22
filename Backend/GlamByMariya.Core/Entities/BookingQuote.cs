@@ -5,11 +5,13 @@ public static class Money
     public static decimal Round(decimal amount) => decimal.Round(amount, 2, MidpointRounding.AwayFromZero);
     public static decimal Half(decimal total) => Round(total * 0.5m);
     public static decimal Percentage(decimal total, decimal percent) => Round(total * percent / 100m);
-    // Online payments collect exactly the required down payment (same rule as the database and Xendit invoice).
-    public static void RequireExactDeposit(decimal amount, decimal required)
+    // Phase 7: the customer pays at least the down payment and at most the booking total (same rule
+    // as the database payment guard); the Xendit invoice charges the chosen amount.
+    public static string DepositRangeMessage(decimal required, decimal total) => $"Enter a down payment between ₱{required:N2} and ₱{total:N2}.";
+    public static void RequireDeposit(decimal amount, decimal required, decimal total)
     {
-        if (amount != required)
-            throw new InvalidOperationException($"The down payment must be exactly ₱{required:N2}.");
+        if (Round(amount) != amount || amount < required || amount > total)
+            throw new InvalidOperationException(DepositRangeMessage(required, total));
     }
 }
 

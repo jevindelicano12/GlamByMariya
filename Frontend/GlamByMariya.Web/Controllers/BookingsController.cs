@@ -182,6 +182,8 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
     private void ShowXenditPayment(Booking booking)
     {
         ViewBag.PaidOnXendit = ((List<Payment>)ViewBag.Payments).Any(p => p.Method == "Xendit");
+        // The amount the customer chose to pay online (from the down payment up to the total).
+        ViewBag.PayAmount = ((List<Payment>)ViewBag.Payments).Select(p => (decimal?)p.Amount).FirstOrDefault() ?? booking.RequiredDownPayment;
         ViewBag.CheckoutUrl = UsesXendit && booking.Status == "Pending Payment"
             ? ((IPersistentStudioStore)store).PendingCheckoutUrl(booking.Id) : null;
         // An approved early request has no Xendit page yet: the customer opens it with "Pay down payment".
@@ -215,7 +217,9 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
         {
             var email = User.FindFirstValue(ClaimTypes.Email) ?? "";
             var done = Url.Action("Confirmation", "Bookings", new { id }, Request.Scheme)!;
-            var invoice = await xendit!.CreateInvoiceAsync(b.Reference, b.RequiredDownPayment, email,
+            // The amount the customer chose when sending the request (from 50% up to the total).
+            var amount = store.Payments.Where(p => p.BookingId == id).Select(p => p.Amount).DefaultIfEmpty(b.RequiredDownPayment).First();
+            var invoice = await xendit!.CreateInvoiceAsync(b.Reference, amount, email,
                 $"Glam by Mariya down payment for {b.Reference} ({b.ServiceDescription})", done, done, durationSeconds: seconds);
             database.AttachInvoice(id, invoice.Id, invoice.InvoiceUrl);
             return Redirect(invoice.InvoiceUrl);
@@ -237,7 +241,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
     {
         var reference = "XENDIT-" + Guid.NewGuid().ToString("N")[..16].ToUpperInvariant();
         var booking = workflow.Create(UserId, serviceId, addOnIds, start, address, area, deposit, "Xendit", reference, null, agreed, people, package, travelAcknowledged, expectedTotal, expectedMinimum, latitude: latitude, longitude: longitude);
-        return Redirect(await NextStepUrl(booking));
+        return Redirect(await NextStepUrl(booking, deposit));
     }
 
     // Phase 6: a mixed package on the live site, paid on Xendit like a single booking.
@@ -257,7 +261,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
             var reference = "XENDIT-" + Guid.NewGuid().ToString("N")[..16].ToUpperInvariant();
             var booking = workflow.CreateMixed(UserId, people, start, address, area, deposit, "Xendit", reference, null, agreed, travelAcknowledged,
                 expectedTotal.Value, expectedMinimum.Value, latitude: latitude, longitude: longitude);
-            var next = await NextStepUrl(booking);
+            var next = await NextStepUrl(booking, deposit);
             return wantsJson ? Json(new { confirmationUrl = next }) : Redirect(next);
         }
         catch (InvalidOperationException e)
@@ -270,7 +274,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
     // After a live booking is saved: an early request waits for the artist (no invoice yet); anything
     // else opens the Xendit checkout. If the invoice cannot be created, the unpaid booking is cancelled
     // (free) so the slot is released at once.
-    private async Task<string> NextStepUrl(Booking booking)
+    private async Task<string> NextStepUrl(Booking booking, decimal amount)
     {
         var database = (IPersistentStudioStore)store;
         if (booking.IsEarlyRequest)
@@ -282,7 +286,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
         {
             var email = User.FindFirstValue(ClaimTypes.Email) ?? "";
             var done = Url.Action("Confirmation", "Bookings", new { id = booking.Id }, Request.Scheme)!;
-            var invoice = await xendit!.CreateInvoiceAsync(booking.Reference, booking.RequiredDownPayment, email,
+            var invoice = await xendit!.CreateInvoiceAsync(booking.Reference, amount, email,
                 $"Glam by Mariya down payment for {booking.Reference} ({booking.ServiceDescription})", done, done);
             database.AttachInvoice(booking.Id, invoice.Id, invoice.InvoiceUrl);
             return invoice.InvoiceUrl;

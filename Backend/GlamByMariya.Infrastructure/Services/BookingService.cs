@@ -396,7 +396,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             var user = store.Users.First(x => x.Id == userId);
             // Only an unpaid Xendit checkout has the 15-minute hold; a submitted GCash/Maya/bank claim waits for review.
             var b = new Booking { CustomerId = userId, CustomerName = user.Name, Service = new(service.Id, service.Name, service.Price, service.Minutes), AddOns = selected.GroupBy(x => x.Id).Select(g => new PriceSnapshot(g.Key, g.First().Name, g.First().Price, g.First().Minutes, g.Count())).ToList(), Start = start, BufferMinutesSnapshot = store.Settings.BufferMinutes, Address = address.Trim(), Area = area, Latitude = latitude, Longitude = longitude, TravelFee = 0, EarlyFeeSnapshot = quote.EarlyFee, LateFeeSnapshot = quote.LateFee, TransportationPolicyAcknowledgedAt = store.Now, People = people, Package = package, AppliedPricePerPerson = quote.AppliedPricePerPerson, GroupPrice = quote.GroupPrice, GroupMinimumPeople = quote.GroupMinimumPeople, DownPaymentPercentSnapshot = store.Settings.DownPaymentPercent, RequiredDownPaymentSnapshot = quote.RequiredDownPayment, PaymentDueAt = method == "Xendit" ? PaymentWindow.DueAt(store.Now) : null };
-            Money.RequireExactDeposit(deposit, quote.RequiredDownPayment);
+            Money.RequireDeposit(deposit, quote.RequiredDownPayment, quote.FinalTotal);
             if (method == "Cash") throw new InvalidOperationException("Use GCash, Maya or Bank Transfer for your down payment.");
             CheckReference(method, reference);
             // Phase 6: a time before opening is an early request (no hold, no deadline until the artist
@@ -515,7 +515,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
                     if (b.Status != "Pending Payment") throw new InvalidOperationException("Only pending down payments can be verified.");
                     EnsurePaymentWindowOpen(b);
                     var deposit = payments.Payments.SingleOrDefault(p => p.BookingId == b.Id) ?? throw new InvalidOperationException("No down payment was submitted.");
-                    Money.RequireExactDeposit(deposit.Amount, b.RequiredDownPayment);
+                    Money.RequireDeposit(deposit.Amount, b.RequiredDownPayment, b.Total);
                     CheckReference(deposit.Method, deposit.Reference, deposit.Id);
                     // Validate everything before changing either payment or booking under the same lock.
                     if (!store.Settings.ServiceAreas.Split(',').Any(x => x.Trim().Equals(b.Area, StringComparison.OrdinalIgnoreCase))) throw new InvalidOperationException("This address is outside the configured service area.");
@@ -666,7 +666,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             if (expectedTotal != quote.FinalTotal || expectedMinimum != quote.RequiredDownPayment) throw new InvalidOperationException("The booking price or minimum payment changed. Please review the updated quote before submitting.");
             CheckSlot(start, quote.DurationMinutes);
             if (!TravelFits(store, start, quote.DurationMinutes, store.Settings.BufferMinutes, latitude, longitude, null)) throw new InvalidOperationException(TravelPlanner.RefusalMessage);
-            Money.RequireExactDeposit(deposit, quote.RequiredDownPayment);
+            Money.RequireDeposit(deposit, quote.RequiredDownPayment, quote.FinalTotal);
             if (method == "Cash") throw new InvalidOperationException("Use GCash, Maya or Bank Transfer for your down payment.");
             CheckReference(method, reference);
             var user = store.Users.First(x => x.Id == userId);

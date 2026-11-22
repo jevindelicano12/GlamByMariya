@@ -830,6 +830,15 @@ if (Run("--flexible"))
     Check(firstSend.Status == "Awaiting Approval" && secondSend.Id == firstSend.Id &&
           Convert.ToInt32(await Scalar($"SELECT count(*) FROM public.reservations WHERE status='Awaiting Approval' AND booking_type='mixed' AND start_at='{earlyDay.ToUniversalTime():O}'")) == 1,
         "sending the same early package twice keeps one request");
+    // Phase 7 (0021): the down payment may be anything from the required amount up to the full total.
+    var depositDay = DateTime.Today.AddDays(14);
+    string PayNow(double hour, decimal amount) { try { App().SubmitBooking(customer.Id, soft.Id, [], depositDay.AddHours(hour), "24 Synthetic Street, Quezon City", "Quezon City",
+        amount, "Xendit", $"XENDIT-DEPOSIT-{++n}", null, true, true, 1, "auto", quote.FinalTotal, quote.RequiredDownPayment, latitude: 14.5547m, longitude: 121.0244m); return ""; }
+        catch (InvalidOperationException e) { return e.Message; } }
+    var fullPay = PayNow(9, quote.FinalTotal); var midPay = PayNow(13, quote.RequiredDownPayment + 50);
+    Check(fullPay == "" && midPay == "", $"the database accepts paying in full and an amount in between ({fullPay} / {midPay})");
+    var low = PayNow(15.5, quote.RequiredDownPayment - 1); var high = PayNow(15.5, quote.FinalTotal + 1);
+    Check(low != "" && high != "", $"the database refuses less than the down payment or more than the total ({low} / {high})");
     Console.WriteLine($"All {checks - before} flexible booking database checks passed.");
 }
 

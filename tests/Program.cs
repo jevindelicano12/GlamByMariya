@@ -1070,21 +1070,23 @@ if (args.Contains("--exact-deposit-only"))
     Booking Submit(decimal amount) => flow.Create(customerUser.Id, look.Id, [], start, "24 Synthetic Street", "Quezon City", amount, "GCash",
         $"EXACT-REF-{++n}", "synthetic-proof.png", true, 1, "auto", true, quote.FinalTotal, quote.RequiredDownPayment, latitude: 14.5547m, longitude: 121.0244m);
     var before = demo.Bookings.Count;
-    Reject(() => Submit(quote.RequiredDownPayment + 1), "a higher custom amount is rejected");
-    Reject(() => Submit(quote.FinalTotal), "full payment is rejected online");
+    // Phase 7: from the down payment up to the full total is allowed; outside that range is refused.
+    Reject(() => Submit(quote.FinalTotal + 1), "more than the total is rejected");
     Reject(() => Submit(quote.RequiredDownPayment - 1), "less than the down payment is rejected");
     Check(demo.Bookings.Count == before, "rejected amounts create no booking");
     var booking = Submit(quote.RequiredDownPayment);
     Check(booking.Status == "Pending Payment" && demo.Payments.Single(p => p.BookingId == booking.Id).Amount == quote.RequiredDownPayment, "the exact down payment is accepted");
     var claim = demo.Payments.Single(p => p.BookingId == booking.Id);
-    claim.Amount = quote.RequiredDownPayment + 50;
-    Reject(() => flow.AdminAction(booking, "verify", ownerUser.Id, "", 0, ""), "verification rejects a claim that is not the exact down payment");
+    claim.Amount = quote.FinalTotal + 1;
+    Reject(() => flow.AdminAction(booking, "verify", ownerUser.Id, "", 0, ""), "verification rejects a claim above the booking total");
     claim.Amount = quote.RequiredDownPayment;
     flow.AdminAction(booking, "verify", ownerUser.Id, "", 0, "");
     Check(booking.Status == "Confirmed", "exact claim verifies and confirms");
     PreparedPersistentBooking.ValidateClaim(quote.RequiredDownPayment, quote);
     Check(true, "database-path claim check accepts the exact down payment");
-    Reject(() => PreparedPersistentBooking.ValidateClaim(quote.FinalTotal, quote), "database-path claim check rejects full payment");
+    PreparedPersistentBooking.ValidateClaim(quote.FinalTotal, quote);
+    Check(true, "database-path claim check accepts full payment");
+    Reject(() => PreparedPersistentBooking.ValidateClaim(quote.FinalTotal + 1, quote), "database-path claim check rejects more than the total");
     Console.WriteLine($"All {checks} exact deposit checks passed."); return;
 }
 if (args.Contains("--payment-window-only"))
@@ -1765,13 +1767,13 @@ if (args.Contains("--mixed-pricing-only"))
         mixedFlow.AdminAction(winner, "verify", mixedStore.Users.First(u => u.Role == Roles.SuperAdmin).Id, "", 0, "");
         Check(winner.Status == "Confirmed" && mixedFlow.Paid(winner) == claim.RequiredDownPayment, "authorized verification accepts mixed booking totals and duration");
     }
-    foreach (var (amount, index) in new[] { (claim.RequiredDownPayment + 50, 1), (claim.FinalTotal, 2) })
+    foreach (var (amount, index) in new[] { (claim.RequiredDownPayment - 1, 1), (claim.FinalTotal + 1, 2) })
     {
         var paymentStart = bookingDay.AddDays(index);
         var paymentQuote = mixedFlow.QuoteMixed(threeMixed, paymentStart);
         var paymentsBefore = mixedStore.Payments.Count;
         Reject(() => mixedFlow.CreateMixed(mixedCustomer.Id, threeMixed, paymentStart, "Synthetic address", "Quezon City", amount, "GCash", "MIXED-AMOUNT-" + index, "synthetic-proof.png", true, true, paymentQuote.FinalTotal, paymentQuote.RequiredDownPayment, policyVersion: mixedStore.Settings.PolicyVersion, travelReminderVersion: mixedStore.Settings.TravelReminderVersion, latitude: 14.5547m, longitude: 121.0244m),
-            index == 1 ? "custom mixed payment is rejected; only the exact down payment is accepted" : "full mixed payment is rejected; only the exact down payment is accepted");
+            index == 1 ? "a mixed payment below the down payment is rejected" : "a mixed payment above the total is rejected");
         Check(mixedStore.Payments.Count == paymentsBefore, "rejected mixed payment amount creates no payment");
     }
     var replayKey = Guid.NewGuid();
@@ -1903,6 +1905,45 @@ if (args.Contains("--flexible-rules-only"))
     Check(PackageRules.Check(Enumerable.Repeat(soft, 21).ToList()) == "Choose between 2 and 20 people.", "more than 20 people are refused");
     Check(PackageRules.Check([soft]) == "Choose between 2 and 20 people.", "a package needs at least 2 people");
     Console.WriteLine($"All {checks} flexible rule checks passed."); return;
+}
+if (args.Contains("--flexible-deposit-only"))
+{
+    // Phase 7: the customer pays from the down payment (50%) up to the full total.
+    var demo = new DemoStore(presentationAccounts: true);
+    var s = demo.Settings; s.EarlyFeeEnabled = false; s.LateFeeEnabled = false; s.EarlyRequestStartHour = 4;
+    var flow = new BookingService(demo, demo, demo, demo, demo);
+    var depositCustomer = demo.Users.First(u => u.Role == Roles.Customer);
+    var soft = demo.Services.First(x => x.Name == "Soft Glam");
+    var day = DateTime.Today.AddDays(40);
+    var n = 0;
+    Booking Book(DateTime start, decimal amount)
+    {
+        var q = flow.Quote(soft.Id, [], 1, "auto", start);
+        return flow.Create(depositCustomer.Id, soft.Id, [], start, "24 Synthetic Street", "Quezon City", amount, "GCash", $"DEPOSIT-{++n}", "synthetic-proof.png", true, 1, "auto", true, q.FinalTotal, q.RequiredDownPayment, latitude: 14.5547m, longitude: 121.0244m);
+    }
+    string Refusal(Action action) { try { action(); } catch (InvalidOperationException e) { return e.Message; } return ""; }
+    decimal Claimed(Booking b) => demo.Payments.Single(p => p.BookingId == b.Id).Amount;
+    var quote = flow.Quote(soft.Id, [], 1, "auto", day.AddHours(9));
+    Check(quote.RequiredDownPayment == 300 && quote.FinalTotal == 600, "Soft Glam: ₱300 down payment of ₱600");
+    Check(Claimed(Book(day.AddHours(9), 300)) == 300, "paying exactly the 50% down payment is accepted");
+    Check(Claimed(Book(day.AddDays(1).AddHours(9), 600)) == 600, "paying in full is accepted");
+    Check(Claimed(Book(day.AddDays(2).AddHours(9), 450.50m)) == 450.50m, "an amount in between is accepted and kept");
+    Check(Refusal(() => Book(day.AddDays(3).AddHours(9), 299.99m)) == "Enter a down payment between ₱300.00 and ₱600.00.", "less than 50% is refused with the range");
+    Check(Refusal(() => Book(day.AddDays(3).AddHours(9), 600.01m)) == "Enter a down payment between ₱300.00 and ₱600.00.", "more than the total is refused with the range");
+    Check(Refusal(() => Book(day.AddDays(3).AddHours(9), 400.005m)) != "", "fractions of a centavo are refused");
+    var early = Book(day.AddDays(4).AddHours(5), 600);
+    Check(early.Status == "Awaiting Approval" && Claimed(early) == 600, "an early request keeps the chosen amount for after approval");
+    var bridal = demo.Services.First(x => x.Name == "Bridal Makeup");
+    MixedPersonSelection[] package = [new(bridal.Id, []), new(soft.Id, [])];
+    var pq = flow.QuoteMixed(package, day.AddDays(5).AddHours(9));
+    var fullPackage = flow.CreateMixed(depositCustomer.Id, package, day.AddDays(5).AddHours(9), "24 Synthetic Street", "Quezon City", pq.FinalTotal, "GCash", "DEPOSIT-PKG", "synthetic-proof.png", true, true,
+        pq.FinalTotal, pq.RequiredDownPayment, null, demo.Settings.PolicyVersion, demo.Settings.TravelReminderVersion, latitude: 14.5547m, longitude: 121.0244m);
+    Check(Claimed(fullPackage) == pq.FinalTotal, "a package can be paid in full");
+    var view = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "Views", "Bookings", "Create.cshtml"));
+    Check(view.Contains("value=\"full\"") && view.Contains("value=\"custom\"") && view.Contains("data-deposit-choice=\"true\""), "the payment step offers 50%, full and another amount on every site");
+    var controller = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "Controllers", "BookingsController.cs"));
+    Check(!controller.Contains("CreateInvoiceAsync(booking.Reference, booking.RequiredDownPayment") && !controller.Contains("CreateInvoiceAsync(b.Reference, b.RequiredDownPayment"), "Xendit charges the chosen amount, not always the 50%");
+    Console.WriteLine($"All {checks} flexible deposit checks passed."); return;
 }
 if (args.Contains("--flexible-screens-only"))
 {

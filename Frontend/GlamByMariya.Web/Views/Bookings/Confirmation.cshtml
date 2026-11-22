@@ -23,7 +23,7 @@
 }
 <link rel="stylesheet" href="~/css/mixed-payment.css" asp-append-version="true" />
 <div class="booking-receipt">
-    @if (payApproved) { <form asp-action="PayRequest" method="post" class="pay-now"><input type="hidden" name="id" value="@Model.Id" /><button class="button">Pay ₱@Model.RequiredDownPayment.ToString("N2") down payment on Xendit <span aria-hidden="true">↗</span></button></form> }
+    @if (payApproved) { <form asp-action="PayRequest" method="post" class="pay-now"><input type="hidden" name="id" value="@Model.Id" /><button class="button">Pay ₱@(((decimal?)ViewBag.PayAmount ?? Model.RequiredDownPayment).ToString("N2")) down payment on Xendit <span aria-hidden="true">↗</span></button></form> }
     <header class="booking-receipt-header @(confirmed ? "is-confirmed" : null)">
         @if (confirmed) { <span class="receipt-check" aria-hidden="true">✓</span> }
         <h1>@heading</h1><p>@lead</p><strong class="booking-reference">@Model.Reference</strong>

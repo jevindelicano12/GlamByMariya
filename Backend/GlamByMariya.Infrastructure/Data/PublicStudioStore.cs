@@ -521,7 +521,7 @@ public sealed class PublicStudioStore(
                     var minutes = chosen.Sum(s => s.Minutes) + extras.Sum(e => e.Sum(a => a.Minutes));
                     var required = Money.Percentage(total, Settings.DownPaymentPercent);
                     if (expectedTotal != total || expectedMinimum != required) throw new InvalidOperationException("The booking price or minimum payment changed. Please review the updated quote.");
-                    Money.RequireExactDeposit(deposit, required);
+                    Money.RequireDeposit(deposit, required, total);
                     var coverage = pdb.Set<AreaRow>().SingleOrDefault(x => x.IsActive && x.Name.ToLower() == area.Trim().ToLower()) ?? throw new InvalidOperationException("The address must be within the service area.");
                     var (artistId, _) = ResolveArtist();
                     LockTravel(artistId);

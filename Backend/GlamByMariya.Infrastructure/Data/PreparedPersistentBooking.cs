@@ -22,7 +22,7 @@ internal static class PreparedPersistentBooking
 
     internal static void ValidateClaim(decimal amount, BookingQuote quote)
     {
-        Money.RequireExactDeposit(amount, quote.RequiredDownPayment);
+        Money.RequireDeposit(amount, quote.RequiredDownPayment, quote.FinalTotal);
     }
 
     // Pure preparation only: callers must obtain actor and catalog mapping from
