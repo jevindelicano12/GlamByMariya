@@ -5,7 +5,10 @@
   const submit = form.querySelector('[type="submit"]'), deposit = form.elements.deposit;
   const review = form.querySelector('#mixed-review'), people = form.querySelector('#mixed-review-people');
   const totals = form.querySelector('#mixed-review-totals');
+  // A package needs the customer's pin too (the server refuses it without one), so the map moves
+  // with the area and address into the package step, above its calendar.
   const locationFields = form.querySelector('.booking-details > .panel:nth-child(2) .form-grid');
+  const locationMap = form.querySelector('#booking-location');
   const locationHome = document.createComment('Service location');
   locationFields.before(locationHome);
   const money = amount => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(amount);
@@ -53,8 +56,8 @@
   const mode = () => {
     const mixed = active();
     form.action = mixed ? form.dataset.mixedCreateUrl : form.dataset.createUrl;
-    if (mixed) form.querySelector('.mixed-location').append(locationFields);
-    else locationHome.after(locationFields);
+    if (mixed) form.querySelector('.mixed-location').append(...[locationFields, locationMap].filter(Boolean));
+    else locationHome.after(...[locationFields, locationMap].filter(Boolean));
     form.querySelector('.availability-picker [name="start"]').disabled = mixed;
     const legacyStatus = form.querySelector('[data-legacy-submission-status]');
     if (legacyStatus) legacyStatus.hidden = mixed;

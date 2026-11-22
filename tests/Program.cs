@@ -1039,6 +1039,17 @@ if (args.Contains("--booking-location-only"))
     var clearAt = locScript.IndexOf("if (!restored) {", StringComparison.Ordinal);
     var clearEnd = clearAt >= 0 ? locScript.IndexOf('}', clearAt) : -1;
     Check(announceAt >= 0 && announceAt < clearAt && clearEnd > clearAt && locScript[clearAt..clearEnd].Contains("announce()"), "clearing an invalid restored pin on load announces the change");
+    // A package with different services per person also needs the pin (the server refuses it without one),
+    // so its map moves into the package step with the area and address.
+    var phase2Steps = File.ReadAllText(Path.Combine(web, "wwwroot", "js", "booking-steps-phase2.js"));
+    var mixedPhase3 = File.ReadAllText(Path.Combine(web, "wwwroot", "js", "mixed-booking-phase3.js"));
+    Check(mixedPhase3.Contains("const locationMap = form.querySelector('#booking-location');") && mixedPhase3.Contains("append(...[locationFields, locationMap].filter(Boolean))")
+        && mixedPhase3.Contains("locationHome.after(...[locationFields, locationMap].filter(Boolean))"), "mixed mode moves the pin map with the area and address, and back");
+    var createSource = File.ReadAllText(Path.Combine(web, "Views", "Bookings", "Create.cshtml"));
+    var mixedLocationAt = createSource.IndexOf("<div class=\"mixed-location\"></div>", StringComparison.Ordinal);
+    Check(mixedLocationAt > 0 && mixedLocationAt < createSource.IndexOf("data-mixed-days", StringComparison.Ordinal), "in mixed mode the pin comes before the package calendar");
+    Check(System.Text.RegularExpressions.Regex.IsMatch(phase2Steps, @"if \(mixed\(\) && target === 2\) \{\s*if \(notPinned\(\)\) \{"), "a mixed booking cannot continue to payment without a pin");
+    Check(!phase2Steps.Contains("} else if (!mixed() && notPinned()) {") && phase2Steps.Contains("} else if (notPinned()) {"), "a mixed booking cannot be submitted without a pin");
     foreach (var stepsName in new[] { "booking-steps.js", "booking-steps-phase2.js" })
     {
         var stepsText = File.ReadAllText(Path.Combine(web, "wwwroot", "js", stepsName));

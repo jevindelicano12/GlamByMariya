@@ -182,6 +182,11 @@
     // Older running previews have no mixed submission endpoint in their compiled view.
     if (mixed() && !form.dataset.mixedCreateUrl && target > 1) { notify('Mixed-service payment is not available in this preview.'); return; }
     if (mixed() && target === 2) {
+      if (notPinned()) {
+        notify('Pin your exact location inside Metro Manila or Rizal.');
+        document.querySelector('#booking-location-map')?.scrollIntoView({ block: 'center' });
+        return;
+      }
       if (current !== 1 || !form.mixedSlot || form.mixedSlot.selection !== JSON.stringify(form.mixedPeople)) { notify('Choose an available makeup start time before continuing.'); return; }
       if (!validate(1)) return;
       if (!travelAcknowledged()) { travelModalReturnFocus = next; travelModal.hidden = false; travelModal.focus(); return; }
@@ -343,7 +348,7 @@
       show(1);
       setHash(1, true);
       notify('Choose an available date and time before submitting.');
-    } else if (!mixed() && notPinned()) {
+    } else if (notPinned()) {
       event.preventDefault();
       event.stopImmediatePropagation();
       ++navigation;
