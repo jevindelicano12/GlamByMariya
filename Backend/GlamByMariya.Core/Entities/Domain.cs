@@ -30,6 +30,8 @@ public class AppUser
     public string Email { get; set; } = "";
     public string PasswordHash { get; set; } = "";
     public string Role { get; set; } = "Customer";
+    // When the account was created (Admin → Customers "Customer since"); null when the store does not keep it.
+    public DateTime? CreatedAt { get; set; }
     public bool IsActive { get; set; } = true;
 }
 public record PriceSnapshot(Guid ItemId, string Name, decimal Price, int Minutes, int Quantity = 1);
@@ -43,6 +45,8 @@ public class Booking
         : GroupPrice.HasValue && People >= GroupMinimumPeople ? "Same-Service Package" : "Group booking (regular rate)";
     public string ServiceDescription => MixedPeople.Count > 0 ? "Mixed-service group" : Service.Name;
     public Guid CustomerId { get; set; }
+    // When the customer made this booking ("Time of booking"); null when the store does not keep it.
+    public DateTime? CreatedAt { get; set; }
     public string CustomerName { get; set; } = "";
     public PriceSnapshot Service { get; set; } = new(Guid.Empty, "", 0, 0);
     public List<PriceSnapshot> AddOns { get; set; } = [];

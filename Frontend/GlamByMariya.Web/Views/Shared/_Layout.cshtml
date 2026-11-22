@@ -1,6 +1,6 @@
 @{ var authenticated = User.Identity?.IsAuthenticated == true; var staff = GlamByMariya.Core.Entities.Roles.IsStaff(User); var owner = GlamByMariya.Core.Entities.Roles.IsSuperAdmin(User); var controller = ViewContext.RouteData.Values["controller"]?.ToString(); var action = ViewContext.RouteData.Values["action"]?.ToString(); var cspNonce = Context.Items["csp-nonce"] as string;
    var activeNav = controller switch {
-       "Admin" => action switch { "Index" => Context.Request.Query["view"] == "appointments" ? "appointments" : "overview", "Appointments" or "Details" or "Calendar" => "appointments", "Catalog" => "catalog", "Reports" => "reports", "Payments" => "payments", "Settings" => "business-settings", "Users" or "ManageAccounts" => "users", "Activity" => "activity", _ => null },
+       "Admin" => action switch { "Index" => Context.Request.Query["view"] == "appointments" ? "appointments" : "overview", "Appointments" or "Details" or "Calendar" => "appointments", "Customers" or "Customer" => "customers", "Catalog" => "catalog", "Reports" => "reports", "Payments" => "payments", "Settings" => "business-settings", "Users" or "ManageAccounts" => "users", "Activity" => "activity", _ => null },
        "WebsiteContent" => "website-content", "DemoGallery" => "gallery", "Account" when action == "Settings" => "account-settings", _ => null
    }; }
 <!DOCTYPE html>
@@ -18,6 +18,7 @@
     @if (staff) {
         <a class="@(activeNav == "overview" ? "selected" : null)" aria-current="@(activeNav == "overview" ? "page" : null)" asp-controller="Admin" asp-action="Index"><span>▦</span> Overview</a>
         <a class="@(activeNav == "appointments" ? "selected" : null)" aria-current="@(activeNav == "appointments" ? "page" : null)" asp-controller="Admin" asp-action="Appointments"><span>▤</span> Appointments</a>
+        <a class="@(activeNav == "customers" ? "selected" : null)" aria-current="@(activeNav == "customers" ? "page" : null)" asp-controller="Admin" asp-action="Customers"><span>☺</span> Customers</a>
         <a class="@(activeNav == "catalog" ? "selected" : null)" aria-current="@(activeNav == "catalog" ? "page" : null)" asp-controller="Admin" asp-action="Catalog"><span>✧</span> Makeup Services & add-ons</a>
         <a class="@(activeNav == "reports" ? "selected" : null)" aria-current="@(activeNav == "reports" ? "page" : null)" asp-controller="Admin" asp-action="Reports"><span>◴</span> Sales Reports</a>
         <a class="@(activeNav == "payments" ? "selected" : null)" aria-current="@(activeNav == "payments" ? "page" : null)" asp-controller="Admin" asp-action="Payments"><span>◈</span> Payments</a>

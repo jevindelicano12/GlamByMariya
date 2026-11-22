@@ -395,7 +395,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             if (!TravelFits(store, start, quote.DurationMinutes, store.Settings.BufferMinutes, latitude, longitude, null)) throw new InvalidOperationException(TravelPlanner.RefusalMessage);
             var user = store.Users.First(x => x.Id == userId);
             // Only an unpaid Xendit checkout has the 15-minute hold; a submitted GCash/Maya/bank claim waits for review.
-            var b = new Booking { CustomerId = userId, CustomerName = user.Name, Service = new(service.Id, service.Name, service.Price, service.Minutes), AddOns = selected.GroupBy(x => x.Id).Select(g => new PriceSnapshot(g.Key, g.First().Name, g.First().Price, g.First().Minutes, g.Count())).ToList(), Start = start, BufferMinutesSnapshot = store.Settings.BufferMinutes, Address = address.Trim(), Area = area, Latitude = latitude, Longitude = longitude, TravelFee = 0, EarlyFeeSnapshot = quote.EarlyFee, LateFeeSnapshot = quote.LateFee, TransportationPolicyAcknowledgedAt = store.Now, People = people, Package = package, AppliedPricePerPerson = quote.AppliedPricePerPerson, GroupPrice = quote.GroupPrice, GroupMinimumPeople = quote.GroupMinimumPeople, DownPaymentPercentSnapshot = store.Settings.DownPaymentPercent, RequiredDownPaymentSnapshot = quote.RequiredDownPayment, PaymentDueAt = method == "Xendit" ? PaymentWindow.DueAt(store.Now) : null };
+            var b = new Booking { CustomerId = userId, CreatedAt = store.Now, CustomerName = user.Name, Service = new(service.Id, service.Name, service.Price, service.Minutes), AddOns = selected.GroupBy(x => x.Id).Select(g => new PriceSnapshot(g.Key, g.First().Name, g.First().Price, g.First().Minutes, g.Count())).ToList(), Start = start, BufferMinutesSnapshot = store.Settings.BufferMinutes, Address = address.Trim(), Area = area, Latitude = latitude, Longitude = longitude, TravelFee = 0, EarlyFeeSnapshot = quote.EarlyFee, LateFeeSnapshot = quote.LateFee, TransportationPolicyAcknowledgedAt = store.Now, People = people, Package = package, AppliedPricePerPerson = quote.AppliedPricePerPerson, GroupPrice = quote.GroupPrice, GroupMinimumPeople = quote.GroupMinimumPeople, DownPaymentPercentSnapshot = store.Settings.DownPaymentPercent, RequiredDownPaymentSnapshot = quote.RequiredDownPayment, PaymentDueAt = method == "Xendit" ? PaymentWindow.DueAt(store.Now) : null };
             Money.RequireDeposit(deposit, quote.RequiredDownPayment, quote.FinalTotal);
             if (method == "Cash") throw new InvalidOperationException("Use GCash, Maya or Bank Transfer for your down payment.");
             CheckReference(method, reference);
@@ -671,7 +671,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             CheckReference(method, reference);
             var user = store.Users.First(x => x.Id == userId);
             var booking = new Booking {
-                CustomerId = userId, CustomerName = user.Name, Service = quote.People[0].Service,
+                CustomerId = userId, CreatedAt = store.Now, CustomerName = user.Name, Service = quote.People[0].Service,
                 MixedPeople = quote.People, AddOns = quote.People.SelectMany(p => p.AddOns).ToList(),
                 MixedSubmissionId = submissionId,
                 MixedSubmission = new(store.Settings.BufferMinutes, quote.EarlyFee, quote.LateFee, quote.FinalTotal,

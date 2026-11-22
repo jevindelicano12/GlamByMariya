@@ -61,14 +61,14 @@ public class DemoStore : IStudioStore
         var service = Services.FirstOrDefault(x => x.Active && !x.Archived);
         if (service != null)
         {
-            var booking = new Booking { CustomerId = customer.Id, CustomerName = customer.Name, Service = new(service.Id, service.Name, service.Price, service.Minutes), Start = DateTime.Today.AddDays(2).AddHours(10), BufferMinutesSnapshot = Settings.BufferMinutes, Address = "24 Sample Street", Area = "Quezon City", Latitude = 14.6760m, Longitude = 121.0437m, TravelFee = Settings.TravelFee, PaymentDueAt = null };
+            var booking = new Booking { CustomerId = customer.Id, CreatedAt = Now, CustomerName = customer.Name, Service = new(service.Id, service.Name, service.Price, service.Minutes), Start = DateTime.Today.AddDays(2).AddHours(10), BufferMinutesSnapshot = Settings.BufferMinutes, Address = "24 Sample Street", Area = "Quezon City", Latitude = 14.6760m, Longitude = 121.0437m, TravelFee = Settings.TravelFee, PaymentDueAt = null };
             Bookings.Add(booking);
             Payments.Add(new() { BookingId = booking.Id, Amount = booking.RequiredDownPayment, Method = "GCash", Reference = "DEMO-REFERENCE-001" });
         }
     }
     public AppUser AddUser(string firstName, string lastName, string email, string password, string role = "Customer", int age = 0, string gender = "", string address = "")
     {
-        var user = new AppUser { Name = $"{firstName} {lastName}".Trim(), FirstName = firstName, LastName = lastName, Age = age, Gender = gender, Address = address, Email = email, Role = role };
+        var user = new AppUser { Name = $"{firstName} {lastName}".Trim(), FirstName = firstName, LastName = lastName, Age = age, Gender = gender, Address = address, Email = email, Role = role, CreatedAt = Now };
         user.PasswordHash = new PasswordHasher<AppUser>().HashPassword(user, password);
         Users.Add(user);
         return user;
@@ -79,7 +79,7 @@ public class DemoStore : IStudioStore
         var error = RegistrationRules.ValidateProfile(firstName, lastName, email, age, gender, address, enforceLegacyAge: false);
         if (error != null) throw new InvalidOperationException(error);
         if (Users.Any(x => x.Email.Equals(email.Trim(), StringComparison.OrdinalIgnoreCase))) throw new InvalidOperationException("This email is already registered.");
-        var user = new AppUser { Name = $"{firstName.Trim()} {lastName.Trim()}", FirstName = firstName.Trim(), LastName = lastName.Trim(), Age = age, Gender = gender, Address = address.Trim(), Email = email.Trim(), Role = Roles.Customer, PasswordHash = passwordHash, Birthday = birthday, Suffix = string.IsNullOrEmpty(suffix) ? null : suffix };
+        var user = new AppUser { Name = $"{firstName.Trim()} {lastName.Trim()}", FirstName = firstName.Trim(), LastName = lastName.Trim(), Age = age, Gender = gender, Address = address.Trim(), Email = email.Trim(), Role = Roles.Customer, CreatedAt = Now, PasswordHash = passwordHash, Birthday = birthday, Suffix = string.IsNullOrEmpty(suffix) ? null : suffix };
         Users.Add(user);
         return user;
     }

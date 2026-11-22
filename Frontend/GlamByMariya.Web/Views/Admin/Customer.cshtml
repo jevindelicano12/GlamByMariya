@@ -1,0 +1,48 @@
+@model GlamByMariya.Infrastructure.Services.CustomerDetail
+@{
+    ViewData["Title"] = Model.Customer.Name;
+    static string What(Booking b) => b.MixedPeople.Count > 0 ? $"Package · {b.MixedPeople.Count} people" : b.People > 1 ? $"{b.Service.Name} · {b.People} people" : b.Service.Name;
+    static string Tone(string status) => status switch
+    {
+        "Completed" => "done",
+        "Confirmed" or "InProgress" or "Pending Payment" or "Awaiting Approval" => "active",
+        _ => "closed"
+    };
+}
+<link rel="stylesheet" href="~/css/admin-customers.css" asp-append-version="true" />
+<div class="customers-page">
+    <a class="customers-back" asp-action="Customers">← All customers</a>
+    <section class="customers-card">
+        <h1>@Model.Customer.Name</h1>
+        <div class="customers-info">
+            <div><span>Email</span> <b class="customers-mail">@Model.Customer.Email</b></div>
+            <div><span>Customer since</span> <b>@(Model.Since?.ToString("MMM d, yyyy") ?? "—")</b></div>
+            <div><span>Total paid</span> <b>₱@Model.TotalPaid.ToString("N2")</b></div>
+        </div>
+        <div class="customers-eyebrow customers-gap">Every booking (newest first)</div>
+        @if (Model.Bookings.Count == 0)
+        {
+            <p class="customers-empty">No bookings yet.</p>
+        }
+        else
+        {
+            <div class="customers-table-wrap">
+                <table class="customers-table">
+                    <thead><tr><th scope="col">Time of booking</th><th scope="col">Appointment</th><th scope="col">Service</th><th scope="col">Status</th></tr></thead>
+                    <tbody>
+                    @foreach (var row in Model.Bookings)
+                    {
+                        var b = row.Booking;
+                        <tr>
+                            <td><a class="customers-open" asp-action="Details" asp-route-id="@b.Id">@(row.BookedAt?.ToString("MMM d, yyyy · h:mm tt") ?? "—")</a><small>@b.Reference</small></td>
+                            <td>@b.Start.ToString("MMM d · h:mm tt")</td>
+                            <td>@What(b) · ₱@b.Total.ToString("N0")</td>
+                            <td><span class="customers-pill @Tone(b.Status)">@b.Status</span></td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+</div>

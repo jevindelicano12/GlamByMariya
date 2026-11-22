@@ -68,6 +68,18 @@ public sealed class PublicStudioStore(
             throw new InvalidOperationException("Availability cannot be verified. Please try again later.", e);
         }
     }
+    // Admin → Customers: when each booking was made and each customer account was created.
+    public override IReadOnlyDictionary<Guid, DateTime> BookingCreatedTimes() =>
+        pdb.Database.SqlQueryRaw<CreatedTime>("""SELECT app_id AS "Id", created_at AS "At" FROM public.reservations WHERE app_id IS NOT NULL""")
+            .AsEnumerable().ToDictionary(r => r.Id, r => Local(r.At));
+    public override IReadOnlyDictionary<Guid, DateTime> CustomerCreatedTimes() =>
+        pdb.Database.SqlQueryRaw<CreatedTime>("""SELECT app_id AS "Id", created_at AS "At" FROM public.customers WHERE app_id IS NOT NULL""")
+            .AsEnumerable().ToDictionary(r => r.Id, r => Local(r.At));
+    private sealed class CreatedTime
+    {
+        public Guid Id { get; set; }
+        public DateTime At { get; set; }
+    }
     private sealed class OccupiedInterval
     {
         public DateTime From { get; set; }

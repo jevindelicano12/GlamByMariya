@@ -1,0 +1,53 @@
+@model IReadOnlyList<GlamByMariya.Infrastructure.Services.CustomerListRow>
+@{
+    ViewData["Title"] = "Customers";
+    var search = (string)ViewBag.Search; var sort = (string)ViewBag.Sort;
+    static string What(Booking b) => b.MixedPeople.Count > 0 ? $"Package · {b.MixedPeople.Count} people" : b.People > 1 ? $"{b.Service.Name} · {b.People} people" : b.Service.Name;
+}
+<link rel="stylesheet" href="~/css/admin-customers.css" asp-append-version="true" />
+<div class="customers-page">
+    <div class="customers-eyebrow">ADMIN · CUSTOMERS</div>
+    <h1>Customers</h1>
+    <p class="customers-sub">Newest booking first. Open a customer to see every time they booked.</p>
+    <form class="customers-bar" method="get" asp-action="Customers" role="search">
+        <label class="customers-label" for="customers-search">Search customers</label>
+        <input id="customers-search" type="search" name="q" value="@search" maxlength="100" placeholder="Search name or email" autocomplete="off" />
+        <label class="customers-label" for="customers-sort">Sort</label>
+        <select id="customers-sort" name="sort">
+            <option value="recent" selected="@(sort == "recent")">Sort: newest time of booking</option>
+            <option value="since" selected="@(sort == "since")">Sort: customer since</option>
+        </select>
+        <button type="submit" class="customers-apply">Apply</button>
+    </form>
+    @if (Model.Count == 0)
+    {
+        <p class="customers-empty">@(search.Length > 0 ? "No customer matches that name or email." : "No customers yet.")</p>
+    }
+    else
+    {
+        <div class="customers-table-wrap">
+            <table class="customers-table">
+                <thead><tr><th scope="col">Customer</th><th scope="col">Email</th><th scope="col">Time of booking</th><th scope="col">Customer since</th></tr></thead>
+                <tbody>
+                @foreach (var row in Model)
+                {
+                    <tr>
+                        <td><a class="customers-open" asp-action="Customer" asp-route-id="@row.Customer.Id">@row.Customer.Name</a></td>
+                        <td class="customers-mail">@row.Customer.Email</td>
+                        <td>
+                            @if (row.Latest == null) { <text>—</text><small>No bookings yet</small> }
+                            else
+                            {
+                                <b>@(row.LatestBookedAt?.ToString("MMM d, yyyy · h:mm tt") ?? "—")</b>
+                                <small>for @row.Latest.Start.ToString("MMM d, h:mm tt") · @What(row.Latest)</small>
+                            }
+                        </td>
+                        <td>@(row.Since?.ToString("MMM d, yyyy") ?? "—")</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+<script src="~/js/admin-customers.js" asp-append-version="true"></script>

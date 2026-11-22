@@ -17,6 +17,9 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
     private bool CustomerRequest => http.HttpContext?.User.IsInRole("Customer") == true;
     private string Zone => configuration["Studio:TimeZone"] ?? Settings.TimeZone;
     public DateTime Now => TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, TimeZoneInfo.FindSystemTimeZoneById(Zone));
+    // The legacy makeup schema has no created times in its read views; the live public schema overrides these.
+    public virtual IReadOnlyDictionary<Guid, DateTime> BookingCreatedTimes() => new Dictionary<Guid, DateTime>();
+    public virtual IReadOnlyDictionary<Guid, DateTime> CustomerCreatedTimes() => new Dictionary<Guid, DateTime>();
     protected DateTime Local(DateTime utc) => TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), TimeZoneInfo.FindSystemTimeZoneById(Zone));
     protected DateTime Utc(DateTime local)
     {

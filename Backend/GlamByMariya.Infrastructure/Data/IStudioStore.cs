@@ -11,6 +11,12 @@ public interface IStudioStore : IServiceRepository, IAddOnRepository, IBookingRe
     bool IsPersistent { get; }
     DateTime Now { get; }
     List<AppUser> Users { get; }
+    // Admin → Customers: when each booking was made and each customer account was created (business time).
+    // Stores that do not record these return none, and the page shows no time rather than a guess.
+    IReadOnlyDictionary<Guid, DateTime> BookingCreatedTimes() =>
+        Bookings.Where(b => b.CreatedAt.HasValue).ToDictionary(b => b.Id, b => b.CreatedAt!.Value);
+    IReadOnlyDictionary<Guid, DateTime> CustomerCreatedTimes() =>
+        Users.Where(u => u.CreatedAt.HasValue).ToDictionary(u => u.Id, u => u.CreatedAt!.Value);
     List<Notification> Notifications { get; }
     List<AuditLog> AuditLogs { get; }
     List<AvailabilityBlock> Blocks { get; }

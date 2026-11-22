@@ -464,6 +464,47 @@ if (args.Contains("--travel-admin-only"))
     Check(artistMapScript.Contains("event.key !== 'Enter'") && artistMapScript.Contains("event.preventDefault()"), "Enter in the artist search box searches instead of submitting a form");
     Console.WriteLine($"All {checks} travel admin checks passed."); return;
 }
+if (args.Contains("--customers-only"))
+{
+    // Admin → Customers: each customer with the time they last booked; one customer's page lists every booking with its own time of booking.
+    var owner = new AppUser { Name = "Owner", Email = "owner@example.test", Role = "SuperAdmin" };
+    var andrea = new AppUser { Name = "Andrea Santos", Email = "andrea.santos@gmail.com", Role = "Customer" };
+    var bea = new AppUser { Name = "Bea Reyes", Email = "beareyes22@gmail.com", Role = "Customer" };
+    var dana = new AppUser { Name = "Dana Cruz", Email = "danacruz@gmail.com", Role = "Customer" };
+    Booking Made(AppUser who, DateTime start, string status, decimal paid = 0, decimal refunded = 0) =>
+        new() { CustomerId = who.Id, CustomerName = who.Name, Start = start, Status = status, VerifiedPaid = paid, Refunded = refunded, Service = new(Guid.NewGuid(), "Soft Glam", 600, 60) };
+    var a1 = Made(andrea, new DateTime(2026, 11, 26, 8, 0, 0), "Confirmed", 1725);
+    var a2 = Made(andrea, new DateTime(2026, 12, 1, 10, 0, 0), "Completed", 600);
+    var a3 = Made(andrea, new DateTime(2026, 11, 21, 16, 15, 0), "Cancelled", 600, 400);
+    var a4 = Made(andrea, new DateTime(2026, 11, 25, 10, 0, 0), "Expired");
+    var b1 = Made(bea, new DateTime(2026, 11, 21, 10, 0, 0), "Confirmed", 750);
+    var users = new List<AppUser> { owner, andrea, bea, dana };
+    var all = new List<Booking> { a1, a2, a3, a4, b1 };
+    var bookedAt = new Dictionary<Guid, DateTime> { [a1.Id] = new(2026, 11, 20, 21, 14, 0), [a2.Id] = new(2026, 11, 15, 18, 22, 0), [a3.Id] = new(2026, 10, 28, 10, 5, 0), [a4.Id] = new(2026, 10, 3, 20, 47, 0), [b1.Id] = new(2026, 11, 19, 14, 3, 0) };
+    var since = new Dictionary<Guid, DateTime> { [andrea.Id] = new(2026, 10, 2, 9, 0, 0), [bea.Id] = new(2026, 11, 18, 9, 0, 0), [dana.Id] = new(2026, 11, 20, 9, 0, 0) };
+    var list = GlamByMariya.Infrastructure.Services.CustomerHistory.List(users, all, bookedAt, since, null, null);
+    Check(list.Select(r => r.Customer.Name).SequenceEqual(new[] { "Andrea Santos", "Bea Reyes", "Dana Cruz" }), "the list shows customers only, newest time of booking first, customers without bookings last");
+    Check(list[0].Latest == a1 && list[0].LatestBookedAt == new DateTime(2026, 11, 20, 21, 14, 0), "a returning customer shows the booking they made most recently, not the latest appointment date");
+    Check(list[2].Latest == null && list[2].LatestBookedAt == null && list[2].Since == new DateTime(2026, 11, 20, 9, 0, 0), "a customer with no bookings shows no time of booking but keeps customer since");
+    Check(GlamByMariya.Infrastructure.Services.CustomerHistory.List(users, all, bookedAt, since, "  BEAREYES ", null).Select(r => r.Customer.Name).SequenceEqual(new[] { "Bea Reyes" })
+        && GlamByMariya.Infrastructure.Services.CustomerHistory.List(users, all, bookedAt, since, "santos", null).Single().Customer == andrea, "search matches name or email, ignoring case and spaces");
+    Check(GlamByMariya.Infrastructure.Services.CustomerHistory.List(users, all, bookedAt, since, null, "since").Select(r => r.Customer.Name).SequenceEqual(new[] { "Dana Cruz", "Bea Reyes", "Andrea Santos" }), "sorting by customer since puts the newest account first");
+    var detail = GlamByMariya.Infrastructure.Services.CustomerHistory.Detail(andrea.Id, users, all, bookedAt, since)!;
+    Check(detail.Bookings.Select(r => r.Booking).SequenceEqual(new[] { a1, a2, a3, a4 }) && detail.Bookings[0].BookedAt == new DateTime(2026, 11, 20, 21, 14, 0), "one customer's page lists every booking newest time of booking first");
+    Check(detail.TotalPaid == 1725 + 600 + 200 && detail.Since == new DateTime(2026, 10, 2, 9, 0, 0), "total paid counts verified payments minus refunds and ignores unpaid bookings");
+    Check(GlamByMariya.Infrastructure.Services.CustomerHistory.Detail(owner.Id, users, all, bookedAt, since) == null && GlamByMariya.Infrastructure.Services.CustomerHistory.Detail(Guid.NewGuid(), users, all, bookedAt, since) == null, "staff and unknown ids have no customer page");
+    var noTimes = GlamByMariya.Infrastructure.Services.CustomerHistory.List(users, all, new Dictionary<Guid, DateTime>(), new Dictionary<Guid, DateTime>(), null, null);
+    Check(noTimes[0].Customer == andrea && noTimes[0].Latest == a2 && noTimes[0].LatestBookedAt == null, "without recorded times the latest appointment stands in and no time is invented");
+    var web = Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web");
+    string WebFile(params string[] parts) => File.ReadAllText(Path.Combine([web, .. parts]));
+    var publicStore = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Backend", "GlamByMariya.Infrastructure", "Data", "PublicStudioStore.cs"));
+    Check(publicStore.Contains("FROM public.reservations") && publicStore.Contains("FROM public.customers") && publicStore.Contains("created_at"), "the live store reads each booking's and customer's created time");
+    var listView = WebFile("Views", "Admin", "Customers.cshtml"); var oneView = WebFile("Views", "Admin", "Customer.cshtml");
+    Check(listView.Contains("Time of booking") && listView.Contains("Customer since") && listView.Contains("Email") && !listView.Contains("Times booked") && !listView.Contains("Returning"), "the list has Customer, Email, Time of booking and Customer since only");
+    Check(oneView.Contains("Every booking (newest first)") && oneView.Contains("Time of booking") && oneView.Contains("Total paid") && oneView.Contains("All customers"), "one customer's page shows every booking with its time of booking");
+    Check(WebFile("Views", "Shared", "_Layout.cshtml").Contains("asp-action=\"Customers\""), "the staff menu links to Customers");
+    Console.WriteLine($"All {checks} customer history checks passed."); return;
+}
 if (args.Contains("--storage-key-only"))
 {
     // A storage key pasted with a trailing new line (or spaces) still works.

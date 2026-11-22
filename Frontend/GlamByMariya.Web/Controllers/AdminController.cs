@@ -256,6 +256,25 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
         ViewBag.Search = search; ViewBag.Category = category;
         return View(items);
     }
+    // Customers: every customer with when they last booked; one customer's page lists every booking with its time of booking.
+    public IActionResult Customers(string? q, string? sort)
+    {
+        if (sort is not (null or "" or "recent" or "since")) return BadRequest();
+        if (q?.Length > 100) q = q[..100];
+        lock (store.Gate)
+        {
+            ViewBag.Search = q?.Trim() ?? ""; ViewBag.Sort = sort == "since" ? "since" : "recent";
+            return View(CustomerHistory.List(store.Users, store.Bookings, store.BookingCreatedTimes(), store.CustomerCreatedTimes(), q, sort));
+        }
+    }
+    public IActionResult Customer(Guid id)
+    {
+        lock (store.Gate)
+        {
+            var detail = CustomerHistory.Detail(id, store.Users, store.Bookings, store.BookingCreatedTimes(), store.CustomerCreatedTimes());
+            return detail == null ? NotFound() : View(detail);
+        }
+    }
     public IActionResult Appointments(string? mode, string? status, int? year, int? month, int? day)
     {
         if (mode is not (null or "list" or "calendar") || year.HasValue != month.HasValue ||
