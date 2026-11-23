@@ -740,6 +740,8 @@ if (args.Contains("--xendit-only"))
         "the invoice request goes to Xendit with the secret key as basic auth");
     Check(sent.GetProperty("external_id").GetString() == "LM-1234ABCD" && sent.GetProperty("amount").GetDecimal() == 300m && sent.GetProperty("currency").GetString() == "PHP"
         && sent.GetProperty("invoice_duration").GetInt32() == 840, "the invoice is for the booking reference, the exact deposit in PHP, valid 14 minutes (one minute inside the 15-minute hold)");
+    Check(string.Join(",", sent.GetProperty("payment_methods").EnumerateArray().Select(m => m.GetString())) == "GCASH,PAYMAYA,GRABPAY,SHOPEEPAY,QRPH",
+        "the checkout offers only GCash, Maya, GrabPay, ShopeePay and QR Ph");
     Check(invoice.Id == "inv_fake_1" && invoice.InvoiceUrl == "https://checkout-staging.xendit.co/web/inv_fake_1", "the checkout link comes back from Xendit");
     Reject(() => new XenditClient(xenditHttp, Settings("xnd_production_abc")).CreateInvoiceAsync("LM-1", 1m, "a@example.test", "d", "https://s.test", "https://s.test").GetAwaiter().GetResult(),
         "a live Xendit key is refused for the demo");

@@ -17,6 +17,8 @@ public sealed class XenditClient(IHttpClientFactory http, IConfiguration config)
     // One minute shorter than the 15-minute hold, so a payment always lands while the slot is still held.
     public const int InvoiceSeconds = 14 * 60;
     public const int MinimumInvoiceSeconds = 2 * 60;
+    // The checkout offers only e-wallets (GCash, Maya, GrabPay, ShopeePay) and QR Ph; no cards, banks or outlets.
+    public static readonly string[] PaymentMethods = ["GCASH", "PAYMAYA", "GRABPAY", "SHOPEEPAY", "QRPH"];
 
     // A hold that started earlier (an approved early request): the page closes one minute before the
     // hold ends, or is not opened at all (null) when less than two minutes would remain.
@@ -47,6 +49,7 @@ public sealed class XenditClient(IHttpClientFactory http, IConfiguration config)
                 invoice_duration = durationSeconds ?? InvoiceSeconds,
                 success_redirect_url = successUrl,
                 failure_redirect_url = failureUrl,
+                payment_methods = PaymentMethods,
             })
         };
         request.Headers.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(Encoding.ASCII.GetBytes(key + ":")));
