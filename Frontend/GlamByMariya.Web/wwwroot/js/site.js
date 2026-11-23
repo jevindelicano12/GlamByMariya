@@ -347,7 +347,7 @@ if (bookingForm) {
       if (!response.ok) throw new Error(quote.error || 'Unable to calculate your price.');
       if (version !== pricingVersion) return;
       const values = { '#summary-name': quote.service, '#summary-people': quote.people,
-        '#summary-service': money(quote.regularPrice), '#summary-group-price': quote.groupPrice == null ? 'Not offered' : money(quote.groupPrice) + ` (${quote.groupMinimumPeople}+ people)`,
+        '#summary-service': money(quote.regularPrice), '#summary-group-price': quote.groupPrice == null ? 'Not offered' : quote.people < quote.groupMinimumPeople ? `Not applied (needs ${quote.groupMinimumPeople}+ people)` : money(quote.groupPrice) + ` (${quote.groupMinimumPeople}+ people)`,
         '#summary-original': money(quote.originalTotal), '#summary-discount': '−' + money(quote.groupDiscount),
         '#summary-addons': money(quote.extrasTotal), '#summary-early-fee': money(quote.earlyFee), '#summary-late-fee': money(quote.lateFee),
         '#summary-total': money(quote.finalTotal), '#summary-down-payment': money(quote.requiredDownPayment),

@@ -13,6 +13,11 @@
   locationFields.before(locationHome);
   const money = amount => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(amount);
   let submitting = false;
+  // Add-ons are paid on top of the service prices, so the summary shows their amount and who has them.
+  const addOnSummary = q => {
+    const who = q.people.map((p, i) => p.addOns.length ? `Person ${i + 1}: ${p.addOns.map(a => `${a.name} × ${a.quantity}`).join(', ')}` : null).filter(Boolean);
+    return who.length ? `${money(q.addOnTotal)} (${who.join('; ')})` : money(0);
+  };
   const message = text => form.dispatchEvent(new CustomEvent('booking-submission-message', { detail: { message: text } }));
   const payment = () => {
     if (!active() || !form.mixedSlot) return;
@@ -47,7 +52,7 @@
     for (const [label, value] of [['Makeup start', slot.start.replace('T', ' ')], ['Combined makeup', `${q.durationMinutes} minutes`], ['Preparation buffer', `${slot.bufferMinutes} minutes`], ['Early fee', money(q.earlyFee)], ['Late fee', money(q.lateFee)], ['Booking total', money(q.finalTotal)], ['Minimum down payment', money(q.requiredDownPayment)]]) {
       const dt = document.createElement('dt'), dd = document.createElement('dd'); dt.textContent = label; dd.textContent = value; totals.append(dt, dd);
     }
-    const summary = { name: 'Mixed-service group', people: q.people.length, service: 'Individual prices', 'group-price': 'Not applied', original: money(q.serviceTotal), discount: money(0), addons: q.people.map((p, i) => `Person ${i + 1}: ${p.addOns.map(a => `${a.name} × ${a.quantity}`).join(', ') || 'none'}`).join('; '), 'early-fee': money(q.earlyFee), 'late-fee': money(q.lateFee), total: money(q.finalTotal), 'down-payment': money(q.requiredDownPayment), start: slot.start.replace('T', ' '), duration: `${q.durationMinutes} min` };
+    const summary = { name: 'Mixed-service group', people: q.people.length, service: 'Individual prices', 'group-price': q.groupDiscount > 0 ? 'Applied to each person' : 'Not applied', original: money(q.serviceTotal + q.groupDiscount), discount: '−' + money(q.groupDiscount), addons: addOnSummary(q), 'early-fee': money(q.earlyFee), 'late-fee': money(q.lateFee), total: money(q.finalTotal), 'down-payment': money(q.requiredDownPayment), start: slot.start.replace('T', ' '), duration: `${q.durationMinutes} min` };
     const finish = new Date(slot.start + ':00Z'); finish.setUTCMinutes(finish.getUTCMinutes() + q.durationMinutes);
     summary.finish = finish.toISOString().slice(0, 16).replace('T', ' ');
     Object.entries(summary).forEach(([key, value]) => { form.querySelector(`#summary-${key}`).textContent = value; });
