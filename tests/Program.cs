@@ -2241,6 +2241,9 @@ if (args.Contains("--flexible-booking-only"))
           && fourMixed.People[0].Service.Price == (glam.GroupPrice ?? glam.Price) && fourMixed.People[0].RegularPrice == glam.Price
           && fourMixed.GroupDiscount == (glam.Price - (glam.GroupPrice ?? glam.Price)) + 3 * (soft.Price - soft.GroupPrice!.Value),
         "1 Glamour + 3 Soft Glam counts as 4 people: each gets its group price (3 Soft Glam alone would not) and the quote keeps each regular price");
+    var mixedBooking = new Booking { MixedPeople = fourMixed.People };
+    Check(mixedBooking.GroupDiscount == fourMixed.GroupDiscount && mixedBooking.OriginalTotal - mixedBooking.GroupDiscount == fourMixed.ServiceTotal,
+        "a package booking shows its regular service total and group discount, and they still add up to what was charged");
     var threeMixed = flow.QuoteMixed([P(glam), P(soft), P(soft)]);
     Check(threeMixed.GroupDiscount == 0 && threeMixed.People.All(p => p.Service.Price == p.RegularPrice), "a 3-person package pays regular prices");
     string Refusal(Action action) { try { action(); } catch (InvalidOperationException e) { return e.Message; } return ""; }

@@ -584,7 +584,7 @@ public sealed class PublicStudioStore(
         if (bookingIds.Count == 0) return new Dictionary<Guid, IReadOnlyList<MixedPersonQuote>>();
         var ids = bookingIds.ToArray();
         var people = pdb.Database.SqlQueryRaw<PackagePersonRow>("""
-            SELECT r.app_id AS "BookingId", p.id AS "PersonId", p.position AS "Position", s.app_id AS "ServiceId", p.service_name_snapshot AS "Name", p.price_snapshot AS "Price", p.minutes_snapshot AS "Minutes"
+            SELECT r.app_id AS "BookingId", p.id AS "PersonId", p.position AS "Position", s.app_id AS "ServiceId", p.service_name_snapshot AS "Name", p.price_snapshot AS "Price", p.minutes_snapshot AS "Minutes", s.price AS "CatalogPrice", s.group_price AS "CatalogGroupPrice"
               FROM public.reservation_people p JOIN public.reservations r ON r.id = p.reservation_id JOIN public.services s ON s.id = p.service_id
              WHERE r.app_id = ANY({0})
             """, ids).ToList();
@@ -596,13 +596,17 @@ public sealed class PublicStudioStore(
         return people.GroupBy(p => p.BookingId).ToDictionary(g => g.Key, g => (IReadOnlyList<MixedPersonQuote>)g.OrderBy(p => p.Position).Select(p =>
         {
             var addOns = extras[p.PersonId].Select(a => new PriceSnapshot(a.AddonId, a.Name, a.Price, a.Minutes)).ToArray();
-            return new MixedPersonQuote(new PriceSnapshot(p.ServiceId, p.Name, p.Price, p.Minutes), addOns, p.Price + addOns.Sum(a => a.Price), p.Minutes + addOns.Sum(a => a.Minutes));
+            // The regular price is not stored per person: a person who paid the service's current group price
+            // shows the current regular price beside it. After a later catalog price change it is left out.
+            decimal? regular = p.CatalogGroupPrice == p.Price && p.CatalogPrice > p.Price ? p.CatalogPrice : null;
+            return new MixedPersonQuote(new PriceSnapshot(p.ServiceId, p.Name, p.Price, p.Minutes), addOns, p.Price + addOns.Sum(a => a.Price), p.Minutes + addOns.Sum(a => a.Minutes)) { RegularPrice = regular };
         }).ToList());
     }
     private sealed class PackagePersonRow
     {
         public Guid BookingId { get; set; } public long PersonId { get; set; } public int Position { get; set; } public Guid ServiceId { get; set; }
         public string Name { get; set; } = ""; public decimal Price { get; set; } public int Minutes { get; set; }
+        public decimal CatalogPrice { get; set; } public decimal? CatalogGroupPrice { get; set; }
     }
     private sealed class PackageAddonRow
     {

@@ -7,7 +7,7 @@
         @for (var i = 0; i < Model.MixedPeople.Count; i++)
         {
             var person = Model.MixedPeople[i];
-            <article><h4>Person @(i + 1)</h4><p>@person.Service.Name · ₱@person.Service.Price.ToString("N2")</p>
+            <article><h4>Person @(i + 1)</h4><p>@person.Service.Name · @if (person.RegularPrice is { } regular && regular > person.Service.Price) { <text>Regular ₱@regular.ToString("N2") → Group ₱@person.Service.Price.ToString("N2")</text> } else { <text>₱@person.Service.Price.ToString("N2")</text> }</p>
             @foreach (var addon in person.AddOns) { <p>@addon.Name × @addon.Quantity · ₱@((addon.Price * addon.Quantity).ToString("N2"))</p> }
             @if (person.AddOns.Count == 0) { <p>No add-ons</p> }
             <p>Add-on total · ₱@person.AddOns.Sum(a => a.Price * a.Quantity).ToString("N2")</p>

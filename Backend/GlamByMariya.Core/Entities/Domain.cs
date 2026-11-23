@@ -75,8 +75,8 @@ public class Booking
     public DateTime? TransportationPolicyAcknowledgedAt { get; set; }
     public decimal DownPaymentPercentSnapshot { get; set; } = 50;
     public decimal RequiredDownPaymentSnapshot { get; set; }
-    public decimal OriginalTotal => MixedPeople.Count > 0 ? MixedPeople.Sum(x => x.Service.Price) : Service.Price * People;
-    public decimal GroupDiscount => MixedPeople.Count > 0 ? 0 : (Service.Price - (AppliedPricePerPerson > 0 ? AppliedPricePerPerson : Service.Price)) * People;
+    public decimal OriginalTotal => MixedPeople.Count > 0 ? MixedPeople.Sum(x => x.RegularPrice ?? x.Service.Price) : Service.Price * People;
+    public decimal GroupDiscount => MixedPeople.Count > 0 ? MixedPeople.Sum(x => (x.RegularPrice ?? x.Service.Price) - x.Service.Price) : (Service.Price - (AppliedPricePerPerson > 0 ? AppliedPricePerPerson : Service.Price)) * People;
     // TravelFee is retained as an informational/future snapshot, but is not collected online.
     public decimal InitialBookingTotal => OriginalTotal - GroupDiscount + (MixedPeople.Count > 0 ? MixedPeople.Sum(p => p.AddOns.Sum(a => a.Price * a.Quantity)) : AddOns.Sum(x => x.Price * x.Quantity)) + EarlyFeeSnapshot + LateFeeSnapshot;
     public decimal Total => ApprovedReschedules.LastOrDefault()?.Quote.ProposedTotal ?? InitialBookingTotal;

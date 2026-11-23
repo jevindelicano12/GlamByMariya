@@ -6,12 +6,8 @@
     <div class="detail-row"><span>Regular price per person</span><strong>₱@Model.Service.Price.ToString("N2")</strong></div>
     <div class="detail-row"><span>Group price per person</span><strong>@(!Model.GroupPrice.HasValue ? "Not offered" : Model.People < Model.GroupMinimumPeople ? $"Not applied (needs {Model.GroupMinimumPeople}+ people)" : $"₱{Model.GroupPrice.Value:N2} ({Model.GroupMinimumPeople}+ people)")</strong></div>
     }
-    @if (Model.MixedPeople.Count > 0) {
-    <div class="detail-row"><span>Service total (package group prices included)</span><strong>₱@Model.OriginalTotal.ToString("N2")</strong></div>
-    } else {
     <div class="detail-row"><span>Original service total</span><strong>₱@Model.OriginalTotal.ToString("N2")</strong></div>
     <div class="detail-row"><span>Group discount</span><strong>−₱@Model.GroupDiscount.ToString("N2")</strong></div>
-    }
     <div class="detail-row"><span>Selected add-ons</span><strong>₱@((Model.MixedPeople.Count > 0 ? Model.MixedPeople.Sum(p => p.AddOns.Sum(a => a.Price * a.Quantity)) : Model.AddOns.Sum(a => a.Price * a.Quantity)).ToString("N2"))</strong></div>
     <div class="detail-row"><span>Early booking surcharge</span><strong>₱@((Model.ApprovedReschedules.LastOrDefault()?.Quote.EarlyFee ?? Model.EarlyFeeSnapshot).ToString("N2"))</strong></div>
     <div class="detail-row"><span>Late booking surcharge</span><strong>₱@((Model.ApprovedReschedules.LastOrDefault()?.Quote.LateFee ?? Model.LateFeeSnapshot).ToString("N2"))</strong></div>
