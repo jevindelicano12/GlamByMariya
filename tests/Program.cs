@@ -2252,6 +2252,13 @@ if (args.Contains("--flexible-booking-only"))
           && flow.Quote(soft.Id, [], 3, "group").People == 3,
         "with the owner's maximum at 3, 4 people are refused for a group or package and 3 are allowed");
     demo.Settings.MaxPeople = 20;
+    var filterNow = new DateTime(2026, 11, 24, 12, 0, 0);
+    var waiting = new Booking { Status = "Confirmed", PaidAt = filterNow.AddHours(-2) };
+    var accepted = new Booking { Status = "Confirmed", PaidAt = filterNow.AddHours(-2), ArtistAcceptedAt = filterNow.AddHours(-1) };
+    var F = GlamByMariya.Web.Controllers.AdminController.PaidWaitingFilter;
+    Check(GlamByMariya.Web.Controllers.AdminController.StatusFilterMatches(waiting, F, filterNow) && !GlamByMariya.Web.Controllers.AdminController.StatusFilterMatches(accepted, F, filterNow)
+          && GlamByMariya.Web.Controllers.AdminController.StatusFilterMatches(accepted, "Confirmed", filterNow),
+        "the Paid · waiting filter shows paid bookings the artist has not confirmed, and only those");
     var threeMixed = flow.QuoteMixed([P(glam), P(soft), P(soft)]);
     Check(threeMixed.GroupDiscount == 0 && threeMixed.People.All(p => p.Service.Price == p.RegularPrice), "a 3-person package pays regular prices");
     string Refusal(Action action) { try { action(); } catch (InvalidOperationException e) { return e.Message; } return ""; }

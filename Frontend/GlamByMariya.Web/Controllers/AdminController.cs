@@ -111,7 +111,7 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
             var all = store.Bookings.ToList(); var payments = store.Payments.ToList();
             ViewBag.All = all; ViewBag.Payments = payments; ViewBag.Status = status;
             ViewBag.CorrectionBookingIds = CorrectionBookings(all, payments);
-            return View(all.Where(b => string.IsNullOrEmpty(status) || b.Status == status).OrderBy(b => b.Start).ToList());
+            return View(all.Where(b => StatusFilterMatches(b, status, store.Now)).OrderBy(b => b.Start).ToList());
         }
     }
     // Does the proposed reschedule time fit the artist's travel? null when there is nothing to check (no pending request, or a mixed booking).
@@ -289,6 +289,11 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
             return detail == null ? NotFound() : View(detail);
         }
     }
+    // "Paid · waiting": paid bookings the artist has not confirmed yet (their status is Confirmed).
+    public const string PaidWaitingFilter = "Paid · waiting";
+    public static bool StatusFilterMatches(Booking b, string? status, DateTime now) =>
+        string.IsNullOrEmpty(status) || (status == PaidWaitingFilter ? b.AwaitingArtist(now) : b.Status == status);
+
     public IActionResult Appointments(string? mode, string? status, int? year, int? month, int? day)
     {
         if (mode is not (null or "list" or "calendar") || year.HasValue != month.HasValue ||
@@ -304,7 +309,7 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
             ViewBag.Month = first; ViewBag.Day = day; ViewBag.Blocks = store.Blocks.ToList();
             ViewBag.Hours = store.Settings;
             ViewBag.OpenWindows = day.HasValue && !store.IsPersistent ? workflow.DemoOpenWindows(first.AddDays(day.Value - 1)) : null;
-            return View(all.Where(b => string.IsNullOrEmpty(status) || b.Status == status).ToList());
+            return View(all.Where(b => StatusFilterMatches(b, status, store.Now)).ToList());
         }
     }
     public IActionResult Catalog() { ViewBag.CatalogImages = (Func<string, Guid, string?>)((kind, id) => imageService.GetImageUrl(kind, id)); ViewBag.CatalogPreviewImages = (Func<string, Guid, string?>)((kind, id) => imageService.GetImageUrl(kind, id, "preview")); lock (store.Gate) { ViewBag.AddOns = store.AddOns.ToList(); return View(store.Services.ToList()); } }
