@@ -126,7 +126,7 @@
 .customer-layout .customer-desktop-nav { display:flex; align-items:center; gap:2px; margin:0 0 0 auto; overflow:visible; }
 .customer-desktop-nav a { color:#49363D; white-space:nowrap; padding:10px; }
 .customer-desktop-nav a:hover { background:#EBC2C8; }
-.customer-mobile-menu,.staff-menu>summary { display:none; }
+.customer-mobile-menu,.staff-menu>.menu-toggle,.staff-menu>.menu-backdrop { display:none; }
 .staff-menu nav { margin-top:0; }
 .customer-layout .account { margin-left:0; }
 .customer-layout main { max-width:1400px; margin:auto; }
@@ -138,15 +138,13 @@
 @media (max-width:1100px) {
   .customer-layout .customer-desktop-nav { display:none; }
   .customer-mobile-menu { display:block; margin-left:auto; }
-  .customer-mobile-menu summary,.staff-menu>summary { display:flex; align-items:center; gap:6px; min-height:44px; padding:8px 12px; cursor:pointer; color:#49363D; border:1px solid #A6536B; border-radius:6px; }
-  .customer-mobile-menu nav { position:absolute; z-index:20; right:18px; top:calc(100% - 4px); display:grid; gap:0; margin:0; min-width:220px; padding:8px; background:#fff; border:1px solid #EADDD7; border-radius:8px; box-shadow:0 8px 24px #49363d26; }
-  .customer-mobile-menu nav a { min-height:44px; padding:10px 12px; color:#49363D; }
 }
 @media (max-width:850px) {
   .staff-layout .sidebar { position:relative; display:flex; flex-direction:row; align-items:center; flex-wrap:wrap; justify-content:space-between; }
   .staff-layout .staff-menu { margin-left:auto; }
-  .staff-layout .staff-menu>summary { display:flex; }
-  .staff-layout .staff-menu[open] nav,.staff-layout.sidebar-collapsed .staff-menu[open] nav { position:absolute; top:100%; left:0; right:0; display:grid; gap:2px; margin:0; padding:10px 20px; background:#fff8f4; border-bottom:1px solid #EADDD7; box-shadow:0 8px 24px #49363d1a; max-height:calc(100dvh - 80px); overflow-y:auto; overscroll-behavior:contain; }
+  .staff-layout .staff-menu>.menu-toggle { display:inline-flex; }
+  .staff-layout .staff-menu:not(.is-open) nav { display:none; }
+  .staff-layout .staff-menu.is-open nav,.staff-layout.sidebar-collapsed .staff-menu.is-open nav { z-index:41; position:absolute; top:100%; left:0; right:0; display:grid; gap:2px; margin:0; padding:10px 20px; background:#fff8f4; border-bottom:1px solid #EADDD7; box-shadow:0 8px 24px #49363d1a; max-height:calc(100dvh - 80px); overflow-y:auto; overscroll-behavior:contain; }
   .staff-layout .staff-menu nav a,.staff-layout.sidebar-collapsed .staff-menu nav a { justify-content:flex-start; gap:12px; min-height:44px; padding:10px 12px; font-size:13px; }
   .staff-layout.sidebar-collapsed .sidebar .brand-name { display:block; }
   .staff-layout .sidebar .brand { width:auto; }

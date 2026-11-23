@@ -93,8 +93,14 @@ try {
       const size = await page.evaluate(() => ({ viewport: document.documentElement.clientWidth, scroll: document.documentElement.scrollWidth }));
       assert.ok(size.scroll <= size.viewport, `${url} at ${width}: ${JSON.stringify(size)}`);
       const nav = width <= 1050 ? page.locator('nav[aria-label="Mobile navigation"]') : page.locator('nav[aria-label="Website"]');
-      if (width <= 1050) await page.locator('details.public-menu summary').click();
+      const toggle = page.locator('.public-menu .menu-toggle');
+      if (width <= 1050) { await toggle.click(); assert.equal(await toggle.getAttribute('aria-expanded'), 'true'); }
       assert.ok(await nav.getByRole('link', { name: 'Contact', exact: true }).isVisible());
+      if (width <= 1050) {
+        await page.keyboard.press('Escape');
+        assert.equal(await toggle.getAttribute('aria-expanded'), 'false', 'Esc closes the menu');
+        assert.ok(!await nav.isVisible(), 'closed menu hides its links');
+      }
       if (url === '/' && (width === 390 || width === 1440)) await page.screenshot({ path: path.join(screenshots, `home-${width}.png`), fullPage: true });
     }
     check(true, `public navigation and layout at ${width}px`);

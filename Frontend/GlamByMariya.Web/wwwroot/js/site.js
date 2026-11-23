@@ -142,13 +142,11 @@ if (staffMenu) {
     else if (link.bottom > bounds.bottom) element.scrollTop += link.bottom - bounds.bottom;
   };
   sidebar.addEventListener('scroll', () => { if (!mobile.matches) saveScroll(sidebar, 'glam-staff-sidebar-scroll'); }, { passive: true });
-  nav.addEventListener('scroll', () => { if (mobile.matches && staffMenu.open) saveScroll(nav, 'glam-staff-menu-scroll'); }, { passive: true });
-  staffMenu.addEventListener('toggle', () => { if (mobile.matches && staffMenu.open) requestAnimationFrame(() => restoreScroll(nav, 'glam-staff-menu-scroll')); });
+  const menuOpen = () => staffMenu.classList.contains('is-open');
+  nav.addEventListener('scroll', () => { if (mobile.matches && menuOpen()) saveScroll(nav, 'glam-staff-menu-scroll'); }, { passive: true });
+  staffMenu.addEventListener('menu:toggle', event => { if (mobile.matches && event.detail.open) requestAnimationFrame(() => restoreScroll(nav, 'glam-staff-menu-scroll')); });
   window.addEventListener('pagehide', () => { if (!mobile.matches) saveScroll(sidebar, 'glam-staff-sidebar-scroll'); });
   window.addEventListener('pageshow', () => { if (!mobile.matches) requestAnimationFrame(() => restoreScroll(sidebar, 'glam-staff-sidebar-scroll')); });
-  const syncMenu = () => { staffMenu.open = !mobile.matches; };
-  mobile.addEventListener('change', syncMenu);
-  syncMenu();
 }
 const sidebarToggle = document.querySelector('#sidebar-toggle');
 if (sidebarToggle) {
@@ -163,7 +161,7 @@ if (sidebarToggle) {
     sidebarToggle.title = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
   };
   sidebarToggle.addEventListener('click', () => {
-    if (matchMedia('(max-width: 850px)').matches) { staffMenu.open = !staffMenu.open; return; }
+    if (matchMedia('(max-width: 850px)').matches) { staffMenu?.mobileMenu?.toggle(); return; }
     document.body.classList.toggle('sidebar-collapsed');
     try { localStorage.setItem('lumiere-sidebar', document.body.classList.contains('sidebar-collapsed') ? 'collapsed' : 'expanded'); } catch { }
     syncSidebar();

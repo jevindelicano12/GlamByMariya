@@ -1,0 +1,39 @@
+/* Hamburger menu (guest, customer, staff): a 44×44 ☰ button that turns into ✕,
+   a full-width panel under the header, and a dim backdrop. */
+.menu-toggle { display:inline-flex; align-items:center; justify-content:center; width:44px; height:44px; padding:0; margin:0; flex:none; background:transparent; border:1px solid #B77F89; border-radius:10px; color:#49363B; cursor:pointer; touch-action:manipulation; -webkit-tap-highlight-color:transparent; position:relative; z-index:42; }
+.menu-toggle:focus-visible { outline:3px solid #49363B; outline-offset:3px; }
+.menu-icon { position:relative; display:block; width:20px; height:14px; pointer-events:none; }
+.menu-icon span { position:absolute; left:0; width:100%; height:2px; border-radius:2px; background:currentColor; transition:transform .2s ease, opacity .15s ease, top .2s ease; }
+.menu-icon span:nth-child(1) { top:0; }
+.menu-icon span:nth-child(2) { top:6px; }
+.menu-icon span:nth-child(3) { top:12px; }
+.is-open > .menu-toggle .menu-icon span:nth-child(1) { top:6px; transform:rotate(45deg); }
+.is-open > .menu-toggle .menu-icon span:nth-child(2) { opacity:0; }
+.is-open > .menu-toggle .menu-icon span:nth-child(3) { top:6px; transform:rotate(-45deg); }
+
+.menu-backdrop { display:none; position:fixed; inset:0; z-index:39; background:rgba(73,54,59,.35); }
+.is-open > .menu-backdrop { display:block; }
+html.menu-open, html.menu-open body { overflow:hidden; }
+
+.mobile-menu .menu-panel { display:none; position:absolute; z-index:41; top:100%; left:0; right:0; max-height:calc(100dvh - 72px); overflow-y:auto; overscroll-behavior:contain; padding:10px 18px 18px; background:#FFF7F0; border-bottom:1px solid #E6D6C7; box-shadow:0 12px 24px rgba(73,54,59,.14); text-align:left; }
+.mobile-menu.is-open .menu-panel { display:block; }
+.mobile-menu .menu-panel nav { display:grid; gap:0; margin:0; overflow:visible; }
+.mobile-menu .menu-panel nav a { display:flex; align-items:center; min-height:48px; padding:0 6px; color:#49363B; font-size:15px; border-bottom:1px solid #F0E4DA; white-space:normal; background:none; }
+.mobile-menu .menu-panel nav a:hover { background:#F8E8EB; }
+.mobile-menu .menu-panel nav a.menu-cta { justify-content:center; margin:12px 0 4px; border:0; border-radius:8px; background:#A6536B; color:#fff; font-weight:600; }
+.mobile-menu .menu-signed-in { margin:4px 6px 6px; font-size:12px; color:#85727A; }
+.mobile-menu .menu-signed-in strong { color:#49363B; font-weight:600; }
+.mobile-menu .menu-actions { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:14px; }
+.mobile-menu .menu-actions a { display:flex; align-items:center; justify-content:center; min-height:46px; border-radius:8px; font-weight:600; font-size:14px; }
+.mobile-menu .menu-login { border:1px solid #B77F89; color:#49363B; }
+.mobile-menu .menu-actions .menu-cta { background:#A6536B; color:#fff; }
+.mobile-menu .menu-signout { margin:6px 0 0; }
+.mobile-menu .menu-signout button { width:100%; min-height:48px; padding:0 6px; text-align:left; background:none; border:0; color:#A6536B; font:inherit; font-size:15px; cursor:pointer; }
+.mobile-menu a:focus-visible, .mobile-menu button:focus-visible { outline:3px solid #49363B; outline-offset:2px; }
+
+/* The panel holds Log in / Sign up and the account links, so the header keeps only brand + ☰. */
+@media (max-width:1050px) { .guest-layout .topbar > .guest-actions { display:none; } }
+@media (max-width:1100px) { .customer-layout .topbar > .account { display:none; } }
+@media (prefers-reduced-motion:reduce) { .menu-icon span { transition:none; } }
+/* Staff: the open menu sits above the account bar (whose dropdown has z-index 30). */
+@media (max-width:850px) { html.menu-open .staff-layout .sidebar { z-index:45; } }

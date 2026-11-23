@@ -36,10 +36,10 @@ try {
     await Promise.all([page.waitForURL(base + '/Admin'), page.locator('#auth-form button.button').click()]);
     const nav = page.locator('#staff-mobile-menu nav');
     const link = name => nav.locator('a').filter({ hasText: name });
-    async function openMenu(mobile) { if (mobile && !await page.locator('#staff-mobile-menu').evaluate(e => e.open)) await page.locator('#staff-mobile-menu summary').click(); }
+    async function openMenu(mobile) { if (mobile && !await page.locator('#staff-mobile-menu').evaluate(e => e.classList.contains('is-open'))) await page.locator('#staff-mobile-menu .menu-toggle').click(); }
     async function active(name, mobile) {
       await openMenu(mobile);
-      await page.waitForFunction(() => !document.querySelector('#staff-mobile-menu') || document.querySelector('#staff-mobile-menu').open);
+      await page.waitForFunction(() => { const m = document.querySelector('#staff-mobile-menu'); return !m || !matchMedia('(max-width: 850px)').matches || m.classList.contains('is-open'); });
       // A click may return while the next document is still loading. Wait for
       // the expected route's active link before asserting the full nav state.
       await link(name).locator('xpath=self::a[@aria-current="page"]').waitFor({ state: 'attached' });

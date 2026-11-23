@@ -92,13 +92,9 @@
 .public-desktop-nav { display:flex; align-items:center; gap:2px; margin:0 0 0 auto; overflow:visible; }
 .public-desktop-nav a { padding:10px; color:var(--cocoa); white-space:nowrap; }
 .public-desktop-nav a:last-child { background:var(--dusty-pink); color:var(--cream); }
-.public-menu summary { display:none; cursor:pointer; }
-.public-menu nav { display:flex; align-items:center; gap:2px; margin:0; overflow:visible; }
-.public-menu nav a { padding:10px; color:var(--cocoa); white-space:nowrap; }
-.public-menu nav a:last-child { color:var(--cream); background:var(--dusty-pink); }
 .guest-actions a { border-radius:5px; border-color:var(--dusty-pink); }
 .guest-actions .guest-signup { background:var(--dusty-pink); border-color:var(--dusty-pink); color:var(--cream); }
-.public-menu summary:focus-visible, .public-menu a:focus-visible, .public-button:focus-visible { outline:3px solid var(--cocoa); outline-offset:3px; }
+.public-menu a:focus-visible, .public-button:focus-visible { outline:3px solid var(--cocoa); outline-offset:3px; }
 .landing-page .public-hero { display:grid; grid-template-columns:1fr 1fr; min-height:400px; background:var(--blush-pink); overflow:hidden; border-radius:8px; }
 .public-hero-copy { padding:clamp(30px,5vw,70px); align-self:center; }
 .public-hero h1 { color:var(--cocoa); font-size:clamp(40px,4.5vw,64px); font-weight:600; }
@@ -138,15 +134,10 @@
 @media (max-width:1050px) {
   .public-desktop-nav { display:none; }
   .public-menu { display:block; }
-  .public-menu summary { display:block; padding:10px; border:1px solid var(--dusty-pink); border-radius:5px; color:var(--cocoa); font-size:12px; }
-  .public-menu nav { display:none; position:absolute; z-index:20; right:18px; top:calc(100% - 4px); width:210px; padding:10px; background:var(--cream); border:1px solid var(--warm-beige); border-radius:6px; box-shadow:0 8px 20px #49363b22; }
-  .public-menu[open] nav { display:grid; }
-  .public-menu nav a { min-height:44px; }
 }
 @media (max-width:580px) {
   .guest-layout .topbar { gap:5px; }
   .public-menu { margin-left:auto; }
-  .public-menu summary { padding:9px 6px; font-size:11px; }
   .landing-page .public-hero { grid-template-columns:1fr; }
   .public-hero-copy { padding:36px 24px; }
   .public-hero h1 { font-size:40px; }
