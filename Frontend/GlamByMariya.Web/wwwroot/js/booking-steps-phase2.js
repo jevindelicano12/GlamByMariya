@@ -65,7 +65,8 @@
       ...(mixed() ? [] : [['Location', 'Pinned ✓']]),
       ['Estimated makeup duration', value('#summary-duration')], ['Makeup finish', value('#summary-finish')],
       ['Early booking surcharge', value('#summary-early-fee')], ['Late booking surcharge', value('#summary-late-fee')], ['Booking total', value('#summary-total')],
-      ['Down payment to pay now', `₱${form.elements.deposit.value}`],
+      // An early request charges nothing now: the down payment is paid after the artist approves the time.
+      [form.dataset.earlyRequest === 'true' ? 'Down payment (paid after the artist approves)' : 'Down payment to pay now', `₱${form.elements.deposit.value}`],
       ['Balance after your appointment', value('#summary-balance')], ['Transportation fee', 'Separate; paid to the artist on arrival']
     ];
     if (mixed()) form.mixedSlot.quote.people.forEach((person, i) => fields.push([`Person ${i + 1}`, `${person.service.name} · ${Number.isFinite(person.regularPrice) && person.regularPrice > person.service.price ? `Regular ₱${person.regularPrice.toFixed(2)} → Group ₱${person.service.price.toFixed(2)}` : `₱${person.service.price.toFixed(2)}`}; ${person.addOns.map(a => `${a.name} × ${a.quantity} · ₱${(a.price * a.quantity).toFixed(2)}`).join(', ') || 'No add-ons'}; ${person.durationMinutes} min`]));

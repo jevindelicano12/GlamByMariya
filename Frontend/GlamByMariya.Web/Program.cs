@@ -298,6 +298,8 @@ if (!app.Environment.IsDevelopment())
     app.UseHsts();
 }
 app.UseMiddleware<SecurityHeadersMiddleware>();
+// Empty 4xx/5xx responses (a wrong link, a missing booking) show a page with a way back instead of a blank screen.
+app.UseStatusCodePagesWithReExecute("/Home/Status/{0}");
 app.UseStaticFiles();
 app.UseRouting();
 app.UseMiddleware<DatabaseCapacityMiddleware>();

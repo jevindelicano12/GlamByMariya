@@ -673,9 +673,11 @@ public sealed class PublicStudioStore(
     {
         var b = LockBooking(booking);
         if (!confirmed || b.CustomerId != customer) throw new InvalidOperationException("Confirm cancellation of your own appointment.");
-        var decision = CancellationPolicy.Evaluate(b.Status, Local(b.StartsAt), Now);
+        var decision = CancellationPolicy.Evaluate(b.Status, Local(b.StartsAt), Now,
+            CancellationPolicy.AcceptedAt(b.ArtistAcceptedAt is { } accepted ? Local(accepted) : null, b.PaidAt is { } paidAt ? Local(paidAt) : null));
         if (!decision.Allowed) throw new InvalidOperationException(decision.Reason);
-        var note = decision.Fee > 0 ? $"Customer confirmed cancellation and the PHP {decision.Fee:N0} deduction." : b.Status == BookingService.EarlyRequestStatus ? "Customer withdrew the early booking request." : "Customer cancelled before payment. No fee.";
+        var note = decision.Fee > 0 ? $"Customer confirmed cancellation and the PHP {decision.Fee:N0} deduction." : b.Status == BookingService.EarlyRequestStatus ? "Customer withdrew the early booking request."
+            : b.Status == "Confirmed" ? "Customer cancelled within the free cancellation window. No fee; the full payment is refunded." : "Customer cancelled before payment. No fee.";
         pdb.Database.ExecuteSqlInterpolated($"UPDATE public.reservations SET status='Cancelled', cancellation_confirmed_at=now(), notes={note} WHERE app_id={booking}");
     });
 
@@ -786,6 +788,13 @@ public sealed class PublicStudioStore(
                 if (!BookingService.TravelFits(this, Local(b.StartsAt), (int)(b.EndsAt - b.StartsAt).TotalMinutes, b.BufferMinutesSnapshot, b.LocationLat, b.LocationLng, booking))
                     throw new InvalidOperationException(TravelPlanner.RefusalMessage);
                 pdb.Database.ExecuteSqlInterpolated($"UPDATE public.reservations SET status='Pending Payment', notes={BookingService.EarlyRequestApprovedMessage}, reviewed_by={admin}, reviewed_at=now() WHERE app_id={booking}");
+                break;
+            case "accept":
+                // The artist accepts a paid booking; the guard allows it once, while Confirmed, for active staff.
+                if (!(b.Status == "Confirmed" && b.ArtistAcceptedAt == null && b.PaidAt is { } paid && Now < Local(paid).Add(CancellationPolicy.AutoAcceptAfterPayment)))
+                    throw new InvalidOperationException(BookingService.AcceptNotWaitingMessage);
+                pdb.Database.ExecuteSqlInterpolated($"UPDATE public.reservations SET artist_accepted_at=now(), notes={BookingService.ArtistAcceptedMessage}, reviewed_by={admin}, reviewed_at=now() WHERE app_id={booking}");
+                Notify(booking, BookingService.ArtistAcceptedMessage);
                 break;
             case "decline-request":
                 if (b.Status != BookingService.EarlyRequestStatus) throw new InvalidOperationException(BookingService.EarlyRequestDecidedMessage);

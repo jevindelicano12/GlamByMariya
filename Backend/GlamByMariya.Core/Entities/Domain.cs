@@ -91,6 +91,13 @@ public class Booking
     public bool AfterHours { get; set; }
     // When an unpaid Pending Payment booking stops holding its slot. Null means no deadline (older records).
     public DateTime? PaymentDueAt { get; set; }
+    // Phase 9: when the down payment was paid and when the artist accepted the paid booking. A paid
+    // Confirmed booking waits for the artist until accepted, or 24 hours after payment.
+    public DateTime? PaidAt { get; set; }
+    public DateTime? ArtistAcceptedAt { get; set; }
+    public DateTime? AcceptedAt => GlamByMariya.Core.BusinessRules.CancellationPolicy.AcceptedAt(ArtistAcceptedAt, PaidAt);
+    public bool AwaitingArtist(DateTime now) => Status == "Confirmed" && ArtistAcceptedAt == null && PaidAt.HasValue && now < AcceptedAt;
+    public string DisplayStatus(DateTime now) => AwaitingArtist(now) ? "Paid · waiting for the artist" : Status;
     public string Note { get; set; } = "";
     public DateTime? RequestedStart { get; set; }
     public Guid? StaffCancelledBy { get; set; }

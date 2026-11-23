@@ -23,7 +23,7 @@ public class MakeupDbContext : DbContext
         model.Entity<AssetRow>().ToTable("media_assets");
         model.Entity<ImageRow>().ToTable("catalog_images");
         model.Entity<BookingRow>().ToView("booking_financial_summary");
-        model.Entity<BookingRow>().Ignore(x => x.LocationLat).Ignore(x => x.LocationLng).Ignore(x => x.IsEarlyRequest).Ignore(x => x.AfterHours);
+        model.Entity<BookingRow>().Ignore(x => x.LocationLat).Ignore(x => x.LocationLng).Ignore(x => x.IsEarlyRequest).Ignore(x => x.AfterHours).Ignore(x => x.ArtistAcceptedAt).Ignore(x => x.PaidAt);
         model.Entity<ServiceRow>().Ignore(x => x.MaxPerPackage);
         model.Entity<BookingAddonRow>().ToTable("booking_addons");
         model.Entity<PaymentRow>().ToTable("payments");
@@ -110,6 +110,7 @@ public class BookingRow
     public decimal? LocationLat { get; set; } public decimal? LocationLng { get; set; }
     // Public schema only (0020): early request and after-hours flags.
     public bool IsEarlyRequest { get; set; } public bool AfterHours { get; set; }
+    public DateTime? ArtistAcceptedAt { get; set; } public DateTime? PaidAt { get; set; } // public schema (0022)
 }
 public class BookingAddonRow { public Guid Id { get; set; } public Guid BookingId { get; set; } public Guid AddonId { get; set; } public string NameSnapshot { get; set; } = ""; public decimal PriceSnapshot { get; set; } public int MinutesSnapshot { get; set; } }
 public class PaymentRow

@@ -35,4 +35,7 @@ namespace GlamByMariya.Web.Controllers;
     public async Task<IActionResult> Contact(CancellationToken ct) { await LoadPublished(ct); return View(); }
     public IActionResult Terms() { lock (store.Gate) return View(store.Settings); }
     public IActionResult Error() => Problem("An unexpected error occurred. Please try again.");
+    // A friendly page for an empty error response (a wrong link, a missing booking), keeping the status code.
+    [Route("/Home/Status/{code:int}")]
+    public IActionResult Status(int code) { ViewBag.Code = code is >= 400 and <= 599 ? code : 404; return View("StatusPage"); }
 }

@@ -20,12 +20,14 @@ if (args.Contains("--cancellation-policy-only"))
     var now = new DateTime(2026, 11, 18, 12, 0, 0);
     var free = CancellationPolicy.Evaluate("Pending Payment", now.AddHours(2), now);
     Check(free.Allowed && free.Fee == 0, "unpaid pending booking cancels free before it starts");
-    var early = CancellationPolicy.Evaluate("Confirmed", now.AddHours(25), now);
-    Check(early.Allowed && early.Fee == 200, "confirmed booking more than 24 hours away cancels with the PHP 200 fee");
-    var boundary = CancellationPolicy.Evaluate("Confirmed", now.AddHours(24), now);
-    Check(boundary.Allowed && boundary.Fee == 200, "exactly 24 hours before is still allowed");
-    var late = CancellationPolicy.Evaluate("Confirmed", now.AddHours(24).AddMinutes(-1), now);
-    Check(!late.Allowed && late.Reason!.Contains("24 hours"), "confirmed booking inside the 24-hour cut-off is blocked");
+    // Phase 9: the ₱200 fee applies from 1 hour after the artist accepted; the online cut-off is 3 hours.
+    var acceptedLongAgo = now.AddDays(-1);
+    var early = CancellationPolicy.Evaluate("Confirmed", now.AddHours(25), now, acceptedLongAgo);
+    Check(early.Allowed && early.Fee == 200, "an accepted confirmed booking more than 3 hours away cancels with the PHP 200 fee");
+    var boundary = CancellationPolicy.Evaluate("Confirmed", now.AddHours(3), now, acceptedLongAgo);
+    Check(boundary.Allowed && boundary.Fee == 200, "exactly 3 hours before is still allowed");
+    var late = CancellationPolicy.Evaluate("Confirmed", now.AddHours(3).AddMinutes(-1), now, acceptedLongAgo);
+    Check(!late.Allowed && late.Reason!.Contains("3 hours"), "confirmed booking inside the 3-hour cut-off is blocked");
     Check(!CancellationPolicy.Evaluate("Pending Payment", now, now).Allowed, "pending booking that already started is blocked");
     Check(!CancellationPolicy.Evaluate("Confirmed", now.AddMinutes(-5), now).Allowed, "started confirmed booking is blocked");
     foreach (var closed in new[] { "Cancelled", "Rejected", "Completed", "No-show", "Incomplete" })
@@ -44,10 +46,10 @@ if (args.Contains("--cancellation-policy-only"))
     var demo2 = new DemoStore(presentationAccounts: true); var flow2 = new BookingService(demo2, demo2, demo2, demo2, demo2);
     var owner2 = demo2.Users.First(u => u.Role == Roles.Customer);
     var confirmed = demo2.Bookings.Single(); var deposit = demo2.Payments.Single(p => p.BookingId == confirmed.Id);
-    confirmed.Status = "Confirmed"; deposit.Verified = true; confirmed.Start = demo2.Now.AddHours(10);
-    Reject(() => flow2.Cancel(confirmed, owner2.Id, true), "confirmed booking 10 hours away cannot be cancelled");
+    confirmed.Status = "Confirmed"; deposit.Verified = true; confirmed.Start = demo2.Now.AddHours(2);
+    Reject(() => flow2.Cancel(confirmed, owner2.Id, true), "confirmed booking 2 hours away cannot be cancelled (3-hour cut-off)");
     Check(confirmed.Status == "Confirmed" && flow2.HoldsReservation(confirmed), "blocked cancellation keeps the confirmed reservation");
-    confirmed.Start = demo2.Now.AddDays(3);
+    confirmed.Start = demo2.Now.AddDays(3); confirmed.ArtistAcceptedAt = demo2.Now.AddDays(-1); // accepted yesterday
     flow2.Cancel(confirmed, owner2.Id, true);
     Check(confirmed.Status == "Cancelled" && confirmed.CancellationFee == 200 && confirmed.RefundDue == Math.Max(0, deposit.Amount - 200),
         "confirmed booking 3 days away cancels with PHP 200 fee and refund of verified paid minus fee");
@@ -1742,6 +1744,7 @@ if (args.Contains("--mixed-admin-only"))
         Check(attempts.Count(t => t.Result) == 1 && new[] { managedBooking, other }.Count(x => x.Start == raceTarget) == 1, "concurrent replacements have exactly one winner");
     }
     Reject(() => flow.Cancel(managedBooking, member.Id, true), "mixed cancellation needs a reason");
+    managedBooking.ArtistAcceptedAt = demo.Now.AddHours(-2); // accepted more than 1 hour ago, so the ₱200 fee applies
     flow.Cancel(managedBooking, member.Id, true, "Synthetic Customer cancellation");
     Check(!flow.HoldsReservation(managedBooking) && managedBooking.CancellationFee == 200 && managedBooking.RefundDue == Math.Max(0, payment.Amount - 200), "Customer cancellation releases occupancy using unchanged verified-payment policy");
     Check(managedBooking.Note == "Synthetic Customer cancellation" && managedBooking.History.Any(h => h.Action == "Customer cancellation"), "Customer cancellation reason and history preserved");
@@ -1960,6 +1963,68 @@ if (args.Contains("--flexible-rules-only"))
     Check(PackageRules.Check(Enumerable.Repeat(soft, 21).ToList()) == "Choose between 2 and 20 people.", "more than 20 people are refused");
     Check(PackageRules.Check([soft]) == "Choose between 2 and 20 people.", "a package needs at least 2 people");
     Console.WriteLine($"All {checks} flexible rule checks passed."); return;
+}
+if (args.Contains("--paid-review-only"))
+{
+    // Phase 9: paid bookings wait for the artist; customer refunds depend on acceptance; 3-hour cutoff; test fixes.
+    var now = new DateTime(2026, 12, 1, 9, 0, 0);
+    var start = now.AddDays(3);
+    Check(CancellationPolicy.Evaluate("Confirmed", start, now, null) is { Allowed: true, Fee: 0 }, "a paid booking not accepted yet is cancelled for free");
+    Check(CancellationPolicy.Evaluate("Confirmed", start, now, now.AddHours(20)) is { Allowed: true, Fee: 0 }, "before the 24-hour automatic acceptance it is still free");
+    Check(CancellationPolicy.Evaluate("Confirmed", start, now, now.AddMinutes(-59)) is { Allowed: true, Fee: 0 }, "within 1 hour of acceptance it is free");
+    Check(CancellationPolicy.Evaluate("Confirmed", start, now, now.AddMinutes(-61)) is { Allowed: true, Fee: 200 }, "more than 1 hour after acceptance ₱200 is deducted");
+    Check(CancellationPolicy.Evaluate("Confirmed", now.AddHours(2).AddMinutes(59), now, now.AddDays(-1)) is { Allowed: false } refused && refused.Reason == CancellationPolicy.CutoffMessage,
+        "customers cannot cancel within 3 hours of the start");
+    Check(CancellationPolicy.Evaluate("Confirmed", now.AddHours(3).AddMinutes(1), now, now.AddDays(-1)) is { Allowed: true, Fee: 200 }, "they can still cancel (with the fee) up to 3 hours before");
+    Check(CancellationPolicy.AcceptedAt(null, now) == now.AddHours(24) && CancellationPolicy.AcceptedAt(now.AddHours(2), now) == now.AddHours(2), "acceptance is the artist's time, else payment + 24 hours");
+    var waiting = new Booking { Status = "Confirmed", PaidAt = now, Start = start };
+    Check(waiting.AwaitingArtist(now.AddHours(23)) && waiting.DisplayStatus(now.AddHours(23)) == "Paid · waiting for the artist", "a paid booking shows it waits for the artist");
+    Check(!waiting.AwaitingArtist(now.AddHours(24)) && waiting.DisplayStatus(now.AddHours(24)) == "Confirmed", "24 hours after payment it counts as confirmed");
+    Check(!new Booking { Status = "Confirmed", PaidAt = now, ArtistAcceptedAt = now.AddHours(1), Start = start }.AwaitingArtist(now.AddHours(2)), "an accepted booking no longer waits");
+
+    var demo = new DemoStore(presentationAccounts: true);
+    demo.Settings.EarlyFeeEnabled = false; demo.Settings.LateFeeEnabled = false; demo.Settings.EarlyRequestStartHour = 4;
+    var flow = new BookingService(demo, demo, demo, demo, demo);
+    var owner = demo.Users.First(u => u.Role == Roles.SuperAdmin);
+    var reviewCustomer = demo.Users.First(u => u.Role == Roles.Customer);
+    var soft = demo.Services.First(x => x.Name == "Soft Glam");
+    var day = DateTime.Today.AddDays(45);
+    var n = 0;
+    Booking Book(double hour)
+    {
+        var q = flow.Quote(soft.Id, [], 1, "auto", day.AddHours(hour));
+        return flow.Create(reviewCustomer.Id, soft.Id, [], day.AddHours(hour), "24 Synthetic Street", "Quezon City", q.RequiredDownPayment, "GCash", $"REVIEW-{++n}", "synthetic-proof.png", true, 1, "auto", true, q.FinalTotal, q.RequiredDownPayment, latitude: 14.5547m, longitude: 121.0244m);
+    }
+    string Refusal(Action action) { try { action(); } catch (InvalidOperationException e) { return e.Message; } return ""; }
+    var request = Book(7); var keep = Book(4);
+    Check(request.Status == BookingService.EarlyRequestStatus && request.PaymentStatus == "Not due yet", "an early request's payment shows \"Not due yet\"");
+    var paid = Book(8);
+    var payment = demo.Payments.Single(x => x.BookingId == paid.Id);
+    flow.AdminAction(paid, "verify", owner.Id, "", 0, "", paymentId: payment.Id);
+    Check(paid.Status == "Confirmed" && paid.ArtistAcceptedAt != null && paid.PaidAt != null, "the owner verifying a payment also accepts the booking");
+    Check(request.Status == "Rejected" && request.Note == BookingService.TimeTakenMessage, "an overlapping early request is rejected when the time is paid");
+    Check(keep.Status == BookingService.EarlyRequestStatus, "a non-overlapping early request keeps waiting");
+    var waitingDemo = Book(13); waitingDemo.Status = "Confirmed"; waitingDemo.PaidAt = demo.Now; // as after a Xendit payment
+    flow.AdminAction(waitingDemo, "accept", owner.Id, "", 0, "");
+    Check(waitingDemo.ArtistAcceptedAt != null && waitingDemo.Note == BookingService.ArtistAcceptedMessage, "the artist confirms a paid booking");
+    Check(Refusal(() => flow.AdminAction(waitingDemo, "accept", owner.Id, "", 0, "")) == BookingService.AcceptNotWaitingMessage, "a booking is confirmed only once");
+    Check(Refusal(() => flow.Quote(soft.Id, [], 0, "group")) == BookingService.PartySizeMessage && Refusal(() => flow.Quote(soft.Id, [], 21, "group")) == "Choose 1–20 people.",
+        "a wrong party size says how many people are allowed");
+
+    var web = Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web");
+    string Web(params string[] parts) => File.ReadAllText(Path.Combine([web, .. parts]));
+    var review = Web("Views", "Admin", "_PaidBookingReview.cshtml");
+    Check(review.Contains("Paid · waiting for your confirmation") && review.Contains("value=\"accept\"") && review.Contains("Reject and refund") && review.Contains("value=\"cancel\""),
+        "the admin page offers Confirm booking and Reject and refund for a paid booking");
+    Check(Web("Views", "Admin", "Details.cshtml").Contains("!payments.Any(p => p.Method == \"Xendit\")") && Web("Views", "Admin", "_MixedBookingDetails.cshtml").Contains("manualReview && Model.Status == \"Pending Payment\""),
+        "Xendit bookings no longer show the manual payment proof review");
+    var adminSource = Web("Controllers", "AdminController.cs");
+    Check(adminSource.Contains("your refund was sent") && adminSource.Contains("your booking is confirmed") && adminSource.Contains("your booking was cancelled"), "the customer gets emails for confirm, reject and refund");
+    Check(adminSource.Contains("TempData[\"Error\"] = \"Choose a valid date range") && !adminSource.Contains("BadRequest(\"Choose a valid date range.\")"), "a reversed report range shows a message instead of an error page");
+    Check(Web("Program.cs").Contains("UseStatusCodePagesWithReExecute(\"/Home/Status/{0}\")") && Web("Views", "Home", "StatusPage.cshtml").Contains("Back to home"), "unknown pages show a page with a way back");
+    Check(Web("wwwroot", "js", "booking-steps-phase2.js").Contains("Down payment (paid after the artist approves)"), "an early request's summary does not say the down payment is paid now");
+    Check(Web("Views", "Bookings", "Details.cshtml").Contains("Cancellations close 3 hours before your appointment") && !Web("Views", "Bookings", "Details.cshtml").Contains("close 24 hours"), "the customer page shows the 3-hour cutoff");
+    Console.WriteLine($"All {checks} paid booking review checks passed."); return;
 }
 if (args.Contains("--package-group-price-only"))
 {
@@ -2529,6 +2594,7 @@ if (args.Contains("--reservation-only"))
     flow.AdminAction(confirmed, "reschedule", reservationOwner.Id, "", 0, "");
     flow.CheckSlot(reservation.Start, 60);
     Reject(() => flow.CheckSlot(destination, 60), "approved replacement is reserved");
+    confirmed.ArtistAcceptedAt = confirmed.ArtistAcceptedAt?.AddHours(-2) ?? DateTime.Now.AddHours(-2); // accepted over 1 hour ago
     flow.Cancel(confirmed, user.Id, true);
     flow.CheckSlot(destination, 60);
     Check(confirmed.Status == "Cancelled" && confirmed.CancellationFee == 200, "cancellation retains its policy and releases the reservation");

@@ -1,0 +1,11 @@
+@{
+    var code = (int)ViewBag.Code;
+    var notFound = code == 404;
+    ViewData["Title"] = notFound ? "Page not found" : "Something went wrong";
+}
+<section class="panel status-page">
+    <div class="eyebrow">@(notFound ? "404" : code.ToString())</div>
+    <h1>@(notFound ? "We couldn't find that page." : "This request could not be completed.")</h1>
+    <p>@(notFound ? "The link may be old or mistyped, or the booking is not yours to view." : "Please go back and try again. If it keeps happening, contact Glam by Mariya.")</p>
+    <p class="button-row status-page-actions"><a class="button" href="/">Back to home</a>@if (User.Identity?.IsAuthenticated == true) { <a class="button secondary" href="/Bookings">My appointments</a> }</p>
+</section>

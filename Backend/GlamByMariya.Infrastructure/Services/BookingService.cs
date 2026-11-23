@@ -147,8 +147,8 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             ? settings.LateFee : 0;
     private List<CatalogItem> SelectAddOns(Guid[] ids, int people)
     {
-        if (people < 1 || people > BookingPricing.MaximumPeople || ids.Length > addons.AddOns.Count * people)
-            throw new InvalidOperationException("Choose valid add-on quantities.");
+        if (people < 1 || people > BookingPricing.MaximumPeople) throw new InvalidOperationException(PartySizeMessage);
+        if (ids.Length > addons.AddOns.Count * people) throw new InvalidOperationException("Choose valid add-on quantities.");
         var groups = ids.GroupBy(id => id).ToList();
         if (groups.Any(g => g.Count() > (store.IsPersistent && !PreparedPersistentBooking.Enabled ? 1 : people))) throw new InvalidOperationException("Add-on quantity cannot exceed the number of people.");
         return groups.SelectMany(g => Enumerable.Repeat(addons.AddOns.FirstOrDefault(a => a.Id == g.Key && a.Active && !a.Archived) ?? throw new InvalidOperationException("An add-on is no longer available."), g.Count())).ToList();
@@ -156,7 +156,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
     private void UpdatePaymentStatus(Booking b)
     {
         b.VerifiedPaid = Paid(b);
-        b.PaymentStatus = b.RefundDue > b.Refunded ? "Refund Pending" : b.RefundDue > 0 ? "Refunded" : b.VerifiedPaid >= b.Total ? "Paid in Full" : b.VerifiedPaid >= b.RequiredDownPayment ? "Down Payment Verified" : "Pending Verification";
+        b.PaymentStatus = b.Status == EarlyRequestStatus ? "Not due yet" : b.RefundDue > b.Refunded ? "Refund Pending" : b.RefundDue > 0 ? "Refunded" : b.VerifiedPaid >= b.Total ? "Paid in Full" : b.VerifiedPaid >= b.RequiredDownPayment ? "Down Payment Verified" : "Pending Verification";
     }
     public void Notify(Booking b, string message, Guid actor)
     {
@@ -404,7 +404,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             // Phase 6: a time before opening is an early request (no hold, no deadline until the artist
             // approves); a session ending after closing is flagged after-hours (fee agreed offline).
             b.AfterHours = BookingWindow.IsAfterHours(start, quote.DurationMinutes, store.Settings);
-            if (KindFor(start, store.Settings) == SlotKind.Early) { b.IsEarlyRequest = true; b.Status = EarlyRequestStatus; b.PaymentDueAt = null; }
+            if (KindFor(start, store.Settings) == SlotKind.Early) { b.IsEarlyRequest = true; b.Status = EarlyRequestStatus; b.PaymentDueAt = null; b.PaymentStatus = "Not due yet"; }
             bookings.Bookings.Add(b);
             payments.Payments.Add(new() { BookingId = b.Id, Amount = deposit, Method = method, Reference = reference.Trim(), ProofPath = proof });
             Notify(b, b.IsEarlyRequest ? EarlyRequestSentMessage : "Booking submitted. Your payment and appointment are awaiting review.", userId);
@@ -456,7 +456,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
         {
             if (b.CustomerId != actor || !store.Users.Any(u => u.Id == actor && u.IsActive && u.Role == Roles.Customer) || !confirmed)
                 throw new InvalidOperationException("Confirm the cancellation of your own appointment.");
-            var decision = CancellationPolicy.Evaluate(b.Status, b.Start, store.Now);
+            var decision = CancellationPolicy.Evaluate(b.Status, b.Start, store.Now, b.AcceptedAt);
             if (!decision.Allowed) throw new InvalidOperationException(decision.Reason);
             reason = (reason ?? "").Trim();
             if (reason.Length > 1000 || (b.MixedPeople.Count > 0 && reason.Length == 0)) throw new InvalidOperationException("Provide a cancellation reason, up to 1,000 characters.");
@@ -489,6 +489,24 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             RecordDecision(b, actor, "Cancelled booking receipt verified", "Receipt checked separately; cancellation and refund remain unchanged.");
             if (store is DemoStore demo) demo.RecordAdminActivity(actor, "Cancelled booking receipt verified", "Booking", b.Id);
             Notify(b, "Payment receipt verified for the cancelled appointment. Refund arrangements remain personal.", actor);
+        }
+    }
+    // Phase 9: the artist accepts a paid booking (or it counts as accepted 24 hours after payment).
+    public const string ArtistAcceptedMessage = "The artist confirmed your booking. See you on your appointment day!";
+    public const string AcceptNotWaitingMessage = "This booking is not waiting for the artist's confirmation.";
+    public static readonly string PartySizeMessage = $"Choose 1–{BookingPricing.MaximumPeople} people.";
+    public const string TimeTakenMessage = "This time is already booked. Please choose another date or time.";
+    // Phase 9: a paid booking takes its time, so every early request waiting for the artist that overlaps it
+    // (including either side's preparation buffer) is rejected and the customer is told why.
+    private void RejectTakenRequests(Booking paid)
+    {
+        var paidEnd = paid.End.AddMinutes(paid.BufferMinutesSnapshot ?? store.Settings.BufferMinutes);
+        foreach (var request in store.Bookings.Where(x => x.Id != paid.Id && x.Status == EarlyRequestStatus
+            && x.Start < paidEnd && paid.Start < x.End.AddMinutes(x.BufferMinutesSnapshot ?? store.Settings.BufferMinutes)).ToList())
+        {
+            request.Status = "Rejected"; request.Note = TimeTakenMessage;
+            UpdatePaymentStatus(request);
+            store.Notifications.Add(new(request.CustomerId, $"{request.Reference}: Rejected. {TimeTakenMessage}", store.Now));
         }
     }
     public void AdminAction(Booking b, string action, Guid actor, string reason, decimal amount, string reference, bool confirmed = false, Guid? paymentId = null, long? reviewRevision = null, string? reviewVersion = null, bool travelOverride = false)
@@ -524,6 +542,9 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
                     CheckSlot(b.Start, (int)(b.End - b.Start).TotalMinutes, b.Id);
                     deposit.Verified = true; deposit.VerifiedBy = actor; deposit.VerifiedAt = DateTime.Now;
                     b.Status = "Confirmed";
+                    // The owner checked the transfer herself, so this booking is also accepted.
+                    b.PaidAt = store.Now; b.ArtistAcceptedAt = store.Now;
+                    RejectTakenRequests(b);
                     b.Note = "Submitted payment verified. Please have clean, moisturized skin and a well-lit space ready.";
                     break;
                 case "approve":
@@ -597,6 +618,10 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
                     if (string.IsNullOrWhiteSpace(reason)) throw new InvalidOperationException("Enter a reason for declining this early booking request.");
                     b.Status = "Rejected"; b.Note = string.Format(EarlyRequestDeclinedMessage, reason);
                     break;
+                case "accept":
+                    if (!b.AwaitingArtist(store.Now)) throw new InvalidOperationException(AcceptNotWaitingMessage);
+                    b.ArtistAcceptedAt = store.Now; b.Note = ArtistAcceptedMessage;
+                    break;
                 default: throw new InvalidOperationException("Unknown booking action.");
             }
             if (action is not ("cancel" or "complete")) UpdatePaymentStatus(b);
@@ -609,6 +634,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
                 "reject" => "Appointment rejected",
                 "reschedule" => "Reschedule approved",
                 "decline" => "Reschedule declined",
+                "accept" => "Paid booking accepted",
                 "complete" => "Appointment completed",
                 "cancel" => "Appointment cancelled by SuperAdmin",
                 "noshow" => "Appointment marked no-show",
@@ -686,7 +712,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
                 Latitude = latitude, Longitude = longitude,
                 AfterHours = BookingWindow.IsAfterHours(start, quote.DurationMinutes, store.Settings)
             };
-            if (KindFor(start, store.Settings) == SlotKind.Early) { booking.IsEarlyRequest = true; booking.Status = EarlyRequestStatus; }
+            if (KindFor(start, store.Settings) == SlotKind.Early) { booking.IsEarlyRequest = true; booking.Status = EarlyRequestStatus; booking.PaymentStatus = "Not due yet"; }
             bookings.Bookings.Add(booking);
             payments.Payments.Add(new() { BookingId = booking.Id, Amount = deposit, Method = method, Reference = reference.Trim(), ProofPath = proof });
             Notify(booking, "Booking submitted. Your payment and appointment are awaiting review.", userId);

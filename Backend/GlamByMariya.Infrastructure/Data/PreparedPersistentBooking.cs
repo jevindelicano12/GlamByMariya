@@ -12,8 +12,8 @@ internal static class PreparedPersistentBooking
 
     internal static List<CatalogItem> Resolve(Guid[] ids, int people, IReadOnlyList<CatalogItem> catalog)
     {
-        if (people is < 1 or > BookingPricing.MaximumPeople || ids.Length > (long)catalog.Count * people)
-            throw new InvalidOperationException("Choose valid add-on quantities.");
+        if (people is < 1 or > BookingPricing.MaximumPeople) throw new InvalidOperationException(GlamByMariya.Infrastructure.Services.BookingService.PartySizeMessage);
+        if (ids.Length > (long)catalog.Count * people) throw new InvalidOperationException("Choose valid add-on quantities.");
         var groups = ids.GroupBy(id => id).ToList();
         if (groups.Any(g => g.Count() > people)) throw new InvalidOperationException("Add-on quantity cannot exceed the number of people.");
         return groups.SelectMany(g => Enumerable.Repeat(catalog.FirstOrDefault(a => a.Id == g.Key && a.Active && !a.Archived)

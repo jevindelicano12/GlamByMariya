@@ -7,11 +7,22 @@ namespace GlamByMariya.Core.BusinessRules;
 public static class CancellationPolicy
 {
     public const decimal ConfirmedFee = 200m;
-    public static readonly TimeSpan ConfirmedCutoff = TimeSpan.FromHours(24);
+    // Customers cannot cancel a confirmed appointment online within 3 hours of the start (was 24 hours).
+    public static readonly TimeSpan ConfirmedCutoff = TimeSpan.FromHours(3);
+    // A paid booking can be cancelled for free until 1 hour after the artist accepted it.
+    public static readonly TimeSpan FreeAfterAcceptance = TimeSpan.FromHours(1);
+    // Without the artist's action, a paid booking counts as accepted 24 hours after payment.
+    public static readonly TimeSpan AutoAcceptAfterPayment = TimeSpan.FromHours(24);
+    public const string CutoffMessage = "Cancellations close 3 hours before the appointment. Please contact Glam by Mariya.";
 
     public sealed record Decision(bool Allowed, decimal Fee, string? Reason);
 
-    public static Decision Evaluate(string status, DateTime start, DateTime now)
+    // When the artist accepted the booking, or (no action) 24 hours after the down payment was paid.
+    public static DateTime? AcceptedAt(DateTime? artistAcceptedAt, DateTime? paidAt) =>
+        artistAcceptedAt ?? paidAt?.Add(AutoAcceptAfterPayment);
+
+    // acceptedAt: see AcceptedAt; null means nothing was paid or accepted, so no fee applies.
+    public static Decision Evaluate(string status, DateTime start, DateTime now, DateTime? acceptedAt = null)
     {
         if (start <= now)
             return new(false, 0, "This appointment has already started and can no longer be cancelled.");
@@ -19,8 +30,8 @@ public static class CancellationPolicy
         {
             "Pending Payment" => new(true, 0, null),
             "Awaiting Approval" => new(true, 0, null), // an early request the customer withdraws (nothing paid)
-            "Confirmed" when start - now >= ConfirmedCutoff => new(true, ConfirmedFee, null),
-            "Confirmed" => new(false, 0, "Cancellations close 24 hours before the appointment. Please contact Glam by Mariya."),
+            "Confirmed" when start - now < ConfirmedCutoff => new(false, 0, CutoffMessage),
+            "Confirmed" => new(true, acceptedAt is { } accepted && now >= accepted + FreeAfterAcceptance ? ConfirmedFee : 0, null),
             _ => new(false, 0, "Only pending or confirmed appointments can be cancelled.")
         };
     }

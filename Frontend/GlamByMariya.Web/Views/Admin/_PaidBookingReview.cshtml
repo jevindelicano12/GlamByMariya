@@ -1,0 +1,36 @@
+@model Booking
+@* Phase 9: a Xendit-paid booking holds its time but waits for the artist. Confirm it, or (owner) reject it
+   with a full refund. Without action it counts as confirmed 24 hours after payment. *@
+@{ var now = DataStore.Now; var payments = (List<Payment>?)ViewBag.Payments ?? []; var paidOnXendit = payments.Any(p => p.Method == "Xendit"); }
+@if (Model.AwaitingArtist(now) && Model.PaidAt is { } paidAt && Model.AcceptedAt is { } autoAt)
+{
+    <section class="panel stack paid-booking-review" aria-label="Paid booking waiting for your confirmation">
+        <h3>Paid · waiting for your confirmation</h3>
+        <p>The customer paid <strong>₱@Model.VerifiedPaid.ToString("N2")</strong>@(paidOnXendit ? " through Xendit" : "") on @paidAt.ToString("MMM d, h:mm tt"). The time is held for this booking. Confirm it, or reject it and the full ₱@Model.VerifiedPaid.ToString("N2") is refunded.</p>
+        <p><small>Confirms by itself on @autoAt.ToString("MMM d, h:mm tt") if you take no action.</small></p>
+        <form asp-action="Action" method="post">
+            <input type="hidden" name="id" value="@Model.Id" />
+            <button name="operation" value="accept" class="button">Confirm booking</button>
+        </form>
+        @if (User.IsInRole(Roles.SuperAdmin))
+        {
+            <form asp-action="Action" method="post" class="stack">
+                <input type="hidden" name="id" value="@Model.Id" /><input type="hidden" name="confirmed" value="true" />
+                <label>Reason for rejecting (the customer sees this)<textarea name="reason" rows="2" maxlength="1000" required></textarea></label>
+                <button name="operation" value="cancel" class="button danger">Reject and refund ₱@Model.VerifiedPaid.ToString("N2")</button>
+            </form>
+            <p><small>Rejecting cancels the appointment with no fee. Send the refund yourself, then record it below so the customer gets an email.</small></p>
+        }
+        else
+        {
+            <p><small>Only the owner can reject a paid booking.</small></p>
+        }
+    </section>
+}
+else if (Model.Status == "Pending Payment" && paidOnXendit)
+{
+    <section class="panel stack" aria-label="Waiting for Xendit payment">
+        <h3>Waiting for the customer's Xendit payment</h3>
+        <p>The time is held@(Model.PaymentDueAt is { } due ? $" until {due:h:mm tt}" : "") while the customer pays on Xendit. When the payment goes through, the booking comes back here for your confirmation. If it is not paid in time, the booking expires and the time is released.</p>
+    </section>
+}

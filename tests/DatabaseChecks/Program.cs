@@ -161,8 +161,9 @@ if (Run("--rules"))
         BEGIN; SELECT set_config('makeup.actor_id','{owner.Id}',true);
         UPDATE public.payments SET status='Paid', verification_status='Verified', verified_by='{owner.Id}', verified_at=now()
          WHERE reservation_id=(SELECT id FROM public.reservations WHERE app_id='{booking}');
-        UPDATE public.reservations SET status='Confirmed' WHERE app_id='{booking}'; COMMIT;
-        """);
+        UPDATE public.reservations SET status='Confirmed' WHERE app_id='{booking}';
+        UPDATE public.reservations SET artist_accepted_at=now()-interval '2 hours' WHERE app_id='{booking}'; COMMIT;
+        """); // the owner verified and accepted it more than 1 hour ago, so the ₱200 fee applies (0022)
     // Test setup only: move a booking in time without the reschedule workflow.
     async Task MoveStart(Guid booking, string fromNow) => await Exec($"""
         SET session_replication_role = replica;
@@ -197,16 +198,16 @@ if (Run("--rules"))
 
     var early = Book(NewStore(), ana.Id, day.AddHours(8), "RULES-004");
     await Confirm(early.Id);
-    await MoveStart(early.Id, "24 hours 5 minutes");
+    await MoveStart(early.Id, "3 hours 5 minutes");
     NewStore().CancelBooking(early.Id, ana.Id, true);
     var fee = (decimal)(await Scalar($"SELECT cancellation_fee FROM public.reservation_closures WHERE reservation_id=(SELECT id FROM public.reservations WHERE app_id='{early.Id}')"))!;
     var late = Book(NewStore(), bea.Id, day.AddHours(16).AddMinutes(15), "RULES-005"); // 16:15: 30 minutes of travel after the 14:00 booking
     await Confirm(late.Id);
-    await MoveStart(late.Id, "23 hours 59 minutes");
+    await MoveStart(late.Id, "2 hours 59 minutes");
     var dbRefused = "";
     try { await Exec($"UPDATE public.reservations SET status='Cancelled', cancellation_confirmed_at=now() WHERE app_id='{late.Id}'"); }
     catch (PostgresException e) { dbRefused = e.MessageText; }
-    Check(fee == 200 && dbRefused.Contains("24 hours"), "confirmed booking 24h away cancels with 200, 23h59 is refused");
+    Check(fee == 200 && dbRefused.Contains("3 hours"), "an accepted booking 3h05 away cancels with 200, 2h59 is refused");
 
     var overdue = Book(NewStore(), ana.Id, day.AddDays(1).AddHours(10), "RULES-006");
     var fresh = Book(NewStore(), bea.Id, day.AddDays(1).AddHours(14), "RULES-007");
@@ -348,6 +349,74 @@ if (Run("--xendit"))
     try { App().XenditPaid("inv_missing", 100, "inv_missing:PAID"); } catch (InvalidOperationException e) { unknown = e.Message; }
     Check(unknown.Contains("Unknown Xendit invoice"), "an unknown invoice is refused");
     Console.WriteLine($"All {checks - before} Xendit database checks passed.");
+}
+
+if (Run("--paid-review"))
+{
+    // Phase 9 (0022): a Xendit-paid booking waits for the artist, closes overlapping early requests,
+    // and the customer's cancellation fee depends on when the artist accepted it.
+    var before = checks;
+    await ResetPublic();
+    await SqlMigrator.ApplyAsync(source, migrations);
+    PublicStudioStore App() => NewStore(as_: appSource);
+    var owner = App().CreateInitialSuperAdmin("Maria", "Santos", "maria@example.test", "OwnerPass123");
+    var hasher = new Microsoft.AspNetCore.Identity.PasswordHasher<GlamByMariya.Core.Entities.AppUser>();
+    var customer = App().AddCustomerWithPasswordHash("Ana", "Cruz", "ana@example.test", hasher.HashPassword(new(), "AnaPass123"), 30, "Female", "24 Synthetic Street, Quezon City");
+    var editor = App(); var edited = editor.Settings; edited.EarlyRequestStartHour = 4; edited.AfterHoursEndHour = 22; editor.SaveSettings(edited, owner.Id);
+    var soft = App().Services.Single(x => x.Name == "Soft Glam");
+    var quote = GlamByMariya.Core.BusinessRules.BookingPricing.Calculate(soft, [], 1, App().Settings.TravelFee, "auto", App().Settings.DownPaymentPercent);
+    var day = DateTime.Today.AddDays(6);
+    var n = 0;
+    GlamByMariya.Core.Entities.Booking Book(double hour) => App().SubmitBooking(customer.Id, soft.Id, [], day.AddHours(hour), "24 Synthetic Street, Quezon City", "Quezon City",
+        quote.RequiredDownPayment, "Xendit", $"XENDIT-REVIEW-{++n}", null, true, true, 1, "auto", quote.FinalTotal, quote.RequiredDownPayment, latitude: 14.5547m, longitude: 121.0244m);
+    GlamByMariya.Core.Entities.Booking Pay(GlamByMariya.Core.Entities.Booking b)
+    {
+        var invoice = $"inv_review_{b.Id:N}";
+        App().AttachInvoice(b.Id, invoice, $"https://checkout-staging.xendit.co/web/{invoice}");
+        Check(App().XenditPaid(invoice, quote.RequiredDownPayment, invoice + ":PAID") == "confirmed", $"the Xendit payment for {b.Reference} goes through");
+        return App().FindBooking(b.Id)!;
+    }
+    async Task<string> Text(string sql) => (await Scalar(sql))?.ToString() ?? "";
+    async Task<string> State(string sql)
+    {
+        try { await Exec(sql); return ""; } catch (PostgresException e) { return e.SqlState + " " + e.MessageText; }
+    }
+    string Refusal(Action action) { try { action(); } catch (InvalidOperationException e) { return e.Message; } return ""; }
+
+    var overlapping = Book(7);   // 7:00–8:00 plus 45 minutes preparation reaches into the 8:00 booking
+    var separate = Book(4);      // 4:00–5:00 plus preparation ends well before 8:00
+    Check(await Text($"SELECT status FROM public.reservations WHERE app_id='{overlapping.Id}'") == "Awaiting Approval", "the 7:00 time is an early request waiting for the artist");
+    var paid = Pay(Book(8));
+    Check(paid.Status == "Confirmed" && paid.ArtistAcceptedAt == null && paid.PaidAt != null && paid.AwaitingArtist(App().Now),
+        "a Xendit-paid booking holds its time but waits for the artist (not accepted yet)");
+    Check(await Text($"SELECT status||'/'||notes FROM public.reservations WHERE app_id='{overlapping.Id}'") == "Rejected/" + GlamByMariya.Infrastructure.Services.BookingService.TimeTakenMessage,
+        "the overlapping early request is rejected with \"This time is already booked\"");
+    Check(await Text($"SELECT status FROM public.reservations WHERE app_id='{separate.Id}'") == "Awaiting Approval", "an early request that does not overlap keeps waiting");
+    Check(await Text($"SELECT payment_status FROM public.mvc_booking_summary WHERE id='{separate.Id}'") == "Not due yet", "an early request's payment shows \"Not due yet\"");
+    Check((await State($"UPDATE public.reservations SET artist_accepted_at=now() WHERE app_id='{paid.Id}'")).Contains("Only active staff"), "only staff can accept a paid booking");
+
+    App().ManageBooking(paid.Id, "accept", owner.Id, "", 0, "");
+    var accepted = App().FindBooking(paid.Id)!;
+    Check(accepted.ArtistAcceptedAt != null && !accepted.AwaitingArtist(App().Now) && accepted.Status == "Confirmed", "the artist accepts the paid booking");
+    Check(Refusal(() => App().ManageBooking(paid.Id, "accept", owner.Id, "", 0, "")) == GlamByMariya.Infrastructure.Services.BookingService.AcceptNotWaitingMessage, "a booking is accepted only once");
+
+    var early = Pay(Book(11));
+    App().CancelBooking(early.Id, customer.Id, true);
+    Check(await Text($"SELECT cancellation_fee::text||'/'||refund_due::text FROM public.mvc_booking_summary WHERE id='{early.Id}'") == $"0.00/{quote.RequiredDownPayment:0.00}",
+        "cancelling before the artist accepts refunds everything");
+    var soon = Pay(Book(13));
+    App().ManageBooking(soon.Id, "accept", owner.Id, "", 0, "");
+    App().CancelBooking(soon.Id, customer.Id, true);
+    Check(await Text($"SELECT cancellation_fee::text FROM public.mvc_booking_summary WHERE id='{soon.Id}'") == "0.00", "cancelling within 1 hour of acceptance refunds everything");
+    var later = Pay(Book(15));
+    Check(await State($"BEGIN; SELECT set_config('makeup.actor_id','{owner.Id}',true); UPDATE public.reservations SET artist_accepted_at=now()-interval '2 hours' WHERE app_id='{later.Id}'; COMMIT;") == "",
+        "test setup: the artist accepted 2 hours ago");
+    App().CancelBooking(later.Id, customer.Id, true);
+    Check(await Text($"SELECT cancellation_fee::text||'/'||refund_due::text FROM public.mvc_booking_summary WHERE id='{later.Id}'") == $"200.00/{quote.RequiredDownPayment - 200:0.00}",
+        "cancelling more than 1 hour after acceptance deducts ₱200");
+    var guard = await Text("SELECT pg_get_functiondef('public.mvc_reservation_guard'::regproc)");
+    Check(guard.Contains("interval '3 hours'") && !guard.Contains("interval '24 hours' THEN"), "customers can cancel online until 3 hours before the appointment");
+    Console.WriteLine($"All {checks - before} paid booking review database checks passed.");
 }
 
 if (Run("--staff-actions"))

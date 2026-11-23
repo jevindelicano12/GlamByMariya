@@ -183,8 +183,22 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
                     "complete" => "Appointment marked completed. Payment status was not changed.",
                     "approve-request" => "Early booking request approved. The customer has 15 minutes to pay the down payment.",
                     "decline-request" => "Early booking request declined. The customer was told why.",
+                    "accept" => "Booking confirmed. The customer was told by email.",
+                    "refund" => "Refund recorded. The customer was told by email.",
                     _ => "Booking updated successfully."
                 };
+                // Phase 9: tell the customer when the artist confirms or rejects a paid booking, and when a refund is sent.
+                var bookingLink = operation == "accept" ? Url?.Action("Details", "Bookings", new { id }, Request.Scheme) : null;
+                if (operation == "accept")
+                    EmailCustomer(b.CustomerId, $"Glam by Mariya {b.Reference}: your booking is confirmed",
+                        $"{BookingService.ArtistAcceptedMessage}{Environment.NewLine}{Environment.NewLine}{b.ServiceDescription} · {b.Start:dddd, MMMM d, yyyy h:mm tt}{Environment.NewLine}{bookingLink}");
+                if (operation == "cancel")
+                    EmailCustomer(b.CustomerId, $"Glam by Mariya {b.Reference}: your booking was cancelled",
+                        $"Glam by Mariya could not take your booking for {b.Start:MMMM d, yyyy h:mm tt}.{Environment.NewLine}Reason: {reason.Trim()}{Environment.NewLine}{Environment.NewLine}"
+                        + (b.VerifiedPaid > 0 ? $"Your full payment of ₱{b.VerifiedPaid:N2} will be refunded. You will get another email when it is sent." : "Nothing was charged."));
+                if (operation == "refund")
+                    EmailCustomer(b.CustomerId, $"Glam by Mariya {b.Reference}: your refund was sent",
+                        $"Your refund of ₱{amount:N2} has been sent.{Environment.NewLine}Reference: {reference.Trim()}{Environment.NewLine}{Environment.NewLine}If you have not received it within 3 business days, please reply to this email.");
                 if (operation is "approve-request" or "decline-request")
                     EmailCustomer(b.CustomerId, $"Glam by Mariya {b.Reference}: early booking request",
                         operation == "approve-request"
@@ -206,7 +220,7 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
         _ = Task.Run(async () =>
         {
             try { await brevo.SendAsync(to, subject, text); }
-            catch (Exception e) { log?.LogWarning("Early request email was not sent: {Reason}", e.Message); }
+            catch (Exception e) { log?.LogWarning("Booking email was not sent: {Reason}", e.Message); }
         });
     }
     [HttpGet, ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
@@ -562,7 +576,12 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
     }
     public IActionResult Reports(DateTime? from, DateTime? to)
     {
-        if (!ModelState.IsValid || (from.HasValue && to.HasValue && from.Value.Date > to.Value.Date)) return BadRequest("Choose a valid date range.");
+        // A reversed or unreadable range shows a message on the page instead of an empty error page.
+        if (!ModelState.IsValid || (from.HasValue && to.HasValue && from.Value.Date > to.Value.Date))
+        {
+            TempData["Error"] = "Choose a valid date range: the \"From\" date must be on or before the \"Through\" date.";
+            return RedirectToAction("Reports");
+        }
         lock (store.Gate)
         {
             var items = store.Bookings.Where(b => (!from.HasValue || b.Start.Date >= from.Value.Date) && (!to.HasValue || b.Start.Date <= to.Value.Date)).ToList();

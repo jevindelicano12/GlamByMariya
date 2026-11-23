@@ -1,5 +1,5 @@
 @model Booking
-@{ var payments = (List<Payment>)ViewBag.Payments; decimal paid = ViewBag.Paid; }
+@{ var payments = (List<Payment>)ViewBag.Payments; decimal paid = ViewBag.Paid; var manualReview = !payments.Any(p => p.Method == "Xendit"); }
 <link rel="stylesheet" href="~/css/mixed-payment.css" asp-append-version="true" />
 <link rel="stylesheet" href="~/css/admin-mixed-booking.css" asp-append-version="true" />
 <div class="admin-mixed-details" data-start="@Model.Start.ToString("s")" data-status="@Model.Status">
@@ -26,7 +26,7 @@
                         <details class="private-proof" open="@(!payment.Verified)"><summary>Inspect private payment screenshot</summary><a href="@proofUrl" target="_blank" rel="noopener">Open full-size private proof</a><img src="@proofUrl" alt="Private submitted payment screenshot for @Model.Reference" loading="lazy" /></details>
                     }
                     @if (payment.ProofHistory.Count > 0) { <details><summary>Earlier submitted references (@payment.ProofHistory.Count)</summary>@foreach (var previous in payment.ProofHistory) { <p>@previous.Reference · replaced @previous.ChangedAt.ToString("MMM d, yyyy h:mm tt")</p> }</details> }
-                    @if (Model.Status == "Pending Payment" && !payment.Verified) {
+                    @if (manualReview && Model.Status == "Pending Payment" && !payment.Verified) {
                     <form asp-action="Action" method="post" class="stack" data-decision="verify">
                         <input type="hidden" name="id" value="@Model.Id" /><input type="hidden" name="operation" value="verify" /><input type="hidden" name="paymentId" value="@payment.Id" />
                         @if (DataStore.IsPersistent) { <input type="hidden" name="reviewRevision" value="@payment.PersistentReviewRevision" /><input type="hidden" name="reviewVersion" value="@payment.PersistentReviewVersion" /> }
@@ -39,7 +39,7 @@
             }
             <p>Verified paid: ₱@paid.ToString("N2") · Outstanding: ₱@Math.Max(0, Model.Total - paid).ToString("N2"). No transfer is initiated by these controls.</p>
             </section>
-            @if (Model.Status == "Pending Payment") {
+            @if (manualReview && Model.Status == "Pending Payment") {
                 <section class="panel stack"><h3>Request a correction</h3><form asp-action="Action" method="post" class="stack" data-decision="proof"><input type="hidden" name="id" value="@Model.Id" /><input type="hidden" name="operation" value="proof" /><label>Instructions for the Customer<textarea name="reason" required maxlength="1000" rows="3"></textarea></label><button class="button secondary" type="submit">Request replacement proof</button></form></section>
                 <section class="panel stack"><h3>Reject this request</h3><p>Rejection releases this reserved time. The booking and payment history are retained; an unverified claim does not create a verified refund.</p><form asp-action="Action" method="post" class="stack" data-decision="reject"><input type="hidden" name="id" value="@Model.Id" /><input type="hidden" name="operation" value="reject" /><label>Rejection reason<textarea name="reason" required maxlength="1000" rows="3"></textarea></label><label class="check-label"><input type="checkbox" required /> I confirm rejection and release of the reserved time.</label><button class="button danger" type="submit">Reject booking request</button></form></section>
             }

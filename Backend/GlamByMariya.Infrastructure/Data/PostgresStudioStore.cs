@@ -94,7 +94,7 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
                 Start=Local(b.StartsAt),BufferMinutesSnapshot=b.BufferMinutesSnapshot,People=b.People,Package=b.BookingType=="package"?"group":"auto",
                 GroupPrice=b.GroupPriceSnapshot,GroupMinimumPeople=b.GroupMinimumSnapshot,AppliedPricePerPerson=b.AppliedPricePerPerson,
                 DownPaymentPercentSnapshot=b.DownPaymentPercentSnapshot,RequiredDownPaymentSnapshot=b.RequiredDownPaymentSnapshot,
-                Address=b.Address,Area=b.AreaNameSnapshot,IsEarlyRequest=b.IsEarlyRequest,AfterHours=b.AfterHours,Latitude=b.LocationLat,Longitude=b.LocationLng,TravelFee=b.TravelFeeInformationalSnapshot,TransportationPolicyAcknowledgedAt=b.TransportationPolicyAcknowledgedAt,VerifiedPaid=b.VerifiedPaid,
+                Address=b.Address,Area=b.AreaNameSnapshot,IsEarlyRequest=b.IsEarlyRequest,AfterHours=b.AfterHours,ArtistAcceptedAt=b.ArtistAcceptedAt is { } accepted ? Local(accepted) : null,PaidAt=b.PaidAt is { } paidAt ? Local(paidAt) : null,Latitude=b.LocationLat,Longitude=b.LocationLng,TravelFee=b.TravelFeeInformationalSnapshot,TransportationPolicyAcknowledgedAt=b.TransportationPolicyAcknowledgedAt,VerifiedPaid=b.VerifiedPaid,
                 PaymentStatus=b.PaymentStatus,Status=b.Status,Note=b.Note,RequestedStart=b.RequestedStart.HasValue?Local(b.RequestedStart.Value):null,
                 CancellationFee=b.CancellationFee,RefundDue=b.RefundDue,Refunded=b.Refunded,RefundReference=transfers[b.Id].FirstOrDefault()?.TransferReference??"" }).ToList();
     }

@@ -37,7 +37,7 @@
                             <td><a class="customers-open" asp-action="Details" asp-route-id="@b.Id">@(row.BookedAt?.ToString("MMM d, yyyy · h:mm tt") ?? "—")</a><small>@b.Reference</small></td>
                             <td>@b.Start.ToString("MMM d · h:mm tt")</td>
                             <td>@What(b) · ₱@b.Total.ToString("N0")</td>
-                            <td><span class="customers-pill @Tone(b.Status)">@b.Status</span></td>
+                            <td><span class="customers-pill @Tone(b.Status)">@b.DisplayStatus(DataStore.Now)</span></td>
                         </tr>
                     }
                     </tbody>
