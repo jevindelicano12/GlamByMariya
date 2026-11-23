@@ -6,9 +6,10 @@
 -- overlapping early request still waiting for the artist. Early requests show "Not due yet".
 
 ALTER TABLE public.reservations ADD COLUMN IF NOT EXISTS artist_accepted_at timestamptz;
--- Bookings confirmed before this change were accepted already.
-UPDATE public.reservations SET artist_accepted_at=coalesce(reviewed_at,updated_at,now())
- WHERE status IN ('Confirmed','InProgress') AND artist_accepted_at IS NULL;
+-- Only bookings an admin already reviewed count as accepted. Other paid bookings follow the rule
+-- (accepted 24 hours after payment), so a recent unreviewed one can still be confirmed or rejected.
+UPDATE public.reservations SET artist_accepted_at=reviewed_at
+ WHERE status IN ('Confirmed','InProgress') AND artist_accepted_at IS NULL AND reviewed_at IS NOT NULL;
 
 -- When the artist accepted (or, without action, 24 hours after the down payment was paid).
 CREATE OR REPLACE FUNCTION public.mvc_artist_accepted(p_reservation bigint) RETURNS timestamptz
