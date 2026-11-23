@@ -2169,6 +2169,15 @@ if (args.Contains("--flexible-booking-only"))
     Check(mixedQuote.FinalTotal == new[] { bridal, soft, soft, glam, glam, glam }.Sum(x => GlamByMariya.Core.BusinessRules.PackageRules.PricePerPerson(x, 6)) && mixedQuote.DurationMinutes == bridal.Minutes + 2 * soft.Minutes + 3 * glam.Minutes
           && mixedQuote.RequiredDownPayment == Money.Percentage(mixedQuote.FinalTotal, demo.Settings.DownPaymentPercent),
         "a 6-person mixed package costs each person's group price where set, takes the summed time and asks the usual down payment");
+    // The group minimum counts everyone in the package: 1 Glamour + 3 Soft Glam is 4 people, so all four
+    // get their group price; with only 3 people everyone pays the regular price.
+    var fourMixed = flow.QuoteMixed([P(glam), P(soft), P(soft), P(soft)]);
+    Check(soft.GroupPrice != null && soft.GroupMinimumPeople == 4 && fourMixed.People.Skip(1).All(p => p.Service.Price == soft.GroupPrice && p.RegularPrice == soft.Price)
+          && fourMixed.People[0].Service.Price == (glam.GroupPrice ?? glam.Price) && fourMixed.People[0].RegularPrice == glam.Price
+          && fourMixed.GroupDiscount == (glam.Price - (glam.GroupPrice ?? glam.Price)) + 3 * (soft.Price - soft.GroupPrice!.Value),
+        "1 Glamour + 3 Soft Glam counts as 4 people: each gets its group price (3 Soft Glam alone would not) and the quote keeps each regular price");
+    var threeMixed = flow.QuoteMixed([P(glam), P(soft), P(soft)]);
+    Check(threeMixed.GroupDiscount == 0 && threeMixed.People.All(p => p.Service.Price == p.RegularPrice), "a 3-person package pays regular prices");
     string Refusal(Action action) { try { action(); } catch (InvalidOperationException e) { return e.Message; } return ""; }
     Check(Refusal(() => flow.QuoteMixed([P(bridal), P(bridal), P(soft)])) == "Only 1 Bridal Makeup is allowed per package booking.", "the quote refuses two Bridal in one package");
     Booking BookPackage(DateTime start, MixedPersonSelection[] people, decimal? lat, decimal? lng, string reference)

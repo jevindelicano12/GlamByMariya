@@ -13,6 +13,9 @@
   locationFields.before(locationHome);
   const money = amount => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(amount);
   let submitting = false;
+  // Regular price first; when the package reaches 4 people the group price follows it.
+  const priceText = person => Number.isFinite(person.regularPrice) && person.regularPrice > person.service.price
+    ? `Regular ${money(person.regularPrice)} → Group ${money(person.service.price)}` : money(person.service.price);
   // Add-ons are paid on top of the service prices, so the summary shows their amount and who has them.
   const addOnSummary = q => {
     const who = q.people.map((p, i) => p.addOns.length ? `Person ${i + 1}: ${p.addOns.map(a => `${a.name} × ${a.quantity}`).join(', ')}` : null).filter(Boolean);
@@ -43,7 +46,7 @@
     q.people.forEach((person, index) => {
       const article = document.createElement('article'), heading = document.createElement('h4'), service = document.createElement('p'), addons = document.createElement('p'), total = document.createElement('strong');
       heading.textContent = `Person ${index + 1}`;
-      service.textContent = `${person.service.name} · ${money(person.service.price)}`;
+      service.textContent = `${person.service.name} · ${priceText(person)}`;
       addons.textContent = person.addOns.map(a => `${a.name} × ${a.quantity} · ${money(a.price * a.quantity)}`).join(', ') || 'No add-ons';
       total.textContent = `${money(person.total)} · ${person.durationMinutes} min`;
       article.append(heading, service, addons, total); people.append(article);
