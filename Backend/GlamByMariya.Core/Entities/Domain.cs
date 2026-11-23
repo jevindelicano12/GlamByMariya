@@ -167,6 +167,8 @@ public class BusinessSettings
     // Flexible booking (Phase 6): earliest early-request start and latest booking end; null = opening/closing hour.
     public int? EarlyRequestStartHour { get; set; }
     public int? AfterHoursEndHour { get; set; }
+    // The most people one booking may have, set by the owner (1 to 20).
+    public int MaxPeople { get; set; } = 20;
     public string ServiceAreas { get; set; } = "Quezon City,Makati,Manila,Pasig,Taguig,Mandaluyong";
     public string PaymentInstructions { get; set; } = "Demo only — do not send real money. Contact the artist for verified GCash, Maya or bank account details.";
 }

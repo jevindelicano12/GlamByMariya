@@ -580,6 +580,29 @@ if (Run("--booking-location"))
         catch (PostgresException e) { return e.MessageText; }
     }
     Check(await InsertWithoutPin() == "Pin your exact location inside Metro Manila.", "the database refuses a new app booking without a pin");
+    // 0023: the owner's maximum people per booking.
+    async Task<string> InsertGroupOf(int people)
+    {
+        try
+        {
+            await Exec($"""
+                INSERT INTO public.reservations(app_id, app_managed, snapshot_source, reference, customer_id, artist_id, service_id, start_at, location, area_id, booking_type, people,
+                  addons_total_snapshot, addons_minutes_snapshot, policy_accepted_at, policy_version, travel_reminder_acknowledged_at, travel_reminder_version, status, location_lat, location_lng)
+                SELECT gen_random_uuid(), true, 'booking_creation', 'MAX-PEOPLE-{people}', r.customer_id, r.artist_id, r.service_id, r.start_at + interval '9 days', '24 Synthetic Street, Quezon City', r.area_id, 'package', {people},
+                  0, 0, now(), r.policy_version, now(), r.travel_reminder_version, 'Pending Payment', 14.5547, 121.0244
+                FROM public.reservations r WHERE r.app_id='{booking.Id}'
+                """);
+            return "";
+        }
+        catch (PostgresException e) { return e.MessageText; }
+    }
+    Check((int)(await Scalar("SELECT max_people FROM public.business_settings WHERE id=1"))! == 20, "the maximum people per booking defaults to 20");
+    await Exec("UPDATE public.business_settings SET max_people=3 WHERE id=1");
+    Check(await InsertGroupOf(5) == "The most you can book is 3 people.", "the database refuses a booking above the owner's maximum people");
+    await Exec("UPDATE public.business_settings SET max_people=20 WHERE id=1");
+    Check(await State2("UPDATE public.business_settings SET max_people=21 WHERE id=1") == "23514" && await State2("UPDATE public.business_settings SET max_people=0 WHERE id=1") == "23514",
+        "a maximum outside 1-20 people is refused");
+    async Task<string> State2(string sql) { try { await Exec(sql); return ""; } catch (PostgresException e) { return e.SqlState ?? e.MessageText; } }
     async Task<string> Update(string set)
     {
         try { await Exec($"UPDATE public.reservations SET {set} WHERE app_id='{booking.Id}'"); return ""; }
@@ -614,9 +637,10 @@ if (Run("--travel"))
 
     var defaults = App().Settings;
     Check(defaults.TravelSpeedKmh == 15m && defaults.TravelMinimumMinutes == 30, $"travel settings default to 15 km/h and 30 minutes ({defaults.TravelSpeedKmh}/{defaults.TravelMinimumMinutes})");
-    var editor = App(); var edited = editor.Settings; edited.TravelSpeedKmh = 20.5m; edited.TravelMinimumMinutes = 45;
+    var editor = App(); var edited = editor.Settings; edited.TravelSpeedKmh = 20.5m; edited.TravelMinimumMinutes = 45; edited.MaxPeople = 7;
     editor.SaveSettings(edited, owner.Id);
     var saved = App().Settings;
+    Check(saved.MaxPeople == 7, "saving the business settings keeps the maximum people per booking");
     Check(saved.TravelSpeedKmh == 20.5m && saved.TravelMinimumMinutes == 45, "saving the business settings keeps the travel speed and minimum");
     async Task<string> State(string sql)
     {

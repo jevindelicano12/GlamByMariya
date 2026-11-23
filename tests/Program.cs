@@ -1953,7 +1953,7 @@ if (args.Contains("--flexible-rules-only"))
     Check(BookingWindow.ValidateSettings(8, 18, 9, null) == "Early booking cannot start after opening.", "early start after opening is refused");
     Check(BookingWindow.ValidateSettings(8, 18, null, 17) == "Latest end cannot be before closing.", "latest end before closing is refused");
     Check(BookingWindow.ValidateSettings(8, 18, 4, 22) == null, "early 4 and latest 22 are valid");
-    Check(string.Format(BookingWindow.AfterHoursNote, "6:00 PM") == "This booking runs past closing (6:00 PM). An extra after-hours fee applies, to be agreed with the artist.", "after-hours note wording");
+    Check(string.Format(BookingWindow.AfterHoursNote, "6:00 PM") == "This booking ends after closing (6:00 PM). That's fine, but any after-hours fee is agreed directly with the artist. It isn't included in this total and isn't collected by the website.", "after-hours note wording");
     Check(BookingWindow.EarlyGroupLabel == "Early booking (needs artist approval)", "early group label wording");
     var bridal = new CatalogItem { Name = "Bridal Makeup", MaxPerPackage = 1 };
     var soft = new CatalogItem { Name = "Soft Glam" };
@@ -2244,6 +2244,12 @@ if (args.Contains("--flexible-booking-only"))
     var mixedBooking = new Booking { MixedPeople = fourMixed.People };
     Check(mixedBooking.GroupDiscount == fourMixed.GroupDiscount && mixedBooking.OriginalTotal - mixedBooking.GroupDiscount == fourMixed.ServiceTotal,
         "a package booking shows its regular service total and group discount, and they still add up to what was charged");
+    // The owner's maximum people per booking (Business settings) caps group and package bookings.
+    demo.Settings.MaxPeople = 3;
+    Check(Refusal(() => flow.Quote(soft.Id, [], 4, "group")) == "Choose 1–3 people." && Refusal(() => flow.QuoteMixed([P(glam), P(soft), P(soft), P(soft)])) == "Choose between 2 and 3 people."
+          && flow.Quote(soft.Id, [], 3, "group").People == 3,
+        "with the owner's maximum at 3, 4 people are refused for a group or package and 3 are allowed");
+    demo.Settings.MaxPeople = 20;
     var threeMixed = flow.QuoteMixed([P(glam), P(soft), P(soft)]);
     Check(threeMixed.GroupDiscount == 0 && threeMixed.People.All(p => p.Service.Price == p.RegularPrice), "a 3-person package pays regular prices");
     string Refusal(Action action) { try { action(); } catch (InvalidOperationException e) { return e.Message; } return ""; }

@@ -154,7 +154,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
         }
     }
     [HttpPost, RequestSizeLimit(6_000_000)]
-    public async Task<IActionResult> Create(Guid serviceId, Guid[] addOnIds, DateTime start, string address, string area, decimal deposit, string method, string? reference, IFormFile? proof, bool agreed, int people = 1, string package = "auto", bool travelAcknowledged = false, decimal? expectedTotal = null, decimal? expectedMinimum = null, decimal? latitude = null, decimal? longitude = null)
+    public async Task<IActionResult> Create(Guid serviceId, Guid[] addOnIds, DateTime start, string address, string area, decimal deposit, string method, string? reference, IFormFile? proof, bool agreed, int people = 1, string package = "auto", bool travelAcknowledged = false, decimal? expectedTotal = null, decimal? expectedMinimum = null, decimal? latitude = null, decimal? longitude = null, bool afterHoursAccepted = false)
     {
         string? path = null;
         try
@@ -163,6 +163,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
             if (!expectedTotal.HasValue || !expectedMinimum.HasValue) throw new InvalidOperationException("Review the current price before submitting.");
             // Checked before any payment screenshot is saved; BookingService checks the pin again.
             if (!BookingLocation.IsValid(latitude, longitude)) throw new InvalidOperationException(BookingLocation.Message);
+            RequireAfterHoursTerms(start, workflow.Quote(serviceId, addOnIds, people, package, start).DurationMinutes, afterHoursAccepted);
             if (UsesXendit) return await CreateWithXendit(serviceId, addOnIds, start, address, area, deposit, agreed, people, package, travelAcknowledged, expectedTotal, expectedMinimum, latitude, longitude);
             if (method == "Cash") throw new InvalidOperationException("Deposits must use GCash, Maya or Bank Transfer.");
             if (proof == null || proof.Length == 0) throw new InvalidOperationException("Upload a payment screenshot to submit your booking.");
@@ -236,6 +237,14 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
     // Saves the booking as Pending Payment, opens a Xendit invoice for the exact down payment
     // and sends the customer to it. Only the Xendit webhook confirms the booking. If the invoice
     // cannot be created, the unpaid booking is cancelled (free) so the slot is released at once.
+    // A time that ends after closing is allowed, but the customer agrees that any after-hours fee is settled
+    // with the artist outside the website (Terms: After-hours appointments).
+    public const string AfterHoursTermsMessage = "This time ends after closing. Tick \"I understand and agree to the after-hours terms\" to continue.";
+    private void RequireAfterHoursTerms(DateTime start, int minutes, bool accepted)
+    {
+        if (!accepted && BookingWindow.IsAfterHours(start, minutes, store.Settings)) throw new InvalidOperationException(AfterHoursTermsMessage);
+    }
+
     private async Task<IActionResult> CreateWithXendit(Guid serviceId, Guid[] addOnIds, DateTime start, string address, string area, decimal deposit, bool agreed,
         int people, string package, bool travelAcknowledged, decimal? expectedTotal, decimal? expectedMinimum, decimal? latitude, decimal? longitude)
     {
@@ -246,7 +255,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
 
     // Phase 6: a mixed package on the live site, paid on Xendit like a single booking.
     private async Task<IActionResult> CreateMixedWithXendit(DateTime start, string address, string area, decimal deposit, bool agreed, bool travelAcknowledged,
-        decimal? expectedTotal, decimal? expectedMinimum, string? mixedSelection, decimal? latitude, decimal? longitude)
+        decimal? expectedTotal, decimal? expectedMinimum, string? mixedSelection, decimal? latitude, decimal? longitude, bool afterHoursAccepted)
     {
         var wantsJson = Request.Headers.Accept.ToString().Contains("application/json");
         try
@@ -258,6 +267,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
             if (input == null || input.Length is < 2 or > BookingPricing.MaximumPeople || input.Any(person => person == null))
                 throw new InvalidOperationException($"Choose between 2 and {BookingPricing.MaximumPeople} people.");
             var people = input.Select(person => new MixedPersonSelection(person!.ServiceId, person.AddOnIds ?? Array.Empty<Guid>())).ToArray();
+            RequireAfterHoursTerms(start, workflow.QuoteMixed(people, start).DurationMinutes, afterHoursAccepted);
             var reference = "XENDIT-" + Guid.NewGuid().ToString("N")[..16].ToUpperInvariant();
             var booking = workflow.CreateMixed(UserId, people, start, address, area, deposit, "Xendit", reference, null, agreed, travelAcknowledged,
                 expectedTotal.Value, expectedMinimum.Value, latitude: latitude, longitude: longitude);
@@ -299,10 +309,10 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
     }
 
     [HttpPost, ValidateAntiForgeryToken, RequestSizeLimit(6_000_000)]
-    public async Task<IActionResult> CreateMixed(DateTime mixedStart, string address, string area, decimal deposit, string method, string reference, IFormFile? proof, bool agreed, bool travelAcknowledged, decimal? expectedTotal, decimal? expectedMinimum, string? mixedSelection, Guid submissionId, string? policyVersion, string? travelReminderVersion, decimal? latitude = null, decimal? longitude = null)
+    public async Task<IActionResult> CreateMixed(DateTime mixedStart, string address, string area, decimal deposit, string method, string reference, IFormFile? proof, bool agreed, bool travelAcknowledged, decimal? expectedTotal, decimal? expectedMinimum, string? mixedSelection, Guid submissionId, string? policyVersion, string? travelReminderVersion, decimal? latitude = null, decimal? longitude = null, bool afterHoursAccepted = false)
     {
         // Live site (Phase 6): a package is paid on Xendit like a single booking (no screenshot).
-        if (UsesXendit) return await CreateMixedWithXendit(mixedStart, address, area, deposit, agreed, travelAcknowledged, expectedTotal, expectedMinimum, mixedSelection, latitude, longitude);
+        if (UsesXendit) return await CreateMixedWithXendit(mixedStart, address, area, deposit, agreed, travelAcknowledged, expectedTotal, expectedMinimum, mixedSelection, latitude, longitude, afterHoursAccepted);
         if (store.IsPersistent) return NotFound();
         string? path = null;
         try
@@ -322,6 +332,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
             if (input == null || input.Length is < 2 or > BookingPricing.MaximumPeople || input.Any(person => person == null))
                 throw new InvalidOperationException($"Choose between 2 and {BookingPricing.MaximumPeople} people.");
             var people = input.Select(person => new MixedPersonSelection(person!.ServiceId, person.AddOnIds ?? Array.Empty<Guid>())).ToArray();
+            RequireAfterHoursTerms(mixedStart, workflow.QuoteMixed(people, mixedStart).DurationMinutes, afterHoursAccepted);
             string? imageFingerprint = null;
             path = await SaveProof(proof, hash => imageFingerprint = hash);
             var booking = workflow.CreateMixed(UserId, people, mixedStart, address, area, deposit, method, reference, path, agreed, travelAcknowledged, expectedTotal.Value, expectedMinimum.Value, submissionId, policyVersion, travelReminderVersion, imageFingerprint, latitude, longitude);

@@ -61,7 +61,7 @@
       ['Service location', `${form.elements.address.value}, ${form.elements.area.value}`],
       ['Location', 'Pinned ✓'],
       ['Estimated makeup duration', value('#summary-duration')], ['Makeup finish', value('#summary-finish')],
-      ['Early booking surcharge', value('#summary-early-fee')], ['Late booking surcharge', value('#summary-late-fee')], ['Booking total', value('#summary-total')],
+      ['Early booking surcharge', value('#summary-early-fee')], ...(document.querySelector('#summary-late-row')?.hidden ? [] : [['Late booking surcharge', value('#summary-late-fee')]]), ['Booking total', value('#summary-total')],
       ['Down payment to pay now', `₱${form.elements.deposit.value}`],
       ['Balance after your appointment', value('#summary-balance')], ['Transportation fee', 'Separate; paid to the artist on arrival']
     ];

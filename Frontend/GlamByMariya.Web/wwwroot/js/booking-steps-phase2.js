@@ -64,7 +64,7 @@
       ['Service location', `${form.querySelector('[name="address"]:not(:disabled)').value}, ${form.querySelector('[name="area"]:not(:disabled)').value}`],
       ...(mixed() ? [] : [['Location', 'Pinned ✓']]),
       ['Estimated makeup duration', value('#summary-duration')], ['Makeup finish', value('#summary-finish')],
-      ['Early booking surcharge', value('#summary-early-fee')], ['Late booking surcharge', value('#summary-late-fee')], ['Booking total', value('#summary-total')],
+      ['Early booking surcharge', value('#summary-early-fee')], ...(document.querySelector('#summary-late-row')?.hidden ? [] : [['Late booking surcharge', value('#summary-late-fee')]]), ['Booking total', value('#summary-total')],
       // An early request charges nothing now: the down payment is paid after the artist approves the time.
       [form.dataset.earlyRequest === 'true' ? 'Down payment (paid after the artist approves)' : 'Down payment to pay now', `₱${form.elements.deposit.value}`],
       ['Balance after your appointment', value('#summary-balance')], ['Transportation fee', 'Separate; paid to the artist on arrival']

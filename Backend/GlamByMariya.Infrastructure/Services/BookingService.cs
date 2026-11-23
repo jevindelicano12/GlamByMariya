@@ -75,6 +75,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
         {
             if (people == null || people.Count is < 2 or > BookingPricing.MaximumPeople)
                 throw new InvalidOperationException($"Choose between 2 and {BookingPricing.MaximumPeople} people.");
+            if (people.Count > store.Settings.MaxPeople) throw new InvalidOperationException($"Choose between 2 and {store.Settings.MaxPeople} people.");
             var snapshots = new List<MixedPersonQuote>();
             foreach (var person in people)
             {
@@ -148,6 +149,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
     private List<CatalogItem> SelectAddOns(Guid[] ids, int people)
     {
         if (people < 1 || people > BookingPricing.MaximumPeople) throw new InvalidOperationException(PartySizeMessage);
+        if (people > store.Settings.MaxPeople) throw new InvalidOperationException(PartySize(store.Settings.MaxPeople));
         if (ids.Length > addons.AddOns.Count * people) throw new InvalidOperationException("Choose valid add-on quantities.");
         var groups = ids.GroupBy(id => id).ToList();
         if (groups.Any(g => g.Count() > (store.IsPersistent && !PreparedPersistentBooking.Enabled ? 1 : people))) throw new InvalidOperationException("Add-on quantity cannot exceed the number of people.");
@@ -495,6 +497,8 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
     public const string ArtistAcceptedMessage = "The artist confirmed your booking. See you on your appointment day!";
     public const string AcceptNotWaitingMessage = "This booking is not waiting for the artist's confirmation.";
     public static readonly string PartySizeMessage = $"Choose 1–{BookingPricing.MaximumPeople} people.";
+    // The owner's limit (Business settings); with the default 20 it reads the same as PartySizeMessage.
+    public static string PartySize(int most) => $"Choose 1–{most} people.";
     public const string TimeTakenMessage = "This time is already booked. Please choose another date or time.";
     // Phase 9: a paid booking takes its time, so every early request waiting for the artist that overlaps it
     // (including either side's preparation buffer) is rejected and the customer is told why.

@@ -49,6 +49,20 @@
     if (slot?.afterHours && text.afterHoursNote) lines.push(text.afterHoursNote);
     note.textContent = lines.join(' ');
     note.hidden = lines.length === 0;
+    // A time ending after closing needs the customer's agreement to the after-hours terms.
+    let terms = form?.querySelector('[data-after-hours-terms]');
+    if (!terms && form && slot?.afterHours) {
+      terms = document.createElement('label'); terms.className = 'after-hours-terms'; terms.dataset.afterHoursTerms = '';
+      const box = document.createElement('input'); box.type = 'checkbox'; box.name = 'afterHoursAccepted'; box.value = 'true';
+      const text = document.createElement('span'); text.append('I understand and agree to the ');
+      const link = document.createElement('a'); link.href = '/Home/Terms#after-hours'; link.target = '_blank'; link.rel = 'noopener'; link.textContent = 'after-hours terms';
+      text.append(link, '.'); terms.append(box, text); note.after(terms);
+    }
+    if (terms) {
+      const box = terms.querySelector('input');
+      terms.hidden = !slot?.afterHours; box.required = !!slot?.afterHours;
+      if (!slot?.afterHours) box.checked = false;
+    }
   };
 
   window.FlexibleTimes = { render, choose };

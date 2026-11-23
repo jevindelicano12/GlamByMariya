@@ -52,7 +52,7 @@
       article.append(heading, service, addons, total); people.append(article);
     });
     totals.replaceChildren();
-    for (const [label, value] of [['Makeup start', slot.start.replace('T', ' ')], ['Combined makeup', `${q.durationMinutes} minutes`], ['Preparation buffer', `${slot.bufferMinutes} minutes`], ['Early fee', money(q.earlyFee)], ['Late fee', money(q.lateFee)], ['Booking total', money(q.finalTotal)], ['Minimum down payment', money(q.requiredDownPayment)]]) {
+    for (const [label, value] of [['Makeup start', slot.start.replace('T', ' ')], ['Combined makeup', `${q.durationMinutes} minutes`], ['Preparation buffer', `${slot.bufferMinutes} minutes`], ['Early fee', money(q.earlyFee)], ...(q.lateFee > 0 ? [['Late fee', money(q.lateFee)]] : []), ['Booking total', money(q.finalTotal)], ['Minimum down payment', money(q.requiredDownPayment)]]) {
       const dt = document.createElement('dt'), dd = document.createElement('dd'); dt.textContent = label; dd.textContent = value; totals.append(dt, dd);
     }
     const summary = { name: 'Mixed-service group', people: q.people.length, service: 'Individual prices', 'group-price': q.groupDiscount > 0 ? 'Applied to each person' : 'Not applied', original: money(q.serviceTotal + q.groupDiscount), discount: '−' + money(q.groupDiscount), addons: addOnSummary(q), 'early-fee': money(q.earlyFee), 'late-fee': money(q.lateFee), total: money(q.finalTotal), 'down-payment': money(q.requiredDownPayment), start: slot.start.replace('T', ' '), duration: `${q.durationMinutes} min` };

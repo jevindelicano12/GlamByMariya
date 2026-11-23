@@ -10,3 +10,7 @@
 .early-request-decision form + form { margin-top: 8px; }
 .early-requests-waiting { display: block; margin: 0 0 16px; padding: 14px 16px; border-radius: 12px; background: #FFF0C8; color: #5E4709; text-decoration: none; }
 .early-requests-waiting:hover, .early-requests-waiting:focus-visible { background: #FFE7A8; }
+/* After-hours terms: the customer agrees that any after-hours fee is settled with the artist. */
+.after-hours-terms:not([hidden]) { display: flex; align-items: flex-start; gap: 8px; margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; background: #FFF4E5; color: #5E4709; font-size: 14px; }
+.after-hours-terms input { width: auto; margin-top: 3px; flex: none; }
+.after-hours-terms a { color: inherit; text-decoration: underline; }

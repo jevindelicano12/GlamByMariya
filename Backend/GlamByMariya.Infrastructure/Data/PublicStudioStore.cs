@@ -96,15 +96,17 @@ public sealed class PublicStudioStore(
         value.TravelMinimumMinutes = travel.Minimum;
         // Flexible booking hours (0020); null means opening/closing hour.
         var hours = pdb.Database.SqlQueryRaw<FlexibleHoursRow>(
-            """SELECT early_request_start_hour AS "Early", after_hours_end_hour AS "Latest" FROM public.business_settings WHERE id=1""").AsEnumerable().Single();
+            """SELECT early_request_start_hour AS "Early", after_hours_end_hour AS "Latest", max_people AS "MaxPeople" FROM public.business_settings WHERE id=1""").AsEnumerable().Single();
         value.EarlyRequestStartHour = hours.Early;
         value.AfterHoursEndHour = hours.Latest;
+        value.MaxPeople = hours.MaxPeople;
         return value;
     }
     private sealed class FlexibleHoursRow
     {
         public int? Early { get; set; }
         public int? Latest { get; set; }
+        public int MaxPeople { get; set; }
     }
     private sealed class TravelSettingsRow
     {
@@ -388,7 +390,7 @@ public sealed class PublicStudioStore(
         Admin(actor);
         var names = value.ServiceAreas.Split(',').Select(x => x.Trim()).Where(x => x.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         if (names.Length == 0 || names.Any(x => x.Length > 100)) throw new InvalidOperationException("Provide service area names of at most 100 characters.");
-        pdb.Database.ExecuteSqlInterpolated($"UPDATE public.business_settings SET time_zone={value.TimeZone}, open_hour={value.OpenHour}, close_hour={value.CloseHour}, buffer_minutes={value.BufferMinutes}, down_payment_percent={value.DownPaymentPercent}, travel_fee_informational={value.TravelFee}, payment_instructions={value.PaymentInstructions}, travel_speed_kmh={value.TravelSpeedKmh}, travel_min_minutes={value.TravelMinimumMinutes}, early_request_start_hour={value.EarlyRequestStartHour}, after_hours_end_hour={value.AfterHoursEndHour} WHERE id=1");
+        pdb.Database.ExecuteSqlInterpolated($"UPDATE public.business_settings SET time_zone={value.TimeZone}, open_hour={value.OpenHour}, close_hour={value.CloseHour}, buffer_minutes={value.BufferMinutes}, down_payment_percent={value.DownPaymentPercent}, travel_fee_informational={value.TravelFee}, payment_instructions={value.PaymentInstructions}, travel_speed_kmh={value.TravelSpeedKmh}, travel_min_minutes={value.TravelMinimumMinutes}, early_request_start_hour={value.EarlyRequestStartHour}, after_hours_end_hour={value.AfterHoursEndHour}, max_people={value.MaxPeople} WHERE id=1");
         pdb.Database.ExecuteSqlRaw("UPDATE public.service_areas SET is_active=false");
         foreach (var name in names)
             pdb.Database.ExecuteSqlInterpolated($"INSERT INTO public.service_areas(name) VALUES({name}) ON CONFLICT DO NOTHING");
@@ -527,6 +529,7 @@ public sealed class PublicStudioStore(
                     var chosen = people.Select(p => services.FirstOrDefault(s => s.Id == p.ServiceId && s.Active && !s.Archived)
                         ?? throw new InvalidOperationException("Choose an active service for every person.")).ToList();
                     if (PackageRules.Check(chosen) is { } refused) throw new InvalidOperationException(refused);
+                    if (chosen.Count > Settings.MaxPeople) throw new InvalidOperationException($"Choose between 2 and {Settings.MaxPeople} people.");
                     var extras = people.Select(p => p.AddOnIds.Distinct().Select(id => addOns.FirstOrDefault(a => a.Id == id && a.Active && !a.Archived)
                         ?? throw new InvalidOperationException("An add-on is no longer available.")).ToList()).ToList();
                     var prices = chosen.Select(s => PackageRules.PricePerPerson(s, chosen.Count)).ToList();

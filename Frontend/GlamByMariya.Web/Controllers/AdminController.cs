@@ -491,7 +491,7 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
         }
     }
     [HttpPost]
-    public IActionResult Settings(int openHour, int closeHour, int bufferMinutes, decimal travelFee, decimal downPaymentPercent, string serviceAreas, string? paymentInstructions, bool confirmAffected = false, decimal? travelSpeedKmh = null, int? travelMinimumMinutes = null, int? earlyRequestStartHour = null, int? afterHoursEndHour = null)
+    public IActionResult Settings(int openHour, int closeHour, int bufferMinutes, decimal travelFee, decimal downPaymentPercent, string serviceAreas, string? paymentInstructions, bool confirmAffected = false, decimal? travelSpeedKmh = null, int? travelMinimumMinutes = null, int? earlyRequestStartHour = null, int? afterHoursEndHour = null, int? maxPeople = null)
     {
         lock (store.Gate)
         {
@@ -500,6 +500,8 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
             var hoursIssue = BookingWindow.ValidateSettings(openHour, closeHour, earlyRequestStartHour, afterHoursEndHour);
             if (hoursIssue != null) TempData["Error"] = hoursIssue;
             else if (!Roles.IsSuperAdmin(User) && (earlyRequestStartHour != store.Settings.EarlyRequestStartHour || afterHoursEndHour != store.Settings.AfterHoursEndHour)) TempData["Error"] = "Only the SuperAdmin can change the early booking or latest end hours.";
+            else if (maxPeople is < 1 or > BookingPricing.MaximumPeople) TempData["Error"] = $"Maximum people per booking must be from 1 to {BookingPricing.MaximumPeople}.";
+            else if (!Roles.IsSuperAdmin(User) && maxPeople != null && maxPeople != store.Settings.MaxPeople) TempData["Error"] = "Only the SuperAdmin can change the maximum people per booking.";
             else if (speed < 5 || speed > 60) TempData["Error"] = TravelSpeedMessage;
             else if (minimum < 0 || minimum > 180) TempData["Error"] = TravelMinimumMessage;
             else if (!ModelState.IsValid || openHour < 0 || closeHour > 24 || openHour >= closeHour || bufferMinutes < 0 || bufferMinutes > 180 || travelFee < 0 || Money.Round(travelFee) != travelFee || downPaymentPercent is < 1 or > 100 || decimal.Round(downPaymentPercent) != downPaymentPercent || string.IsNullOrWhiteSpace(serviceAreas)) TempData["Error"] = "Enter valid hours, buffer, travel fee, down payment percentage (whole numbers 1–100) and service areas.";
@@ -512,7 +514,7 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
             else
             {
                 var affected = workflow.BookingsOutsideHours(openHour, closeHour, earlyRequestStartHour, afterHoursEndHour);
-                var s = store.Settings; var oldPercent = s.DownPaymentPercent; s.OpenHour = openHour; s.CloseHour = closeHour; s.EarlyRequestStartHour = earlyRequestStartHour; s.AfterHoursEndHour = afterHoursEndHour; s.BufferMinutes = bufferMinutes; s.TravelFee = travelFee; s.TravelSpeedKmh = speed; s.TravelMinimumMinutes = minimum; s.DownPaymentPercent = downPaymentPercent; s.ServiceAreas = serviceAreas; s.PaymentInstructions = paymentInstructions ?? "";
+                var s = store.Settings; var oldPercent = s.DownPaymentPercent; s.OpenHour = openHour; s.CloseHour = closeHour; s.EarlyRequestStartHour = earlyRequestStartHour; s.AfterHoursEndHour = afterHoursEndHour; s.MaxPeople = maxPeople ?? s.MaxPeople; s.BufferMinutes = bufferMinutes; s.TravelFee = travelFee; s.TravelSpeedKmh = speed; s.TravelMinimumMinutes = minimum; s.DownPaymentPercent = downPaymentPercent; s.ServiceAreas = serviceAreas; s.PaymentInstructions = paymentInstructions ?? "";
                 var saved = false;
                 try { store.SaveSettings(s, UserId); saved = true; if (store is DemoStore settingsDemo) settingsDemo.RecordAdminActivity(UserId, "Business settings updated", "Settings", Guid.Empty); TempData["Success"] = "Settings saved. Existing appointments and prices are unchanged."; }
                 catch (InvalidOperationException e) { TempData["Error"] = e.Message; }

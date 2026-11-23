@@ -10,7 +10,9 @@
     <div class="detail-row"><span>Group discount</span><strong>−₱@Model.GroupDiscount.ToString("N2")</strong></div>
     <div class="detail-row"><span>Selected add-ons</span><strong>₱@((Model.MixedPeople.Count > 0 ? Model.MixedPeople.Sum(p => p.AddOns.Sum(a => a.Price * a.Quantity)) : Model.AddOns.Sum(a => a.Price * a.Quantity)).ToString("N2"))</strong></div>
     <div class="detail-row"><span>Early booking surcharge</span><strong>₱@((Model.ApprovedReschedules.LastOrDefault()?.Quote.EarlyFee ?? Model.EarlyFeeSnapshot).ToString("N2"))</strong></div>
+    @if ((Model.ApprovedReschedules.LastOrDefault()?.Quote.LateFee ?? Model.LateFeeSnapshot) > 0) {
     <div class="detail-row"><span>Late booking surcharge</span><strong>₱@((Model.ApprovedReschedules.LastOrDefault()?.Quote.LateFee ?? Model.LateFeeSnapshot).ToString("N2"))</strong></div>
+    }
     <div class="detail-row"><span>Transportation reimbursement</span><strong>Separate actual expense</strong></div>
     <div class="detail-row"><span>Final booking total</span><strong>₱@Model.Total.ToString("N2")</strong></div>
     <div class="detail-row"><span>Required down payment (@Model.DownPaymentPercentSnapshot.ToString("N0")%)</span><strong>₱@Model.RequiredDownPayment.ToString("N2")</strong></div>

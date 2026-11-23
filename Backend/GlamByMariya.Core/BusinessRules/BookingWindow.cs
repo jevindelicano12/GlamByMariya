@@ -8,7 +8,7 @@ public enum SlotKind { Regular, Early }
 // opening and an admin-set latest end after closing. Unset hours mean "same as opening/closing".
 public static class BookingWindow
 {
-    public const string AfterHoursNote = "This booking runs past closing ({0}). An extra after-hours fee applies, to be agreed with the artist.";
+    public const string AfterHoursNote = "This booking ends after closing ({0}). That's fine, but any after-hours fee is agreed directly with the artist. It isn't included in this total and isn't collected by the website.";
     public const string EarlyGroupLabel = "Early booking (needs artist approval)";
 
     public static int EarliestHour(BusinessSettings s) => s.EarlyRequestStartHour ?? s.OpenHour;

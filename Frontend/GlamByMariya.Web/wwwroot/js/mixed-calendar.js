@@ -64,7 +64,7 @@
       const q = result.quote; timeStatus.textContent = result.message;
       const chosen = snapshot?.days.find(d => d.date === selectedDate)?.slots.find(s => s.start === start);
       status.textContent = `Selected makeup start: ${chosen?.label ?? start.slice(11)}, ${date(selectedDate).toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric' })}.`;
-      price.textContent = `Services ${money(q.serviceTotal)} · Add-ons ${money(q.addOnTotal)} · Early fee ${money(q.earlyFee)} · Late fee ${money(q.lateFee)} · Total ${money(q.finalTotal)} · Minimum down payment ${money(q.requiredDownPayment)}`;
+      price.textContent = `Services ${money(q.serviceTotal)} · Add-ons ${money(q.addOnTotal)} · Early fee ${money(q.earlyFee)}${q.lateFee > 0 ? ` · Late fee ${money(q.lateFee)}` : ''} · Total ${money(q.finalTotal)} · Minimum down payment ${money(q.requiredDownPayment)}`;
       if (startInput) startInput.value = start;
       window.FlexibleTimes?.choose(form, chosen);
       form.mixedSlot = { start, quote: q, bufferMinutes: result.bufferMinutes, selection: JSON.stringify(people) };
