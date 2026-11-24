@@ -215,3 +215,4 @@ main #mixed-calendar .mixed-legend {
     border-color: #A6536B;
 }
 .customers-table td { overflow-wrap: break-word; }
+.two-column > * { min-width: 0; }
