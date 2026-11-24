@@ -195,6 +195,7 @@ main #mixed-calendar .mixed-legend {
 /* Deep QA layout fixes: prevent Catalog overflow, widen Appointments search, style Payments action link. */
 .catalog-grid {
     grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr));
+    align-items: start;
 }
 .catalog-grid > * { min-width: 0; }
 .appointment-search label:first-child { flex: 1 1 280px; }
