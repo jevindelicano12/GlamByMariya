@@ -1004,3 +1004,18 @@ document.querySelectorAll('.availability-picker').forEach(picker => {
   document.addEventListener('visibilitychange', () => { if (!document.hidden && !validating) refresh({ background: true }); });
   window.addEventListener('focus', () => { if (!refreshing && !validating) refresh({ background: true }); });
 });
+
+document.addEventListener('click', event => {
+  const openBtn = event.target.closest('[data-open-dialog]');
+  if (openBtn) {
+    const dialog = document.getElementById(openBtn.dataset.openDialog);
+    if (dialog && typeof dialog.showModal === 'function') dialog.showModal();
+    return;
+  }
+  const closeBtn = event.target.closest('[data-close-dialog]');
+  if (closeBtn) {
+    document.getElementById(closeBtn.dataset.closeDialog)?.close();
+    return;
+  }
+  if (event.target.matches('dialog.policies-modal')) event.target.close();
+});

@@ -171,6 +171,17 @@ public class BusinessSettings
     public int MaxPeople { get; set; } = 20;
     public string ServiceAreas { get; set; } = "Quezon City,Makati,Manila,Pasig,Taguig,Mandaluyong";
     public string PaymentInstructions { get; set; } = "Demo only — do not send real money. Contact the artist for verified GCash, Maya or bank account details.";
+    // Owner-editable customer-facing policies (shown on Booking, modals, and Terms & Conditions).
+    public const string DefaultPaymentPolicy = "A booking is reserved only after you pay the required down payment of the final booking total. Your time is held for 15 minutes while you pay, and the artist reviews and confirms your booking (automatically after 24 hours). The remaining balance is paid after your appointment.";
+    public const string DefaultCancellationPolicy = "Unpaid bookings can be cancelled for free. Paid bookings cancelled before the artist accepts or within 1 hour after acceptance are refunded in full. From 1 hour after acceptance, ₱200 is deducted and the rest is refunded. Within 3 hours of the appointment, please contact Glam by Mariya.";
+    public const string DefaultReschedulingPolicy = "You can request a new time from your appointment page. Rescheduling requires makeup artist approval and available schedule time; your original time and prices stay in place until approved.";
+    public const string DefaultTransportationPolicy = "Transportation expenses are separate from makeup service charges and are not included in your booking total or required down payment. The customer reimburses the makeup artist's actual transportation expenses upon arrival after presenting a receipt or agreed fare breakdown. The amount may vary depending on ride-hailing fares, fuel expenses, toll fees, and travel distance.";
+    public const string DefaultAfterHoursPolicy = "You may book a time that ends after our regular closing hours. Only the extra payment for extra hours past closing is agreed and settled personally with the makeup artist outside the system — it is not included in your online booking total, down payment, or any refund handled by the website.";
+    public string PaymentPolicy { get; set; } = DefaultPaymentPolicy;
+    public string CancellationPolicy { get; set; } = DefaultCancellationPolicy;
+    public string ReschedulingPolicy { get; set; } = DefaultReschedulingPolicy;
+    public string TransportationPolicy { get; set; } = DefaultTransportationPolicy;
+    public string AfterHoursPolicy { get; set; } = DefaultAfterHoursPolicy;
 }
 
 // The artist's home pin (where the day starts) and current pin (none = at home), Asia/Manila local update time.

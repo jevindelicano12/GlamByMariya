@@ -12,34 +12,28 @@
 
     <section class="panel terms-section">
         <h2>2. Bookings and down payment</h2>
-        <p>A booking is reserved only after you pay a down payment of @(deposit)% of the final booking total. The remaining balance is paid after your appointment.</p>
-        <p>After you submit a booking, your time is held for <strong>15 minutes</strong> while you pay. If the down payment is not received in that time, the booking expires and the time is released.</p>
-        <p>Once you pay, your time stays reserved while the artist reviews your booking. The artist confirms or declines it, usually within <strong>24 hours</strong>; with no action in 24 hours it is confirmed automatically. If the artist declines it, your full payment is refunded.</p>
+        <p>Required down payment: <strong>@(deposit)%</strong> of the final booking total.</p>
+        <p class="policy-text">@Model.PaymentPolicy</p>
     </section>
 
     <section class="panel terms-section">
         <h2>3. Cancellations</h2>
-        <ul>
-            <li>An unpaid booking can be cancelled for free.</li>
-            <li>A paid booking cancelled before the artist accepts it, or within 1 hour after she accepts it, is refunded in full.</li>
-            <li>From 1 hour after the artist accepts your booking, <strong>₱200</strong> is deducted from your payment and the rest is refunded.</li>
-            <li>Less than <strong>3 hours</strong> before the appointment, a booking can no longer be cancelled online. Please contact the artist.</li>
-        </ul>
+        <p class="policy-text">@Model.CancellationPolicy</p>
     </section>
 
     <section class="panel terms-section">
         <h2>4. Rescheduling</h2>
-        <p>You can request a new time from your appointment page. Your original time and prices stay in place until the artist approves the change.</p>
+        <p class="policy-text">@Model.ReschedulingPolicy</p>
     </section>
 
     <section class="panel terms-section">
         <h2>5. Transportation</h2>
-        <p>Transportation is not included in the makeup price or the down payment. You reimburse the artist's actual travel expense when she arrives, after she shows a receipt or an agreed fare breakdown. The amount can change with ride-hailing fares, fuel, tolls and distance.</p>
+        <p class="policy-text">@Model.TransportationPolicy</p>
     </section>
 
     <section class="panel terms-section" id="after-hours">
         <h2>6. After-hours appointments</h2>
-        <p>You may book a time that ends after our regular hours. Any extra after-hours fee is agreed between you and the artist and paid directly to the artist. It is not part of the booking total, the down payment or any refund handled by the website. When you book such a time, you are asked to agree to this first.</p>
+        <p class="policy-text">@Model.AfterHoursPolicy</p>
     </section>
 
     <section class="panel terms-section">
