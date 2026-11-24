@@ -3,8 +3,8 @@
     --type-main: clamp(2.125rem, 3.1vw, 2.875rem);
     --type-section: clamp(1.5625rem, 2.3vw, 2rem);
     --type-card: clamp(1.25rem, 1.7vw, 1.5rem);
-    --type-helper: clamp(.9375rem, .86rem + .16vw, 1.0625rem);
-    --type-micro: clamp(.8125rem, .76rem + .12vw, .9375rem);
+    --type-helper: clamp(1rem, .92rem + .18vw, 1.125rem);
+    --type-micro: clamp(.875rem, .82rem + .14vw, 1rem);
 }
 body { font-size: var(--type-body); line-height: 1.65; -webkit-font-smoothing: antialiased; }
 main h1, main .page-heading h1, main .hero h2 { font-size: var(--type-main); line-height: 1.15; letter-spacing: -.025em; }
@@ -106,4 +106,15 @@ table td { font-variant-numeric: tabular-nums; }
 @media (max-width: 580px) {
     .guest-layout .auth-wrap .panel { padding: 24px 18px; }
     .member-layout .admin-banner { padding: 22px 20px; }
+}
+main .calendar-day { min-height: 60px; font-size: .9375rem; }
+main .calendar-day small { font-size: .75rem; }
+main .calendar-legend,
+main .calendar-weekdays,
+main .slot-heading small { font-size: var(--type-micro); }
+main .time-slot,
+main .availability-status { font-size: var(--type-helper); }
+@media (max-width: 580px) {
+    main .calendar-day { min-height: 52px; font-size: .875rem; }
+    main .calendar-day small { font-size: .6875rem; }
 }
