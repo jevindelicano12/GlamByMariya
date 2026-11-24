@@ -12,5 +12,6 @@ var awaitingArtist = all.Count(b => b.AwaitingArtist(DataStore.Now));
 @{ var upcoming = all.Where(b => b.Start >= DataStore.Now && (b.Status == "Confirmed" || b.Status == "Pending Payment" || b.Status == BookingService.EarlyRequestStatus)).OrderBy(b => b.Start).Take(4).ToList(); }
 @if (upcoming.Count == 0) { <p>No upcoming bookings.</p> } else { <div class="upcoming-list">@foreach (var booking in upcoming) { <a class="upcoming-item" asp-action="Details" asp-route-id="@booking.Id"><span class="appointment-date"><small>@booking.Start.ToString("MMM")</small><strong>@booking.Start.ToString("dd")</strong></span><span><strong>@booking.CustomerName</strong><small>@(booking.MixedPeople.Count > 0 ? $"Mixed-service group · {booking.MixedPeople.Count} people" : booking.People > 1 ? $"{booking.Service.Name} · {booking.People} people" : booking.Service.Name) · @booking.Start.ToString("h:mm tt")</small></span><span class="badge @booking.Status.ToLowerInvariant()">@booking.DisplayStatus(DataStore.Now)</span></a> }</div> }</section>
 <div class="admin-banner"><div><span class="eyebrow">THE LITTLE DETAILS MATTER</span><h2>A seamless experience starts here.</h2><p>Review deposits, confirm your next appointments, and make space for beautiful moments.</p></div><span>✧</span></div>
-}
+} else {
 <partial name="_AppointmentList" model="Model" />
+}

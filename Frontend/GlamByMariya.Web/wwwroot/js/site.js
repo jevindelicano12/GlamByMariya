@@ -65,18 +65,79 @@ document.querySelectorAll('.account-menu').forEach(menu => {
     if (event.key === 'Escape' && menu.open) { menu.open = false; summary?.focus(); }
   });
 });
+const createPager = (insertAfterEl, pageSize = 10) => {
+  const nav = document.createElement('nav');
+  nav.className = 'appointment-pager';
+  nav.setAttribute('aria-label', 'Pagination');
+  nav.hidden = true;
+  nav.innerHTML = '<button type="button" class="button secondary" data-page-prev>← Previous</button><span data-page-label>Page 1 of 1</span><button type="button" class="button secondary" data-page-next>Next →</button>';
+  insertAfterEl.after(nav);
+  return {
+    nav,
+    prev: nav.querySelector('[data-page-prev]'),
+    next: nav.querySelector('[data-page-next]'),
+    label: nav.querySelector('[data-page-label]'),
+    pageSize
+  };
+};
+const paginateItems = (allItems, pager, page, getMatched = () => allItems) => {
+  const matched = getMatched();
+  const totalPages = Math.max(1, Math.ceil(matched.length / pager.pageSize));
+  const current = Math.min(Math.max(1, page), totalPages);
+  const start = (current - 1) * pager.pageSize;
+  const pageSet = new Set(matched.slice(start, start + pager.pageSize));
+  allItems.forEach(item => { item.hidden = !pageSet.has(item); });
+  pager.nav.hidden = totalPages <= 1;
+  pager.label.textContent = `Page ${current} of ${totalPages}`;
+  pager.prev.disabled = current <= 1;
+  pager.next.disabled = current >= totalPages;
+  return { current, matchedCount: matched.length };
+};
+
 const customerFilters = document.querySelector('[data-customer-filters]');
-if (customerFilters) {
-  const cards = [...document.querySelectorAll('[data-customer-appointment]')];
+const customerCards = [...document.querySelectorAll('[data-customer-appointment]')];
+if (customerCards.length) {
+  const listEl = customerCards[0].closest('.appointment-list') || customerCards[0].parentElement;
   const count = document.querySelector('[data-customer-filter-count]');
-  customerFilters.querySelectorAll('button').forEach(button => button.addEventListener('click', () => {
-    let shown = 0;
-    cards.forEach(card => { const visible = button.dataset.filter === 'all' || card.dataset.customerAppointment === button.dataset.filter; card.hidden = !visible; if (visible) shown++; });
-    customerFilters.querySelectorAll('button').forEach(item => item.setAttribute('aria-pressed', String(item === button)));
-    count.textContent = `${shown} appointment(s) shown`;
-  }));
-  customerFilters.hidden = false;
+  const pager = createPager(listEl, 10);
+  let activeFilter = 'all';
+  let page = 1;
+  const render = () => {
+    const { current, matchedCount } = paginateItems(customerCards, pager, page, () =>
+      customerCards.filter(card => activeFilter === 'all' || card.dataset.customerAppointment === activeFilter));
+    page = current;
+    if (count) count.textContent = `${matchedCount} appointment(s) shown`;
+  };
+  pager.prev.addEventListener('click', () => { page--; render(); });
+  pager.next.addEventListener('click', () => { page++; render(); });
+  if (customerFilters) {
+    customerFilters.querySelectorAll('button').forEach(button => button.addEventListener('click', () => {
+      activeFilter = button.dataset.filter;
+      page = 1;
+      customerFilters.querySelectorAll('button').forEach(item => item.setAttribute('aria-pressed', String(item === button)));
+      render();
+    }));
+    customerFilters.hidden = false;
+  }
+  render();
 }
+
+[
+  ['.customers-table-wrap', '.customers-table tbody tr'],
+  ['.panel:has(> .calendar-item)', '.calendar-item'],
+  ['.panel:has(> .activity)', '.activity']
+].forEach(([hostSelector, itemSelector]) => {
+  const host = document.querySelector(hostSelector);
+  if (!host) return;
+  const items = [...host.querySelectorAll(itemSelector)];
+  if (items.length <= 10) return;
+  const pager = createPager(host, 10);
+  let page = 1;
+  const render = () => { page = paginateItems(items, pager, page).current; };
+  pager.prev.addEventListener('click', () => { page--; render(); });
+  pager.next.addEventListener('click', () => { page++; render(); });
+  render();
+});
 document.querySelectorAll('.catalog-image-block input[type="file"]').forEach(input => {
   const preview = document.createElement('img');
   preview.className = 'catalog-selected-preview';
@@ -99,20 +160,39 @@ if (appointmentSearch) {
   const from = appointmentSearch.querySelector('[data-from]');
   const to = appointmentSearch.querySelector('[data-to]');
   const count = document.querySelector('[data-appointment-count]');
-  const filter = () => {
+  const pager = document.querySelector('[data-appointment-pager]');
+  const prevBtn = pager?.querySelector('[data-page-prev]');
+  const nextBtn = pager?.querySelector('[data-page-next]');
+  const pageLabel = pager?.querySelector('[data-page-label]');
+  const pageSize = 10;
+  let page = 1;
+  const render = () => {
     const query = search.value.trim().toLocaleLowerCase();
-    let visible = 0;
-    rows.forEach(row => {
-      const match = row.dataset.searchText.toLocaleLowerCase().includes(query) &&
-        (!from.value || row.dataset.date >= from.value) && (!to.value || row.dataset.date <= to.value);
-      row.hidden = !match;
-      if (match) visible++;
-    });
-    count.textContent = `${visible} appointment(s) shown`;
+    const matched = rows.filter(row =>
+      row.dataset.searchText.toLocaleLowerCase().includes(query) &&
+      (!from.value || row.dataset.date >= from.value) && (!to.value || row.dataset.date <= to.value));
+    const totalPages = Math.max(1, Math.ceil(matched.length / pageSize));
+    if (page > totalPages) page = totalPages;
+    if (page < 1) page = 1;
+    const start = (page - 1) * pageSize;
+    const end = start + pageSize;
+    const pageSet = new Set(matched.slice(start, end));
+    rows.forEach(row => { row.hidden = !pageSet.has(row); });
+    count.textContent = `${matched.length} appointment(s) shown`;
+    if (pager) {
+      pager.hidden = totalPages <= 1;
+      if (pageLabel) pageLabel.textContent = `Page ${page} of ${totalPages}`;
+      if (prevBtn) prevBtn.disabled = page <= 1;
+      if (nextBtn) nextBtn.disabled = page >= totalPages;
+    }
   };
+  const filter = () => { page = 1; render(); };
   [search, from, to].forEach(input => input.addEventListener('input', filter));
   appointmentSearch.querySelector('[data-clear]').addEventListener('click', () => { search.value = from.value = to.value = ''; filter(); });
+  prevBtn?.addEventListener('click', () => { page--; render(); });
+  nextBtn?.addEventListener('click', () => { page++; render(); });
   appointmentSearch.hidden = false;
+  render();
 }
 const staffMenu = document.querySelector('#staff-mobile-menu');
 if (staffMenu) {

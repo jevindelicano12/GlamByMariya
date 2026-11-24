@@ -280,3 +280,27 @@ main #mixed-calendar .mixed-legend {
 }
 .catalog-drawer-body .button { width: 100%; }
 .catalog-drawer-body .delete-form { margin-top: 18px; padding-top: 14px; border-top: 1px solid #EADDD7; }
+
+/* Admin Appointments pagination bar. */
+.appointment-footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    margin-top: 16px;
+}
+.appointment-footer .appointment-count { margin-top: 0; }
+.appointment-pager[hidden] { display: none; }
+.appointment-pager {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 16px;
+}
+.appointment-footer .appointment-pager { margin-top: 0; }
+.appointment-pager span {
+    font-size: var(--type-helper);
+    color: #604B50;
+    font-weight: 500;
+}
