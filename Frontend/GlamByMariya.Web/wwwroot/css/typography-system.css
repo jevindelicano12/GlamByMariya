@@ -217,3 +217,61 @@ main #mixed-calendar .mixed-legend {
 }
 .customers-table td { overflow-wrap: break-word; }
 .two-column > * { min-width: 0; }
+
+/* Admin Catalog right-side slide-over edit drawer. */
+.catalog-drawer[hidden] { display: none; }
+.catalog-drawer {
+    position: fixed;
+    inset: 0;
+    z-index: 120;
+    display: flex;
+    justify-content: flex-end;
+}
+.catalog-drawer-backdrop {
+    position: absolute;
+    inset: 0;
+    background: #2b1d2166;
+    backdrop-filter: blur(2px);
+}
+.catalog-drawer-panel {
+    position: relative;
+    z-index: 1;
+    width: min(500px, 100vw);
+    height: 100dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    background: #FFF8F4;
+    border-left: 1px solid #EADDD7;
+    box-shadow: -12px 0 40px #49363d29;
+    padding: 26px 28px 36px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+.catalog-drawer-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid #EADDD7;
+}
+.catalog-drawer-head h2 { margin: 0; }
+.catalog-drawer-close {
+    flex: none;
+    width: 44px;
+    height: 44px;
+    border: 1.5px solid #D8BFC4;
+    border-radius: 50%;
+    background: #fff;
+    color: #49363D;
+    font-size: 1.125rem;
+    display: grid;
+    place-items: center;
+}
+.catalog-drawer-close:hover {
+    background: #faebed;
+    border-color: #A6536B;
+}
+.catalog-drawer-body .button { width: 100%; }
+.catalog-drawer-body .delete-form { margin-top: 18px; padding-top: 14px; border-top: 1px solid #EADDD7; }

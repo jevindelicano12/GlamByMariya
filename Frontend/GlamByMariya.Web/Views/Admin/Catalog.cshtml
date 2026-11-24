@@ -1,8 +1,6 @@
 @model List<CatalogItem>
 @{ ViewData["Title"] = "Makeup Services & add-ons"; var addons = (List<CatalogItem>)ViewBag.AddOns; var catalogImage = ViewBag.CatalogImages as Func<string, Guid, string?>; var catalogPreview = ViewBag.CatalogPreviewImages as Func<string, Guid, string?>; }
-<div class="page-heading"><div><div class="eyebrow">CURATE YOUR BEAUTY MENU</div><h1>Makeup Services & little extras.</h1><p>Edit your offerings. Booked prices always stay preserved.</p></div></div>
-<details class="panel catalog-group"><summary>Group package rates</summary><p>Service prices below are per person. Eligible groups automatically receive the group rate. Leave a group price blank to disable it. Extras and travel remain per-booking charges; every booking requires the configured down payment percentage of the final total.</p>
-<div class="catalog-grid">
+<div class="page-heading"><div><div class="eyebrow">CURATE YOUR BEAUTY MENU</div><h1>Makeup Services & little extras.</h1><p>Edit your offerings. Booked prices always stay preserved.</p></div><details class="catalog-edit" data-drawer-eyebrow="GROUP PRICING"><summary class="button secondary">Group package rates</summary><div class="stack"><p>Service prices below are per person. Eligible groups automatically receive the group rate. Leave a group price blank to disable it. Extras and travel remain per-booking charges; every booking requires the configured down payment percentage of the final total.</p>
 @foreach (var service in Model.Where(s => !s.Archived))
 {
     <form asp-action="SaveGroupPricing" method="post" class="stack">
@@ -12,5 +10,61 @@
         <button class="button secondary">Save group package</button>
     </form>
 }
-</div></details>
-@foreach (var kind in new[] { "service", "addon" }) { var list = kind == "service" ? Model : addons; <div class="section-title"><h2>@(kind == "service" ? "Makeup services" : "Makeup add-ons")</h2><span>@list.Count items</span></div><div class="catalog-grid">@foreach (var item in list) { var cardImageUrl = catalogImage?.Invoke(kind, item.Id); <section class="panel catalog-item"><div class="catalog-card-image">@if (cardImageUrl != null) { <img src="@cardImageUrl" alt="@item.Name" loading="lazy" /> } else { <span>No image</span> }</div><div class="catalog-card-content"><div class="section-title compact"><h3>@item.Name</h3><span class="badge @(item.Active ? "confirmed" : "cancelled")">@(item.Archived ? "Archived" : item.Active ? "Active" : "Inactive")</span></div><p class="catalog-card-summary">@item.Description</p><p class="catalog-card-meta">@item.Minutes min &middot; &#8369;@item.Price.ToString("N2")</p><details class="catalog-edit"><summary>Edit @item.Name</summary><form asp-action="SaveCatalog" method="post" enctype="multipart/form-data" class="stack"><input name="id" type="hidden" value="@item.Id" /><input name="kind" type="hidden" value="@kind" /><label>Name<input name="name" value="@item.Name" required maxlength="100" /></label><label>Description<textarea name="description" rows="2">@item.Description</textarea></label><div class="form-grid"><label>Price (₱)<input name="price" type="number" step="0.01" min="@(kind == "service" ? "0.01" : "0")" value="@item.Price" required /></label><label>Minutes<input name="minutes" type="number" min="@(kind == "service" ? 1 : 0)" max="480" value="@item.Minutes" required /></label></div><label class="check-label"><input name="active" type="checkbox" value="true" checked="@item.Active" /> Visible in customer catalog</label><div class="catalog-image-block">@{ var editImageUrl = catalogImage?.Invoke(kind, item.Id); }@if (editImageUrl != null) { <div class="catalog-image-preview"><a href="@editImageUrl" target="_blank" rel="noopener"><img src="@editImageUrl" alt="@item.Name picture" /></a><label class="check-label"><input name="removeImage" type="checkbox" value="true" /> Remove current picture</label></div> } else { <p class="catalog-image-empty">No picture uploaded yet</p> }<label>Card picture<input name="image" type="file" accept="image/png,image/jpeg" /><small>JPG or PNG, max 5 MB</small></label></div><div class="catalog-image-block">@{ var editPreviewUrl = catalogPreview?.Invoke(kind, item.Id); }@if (editPreviewUrl != null) { <div class="catalog-image-preview"><a href="@editPreviewUrl" target="_blank" rel="noopener"><img src="@editPreviewUrl" alt="@item.Name preview" /></a><label class="check-label"><input name="removePreviewImage" type="checkbox" value="true" /> Remove preview picture</label></div> } else { <p class="catalog-image-empty">No preview picture uploaded yet</p> }<label>Booking preview picture<input name="previewImage" type="file" accept="image/png,image/jpeg" /><small>JPG or PNG, max 5 MB. Shown on the booking page; falls back to the card picture.</small></label></div><label>Card overlay word (e.g. soft.)<input name="visualWord" value="@item.VisualWord" maxlength="40" /></label><label>Card eyebrow text<input name="category" value="@item.Category" maxlength="60" /></label><button class="button secondary">Save changes</button></form></details><form asp-action="DeleteCatalog" method="post" class="delete-form"><input name="id" type="hidden" value="@item.Id" /><input name="kind" type="hidden" value="@kind" /><button class="text-button">Archive / delete item</button></form></div></section> }<section class="panel new-item"><div class="eyebrow">GROW YOUR OFFERINGS</div><h3>Add a @(kind == "service" ? "service" : "little extra")</h3><form asp-action="SaveCatalog" method="post" enctype="multipart/form-data" class="stack"><input name="kind" type="hidden" value="@kind" /><label>Name<input name="name" required maxlength="100" /></label><label>Description<textarea name="description" rows="2"></textarea></label><div class="form-grid"><label>Price (₱)<input name="price" type="number" step="0.01" min="@(kind == "service" ? "0.01" : "0")" required /></label><label>Minutes<input name="minutes" type="number" min="@(kind == "service" ? 1 : 0)" max="480" required /></label></div><label class="check-label"><input type="checkbox" name="active" value="true" checked /> Active</label><div class="catalog-image-block"><label>Card picture<input name="image" type="file" accept="image/png,image/jpeg" /><small>JPG or PNG, max 5 MB</small></label></div><div class="catalog-image-block"><label>Booking preview picture<input name="previewImage" type="file" accept="image/png,image/jpeg" /><small>JPG or PNG, max 5 MB. Shown on the booking page; falls back to the card picture.</small></label></div><label>Card overlay word (e.g. soft.)<input name="visualWord" maxlength="40" /></label><label>Card eyebrow text<input name="category" maxlength="60" /></label><button class="button">Add to catalog ＋</button></form></section></div> }
+</div></details></div>
+@foreach (var kind in new[] { "service", "addon" }) { var list = kind == "service" ? Model : addons; <div class="section-title"><div><h2>@(kind == "service" ? "Makeup services" : "Makeup add-ons")</h2><span>@list.Count items</span></div><details class="catalog-edit" data-drawer-eyebrow="GROW YOUR OFFERINGS"><summary class="button">＋ Add a @(kind == "service" ? "service" : "little extra")</summary><form asp-action="SaveCatalog" method="post" enctype="multipart/form-data" class="stack"><input name="kind" type="hidden" value="@kind" /><label>Name<input name="name" required maxlength="100" /></label><label>Description<textarea name="description" rows="2"></textarea></label><div class="form-grid"><label>Price (₱)<input name="price" type="number" step="0.01" min="@(kind == "service" ? "0.01" : "0")" required /></label><label>Minutes<input name="minutes" type="number" min="@(kind == "service" ? 1 : 0)" max="480" required /></label></div><label class="check-label"><input type="checkbox" name="active" value="true" checked /> Active</label><div class="catalog-image-block"><label>Card picture<input name="image" type="file" accept="image/png,image/jpeg" /><small>JPG or PNG, max 5 MB</small></label></div><div class="catalog-image-block"><label>Booking preview picture<input name="previewImage" type="file" accept="image/png,image/jpeg" /><small>JPG or PNG, max 5 MB. Shown on the booking page; falls back to the card picture.</small></label></div><label>Card overlay word (e.g. soft.)<input name="visualWord" maxlength="40" /></label><label>Card eyebrow text<input name="category" maxlength="60" /></label><button class="button">Add to catalog ＋</button></form></details></div><div class="catalog-grid">@foreach (var item in list) { var cardImageUrl = catalogImage?.Invoke(kind, item.Id); <section class="panel catalog-item"><div class="catalog-card-image">@if (cardImageUrl != null) { <img src="@cardImageUrl" alt="@item.Name" loading="lazy" /> } else { <span>No image</span> }</div><div class="catalog-card-content"><div class="section-title compact"><h3>@item.Name</h3><span class="badge @(item.Active ? "confirmed" : "cancelled")">@(item.Archived ? "Archived" : item.Active ? "Active" : "Inactive")</span></div><p class="catalog-card-summary">@item.Description</p><p class="catalog-card-meta">@item.Minutes min &middot; &#8369;@item.Price.ToString("N2")</p><details class="catalog-edit"><summary>Edit @item.Name</summary><form asp-action="SaveCatalog" method="post" enctype="multipart/form-data" class="stack"><input name="id" type="hidden" value="@item.Id" /><input name="kind" type="hidden" value="@kind" /><label>Name<input name="name" value="@item.Name" required maxlength="100" /></label><label>Description<textarea name="description" rows="2">@item.Description</textarea></label><div class="form-grid"><label>Price (₱)<input name="price" type="number" step="0.01" min="@(kind == "service" ? "0.01" : "0")" value="@item.Price" required /></label><label>Minutes<input name="minutes" type="number" min="@(kind == "service" ? 1 : 0)" max="480" value="@item.Minutes" required /></label></div><label class="check-label"><input name="active" type="checkbox" value="true" checked="@item.Active" /> Visible in customer catalog</label><div class="catalog-image-block">@{ var editImageUrl = catalogImage?.Invoke(kind, item.Id); }@if (editImageUrl != null) { <div class="catalog-image-preview"><a href="@editImageUrl" target="_blank" rel="noopener"><img src="@editImageUrl" alt="@item.Name picture" /></a><label class="check-label"><input name="removeImage" type="checkbox" value="true" /> Remove current picture</label></div> } else { <p class="catalog-image-empty">No picture uploaded yet</p> }<label>Card picture<input name="image" type="file" accept="image/png,image/jpeg" /><small>JPG or PNG, max 5 MB</small></label></div><div class="catalog-image-block">@{ var editPreviewUrl = catalogPreview?.Invoke(kind, item.Id); }@if (editPreviewUrl != null) { <div class="catalog-image-preview"><a href="@editPreviewUrl" target="_blank" rel="noopener"><img src="@editPreviewUrl" alt="@item.Name preview" /></a><label class="check-label"><input name="removePreviewImage" type="checkbox" value="true" /> Remove preview picture</label></div> } else { <p class="catalog-image-empty">No preview picture uploaded yet</p> }<label>Booking preview picture<input name="previewImage" type="file" accept="image/png,image/jpeg" /><small>JPG or PNG, max 5 MB. Shown on the booking page; falls back to the card picture.</small></label></div><label>Card overlay word (e.g. soft.)<input name="visualWord" value="@item.VisualWord" maxlength="40" /></label><label>Card eyebrow text<input name="category" value="@item.Category" maxlength="60" /></label><button class="button secondary">Save changes</button></form></details><form asp-action="DeleteCatalog" method="post" class="delete-form"><input name="id" type="hidden" value="@item.Id" /><input name="kind" type="hidden" value="@kind" /><button class="text-button">Archive / delete item</button></form></div></section> }</div> }
+<div id="catalog-drawer" class="catalog-drawer" hidden role="dialog" aria-modal="true" aria-labelledby="catalog-drawer-title">
+    <div class="catalog-drawer-backdrop" data-drawer-close></div>
+    <aside class="catalog-drawer-panel">
+        <div class="catalog-drawer-head">
+            <div><div class="eyebrow">CATALOG EDITOR</div><h2 id="catalog-drawer-title">Edit item</h2></div>
+            <button type="button" class="catalog-drawer-close" data-drawer-close aria-label="Close editor">✕</button>
+        </div>
+        <div id="catalog-drawer-body" class="catalog-drawer-body"></div>
+    </aside>
+</div>
+@section Scripts {
+@{ var cspNonce = Context.Items["csp-nonce"] as string; }
+<script nonce="@cspNonce">
+(() => {
+  const drawer = document.querySelector('#catalog-drawer');
+  const eyebrow = drawer?.querySelector('.catalog-drawer-head .eyebrow');
+  const title = document.querySelector('#catalog-drawer-title');
+  const body = document.querySelector('#catalog-drawer-body');
+  if (!drawer || !title || !body) return;
+  let restore = null;
+  const close = () => {
+    if (restore) { restore(); restore = null; }
+    drawer.hidden = true;
+    document.body.style.overflow = '';
+  };
+  drawer.querySelectorAll('[data-drawer-close]').forEach(el => el.addEventListener('click', close));
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !drawer.hidden) close(); });
+  document.querySelectorAll('.catalog-edit').forEach(details => {
+    const summary = details.querySelector('summary');
+    const content = details.querySelector('form, div.stack');
+    const card = details.closest('.catalog-card-content');
+    const del = card?.querySelector('.delete-form');
+    if (!summary || !content) return;
+    summary.addEventListener('click', e => {
+      e.preventDefault();
+      if (restore) restore();
+      const contentSlot = document.createComment('content-slot');
+      const delSlot = del ? document.createComment('del-slot') : null;
+      content.replaceWith(contentSlot);
+      if (del && delSlot) del.replaceWith(delSlot);
+      body.replaceChildren(content);
+      if (del) body.appendChild(del);
+      if (eyebrow) eyebrow.textContent = details.dataset.drawerEyebrow || 'CATALOG EDITOR';
+      title.textContent = summary.textContent.trim();
+      drawer.hidden = false;
+      document.body.style.overflow = 'hidden';
+      restore = () => {
+        contentSlot.replaceWith(content);
+        if (del && delSlot) delSlot.replaceWith(del);
+      };
+      content.querySelector('input:not([type=hidden]), textarea')?.focus();
+    });
+  });
+})();
+</script>
+}
