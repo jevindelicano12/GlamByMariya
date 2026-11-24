@@ -58,24 +58,11 @@ document.querySelectorAll('[data-password-toggle]').forEach(toggle => {
 });
 document.querySelectorAll('.account-menu').forEach(menu => {
   const summary = menu.querySelector('summary');
-  const panel = menu.querySelector('.account-menu-panel');
-  let closing = null;
-  const close = () => {
-    if (!menu.open || closing) return;
-    if (!panel?.animate || matchMedia('(prefers-reduced-motion: reduce)').matches) { menu.open = false; return; }
-    closing = panel.animate([{ opacity: 1, transform: 'translateY(0)' }, { opacity: 0, transform: 'translateY(-4px)' }],
-      { duration: 120, easing: 'ease-in', fill: 'forwards' });
-    closing.finished.then(() => { menu.open = false; closing = null; }).catch(() => {});
-  };
-  summary?.addEventListener('click', event => {
-    if (closing) { event.preventDefault(); closing.cancel(); closing = null; }
-    else if (menu.open) { event.preventDefault(); close(); }
-  });
   document.addEventListener('click', event => {
-    if (!menu.contains(event.target)) close();
+    if (menu.open && event.target instanceof Node && !menu.contains(event.target)) menu.open = false;
   });
   menu.addEventListener('keydown', event => {
-    if (event.key === 'Escape') { close(); summary?.focus(); }
+    if (event.key === 'Escape' && menu.open) { menu.open = false; summary?.focus(); }
   });
 });
 const customerFilters = document.querySelector('[data-customer-filters]');
