@@ -198,15 +198,15 @@ public class AccountController(
         ViewBag.Gender = gender;
         if (!acceptTerms)
         { ViewBag.Error = "Please agree to the Terms and Conditions to create your account."; return View("Login"); }
-        if (!ModelState.IsValid || !birthday.HasValue || birthday.Value > DateOnly.FromDateTime(store.Now) || birthday.Value < new DateOnly(1900, 1, 1))
-        { ViewBag.Error = "Enter a valid birthday that is not in the future."; return View("Login"); }
+        var today = DateOnly.FromDateTime(store.Now);
+        var birthdayError = !ModelState.IsValid ? "Enter a valid birthday that is not in the future." : RegistrationRules.ValidateBirthday(birthday, today);
+        if (birthdayError != null)
+        { ViewBag.Error = birthdayError; return View("Login"); }
         suffix = (suffix ?? "").Trim();
         if (suffix is not ("" or "Jr." or "Sr." or "II" or "III" or "IV"))
         { ViewBag.Error = "Choose a valid suffix."; return View("Login"); }
-        var today = DateOnly.FromDateTime(store.Now);
-        age = today.Year - birthday.Value.Year;
-        if (birthday.Value.AddYears(age) > today) age--;
-        var error = RegistrationRules.Validate(firstName, lastName, email, age, gender ?? "", address, password, enforceLegacyAge: false);
+        age = RegistrationRules.CalculateAge(birthday!.Value, today);
+        var error = RegistrationRules.Validate(firstName, lastName, email, age, gender ?? "", address, password);
         if (error != null)
         { ViewBag.Error = error; return View("Login"); }
         if (string.IsNullOrEmpty(gender))

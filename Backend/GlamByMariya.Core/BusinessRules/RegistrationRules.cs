@@ -8,7 +8,24 @@ public static partial class RegistrationRules
 {
     public static readonly string[] Genders = ["Male", "Female", "Others"];
     public const int MinimumAge = 13;
-    public const int MaximumAge = 120;
+    public const int MaximumAge = 110;
+
+    public static int CalculateAge(DateOnly birthday, DateOnly today)
+    {
+        var age = today.Year - birthday.Year;
+        if (birthday.AddYears(age) > today) age--;
+        return age;
+    }
+
+    public static string? ValidateBirthday(DateOnly? birthday, DateOnly today)
+    {
+        if (!birthday.HasValue || birthday.Value > today || birthday.Value < new DateOnly(1900, 1, 1))
+            return "Enter a valid birthday that is not in the future.";
+        var age = CalculateAge(birthday.Value, today);
+        if (age < MinimumAge || age > MaximumAge)
+            return $"Enter a valid birthday (you must be {MinimumAge}–{MaximumAge} years old).";
+        return null;
+    }
 
     [GeneratedRegex(@"^[\p{L} '\-]+$")]
     private static partial Regex NameCharacters();

@@ -111,6 +111,12 @@ if (args.Contains("--local-auth-only"))
     var (oldBirthday, _) = Account();
     Check(Error(await oldBirthday.Register("Very", "Old", "very.old@example.test", 0, "Male", "24 Synthetic Street, Quezon City", "OldPass123", birthday: new DateOnly(1899, 12, 31), acceptTerms: true))?.Contains("birthday") == true,
         "a birthday before 1900 is rejected with a clear message");
+    var (tooYoungBirthday, _) = Account();
+    Check(Error(await tooYoungBirthday.Register("Too", "Young", "too.young@example.test", 0, "Female", "24 Synthetic Street, Quezon City", "YoungPass123", birthday: DateOnly.FromDateTime(demo.Now).AddYears(-2), acceptTerms: true))?.Contains("13") == true,
+        "a recent birthday under 13 (e.g. 2024-2026) is rejected");
+    var (overLimitBirthday, _) = Account();
+    Check(Error(await overLimitBirthday.Register("Over", "Limit", "over.limit@example.test", 0, "Female", "24 Synthetic Street, Quezon City", "LimitPass123", birthday: DateOnly.FromDateTime(demo.Now).AddYears(-111), acceptTerms: true))?.Contains("110") == true,
+        "a birthday making age above 110 is rejected");
     var accountSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Frontend", "GlamByMariya.Web", "Controllers", "AccountController.cs"));
     var publicSource = File.ReadAllText(Path.Combine(Directory.GetCurrentDirectory(), "Backend", "GlamByMariya.Infrastructure", "Data", "PublicStudioStore.cs"));
     Check(!accountSource.Contains("registration is temporarily unavailable", StringComparison.OrdinalIgnoreCase), "database mode no longer blocks customer registration");
@@ -3040,7 +3046,11 @@ Check(RegistrationRules.Validate("", "Santos", "maria@example.com", 25, "", "123
 Check(RegistrationRules.Validate("Maria", "S4ntos", "maria@example.com", 25, "", "123 Sampaguita Street", "Glow1234") != null, "Last name with numbers rejected");
 Check(RegistrationRules.Validate("Maria", "Santos", "not-an-email", 25, "", "123 Sampaguita Street", "Glow1234") != null, "Invalid email rejected");
 Check(RegistrationRules.Validate("Maria", "Santos", "maria@example.com", 12, "", "123 Sampaguita Street", "Glow1234") != null, "Age below 13 rejected");
-Check(RegistrationRules.Validate("Maria", "Santos", "maria@example.com", 121, "", "123 Sampaguita Street", "Glow1234") != null, "Age above 120 rejected");
+Check(RegistrationRules.Validate("Maria", "Santos", "maria@example.com", 111, "", "123 Sampaguita Street", "Glow1234") != null, "Age above 110 rejected");
+Check(RegistrationRules.Validate("Maria", "Santos", "maria@example.com", 110, "", "123 Sampaguita Street", "Glow1234") == null, "Age 110 accepted");
+Check(RegistrationRules.ValidateBirthday(new DateOnly(2025, 6, 1), new DateOnly(2026, 11, 24)) != null, "Recent 2025 birthday rejected");
+Check(RegistrationRules.ValidateBirthday(new DateOnly(1915, 11, 24), new DateOnly(2026, 11, 24)) != null, "Birthday yielding age 111 rejected");
+Check(RegistrationRules.ValidateBirthday(new DateOnly(1916, 11, 24), new DateOnly(2026, 11, 24)) == null, "Birthday yielding age 110 accepted");
 Check(RegistrationRules.Validate("Maria", "Santos", "maria@example.com", 25, "Unknown", "123 Sampaguita Street", "Glow1234") != null, "Gender outside the list rejected");
 Check(RegistrationRules.Validate("Maria", "Santos", "maria@example.com", 25, "", "Short", "Glow1234") != null, "Address below 8 characters rejected");
 Check(RegistrationRules.Validate("Maria", "Santos", "maria@example.com", 25, "", "123 Sampaguita Street", "short") != null, "Password below 8 characters rejected");
