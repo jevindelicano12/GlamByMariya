@@ -388,11 +388,33 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
             try
             {
                 workflow.Cancel(b, UserId, confirmed, reason);
+                var updated = store.FindBooking(id) ?? b;
+                var refundLine = updated.RefundDue > 0
+                    ? (updated.CancellationFee > 0
+                        ? $"A cancellation fee of ₱{updated.CancellationFee:N2} applies. Your remaining refund of ₱{updated.RefundDue:N2} has not been refunded yet — it will be processed manually by the artist, and you will receive another email once it is sent."
+                        : $"No cancellation fee applies. Your refund of ₱{updated.RefundDue:N2} has not been refunded yet — it will be processed manually by the artist, and you will receive another email once it is sent.")
+                    : (updated.CancellationFee > 0
+                        ? $"A cancellation fee of ₱{updated.CancellationFee:N2} applies, so no refund will be issued for this booking."
+                        : "No payment was collected for this booking, so no refund is needed.");
+                EmailCustomer(updated.CustomerId, $"Glam by Mariya {updated.Reference}: your booking was cancelled",
+                    $"Your booking for {updated.ServiceDescription} on {updated.Start:MMMM d, yyyy h:mm tt} has been cancelled.{Environment.NewLine}{Environment.NewLine}{refundLine}{Environment.NewLine}{Environment.NewLine}If you have any questions, please reply to this email or contact Glam by Mariya.");
                 TempData["Success"] = "Appointment cancelled. Any refund will be sent manually by the artist.";
             }
             catch (InvalidOperationException e) { TempData["Error"] = e.Message; }
             return RedirectToAction("Details", new { id });
         }
+    }
+    private void EmailCustomer(Guid customerId, string subject, string text)
+    {
+        var to = store.Users.FirstOrDefault(u => u.Id == customerId)?.Email;
+        var brevo = HttpContext?.RequestServices.GetService(typeof(GlamByMariya.Infrastructure.Integrations.BrevoEmailSender)) as GlamByMariya.Infrastructure.Integrations.BrevoEmailSender;
+        var log = HttpContext?.RequestServices.GetService(typeof(ILogger<BookingsController>)) as ILogger<BookingsController>;
+        if (string.IsNullOrWhiteSpace(to) || brevo == null) return;
+        _ = Task.Run(async () =>
+        {
+            try { await brevo.SendAsync(to, subject, text); }
+            catch (Exception e) { log?.LogWarning("Booking cancellation email was not sent: {Reason}", e.Message); }
+        });
     }
     [HttpPost]
     public IActionResult Reschedule(Guid id, DateTime start)
