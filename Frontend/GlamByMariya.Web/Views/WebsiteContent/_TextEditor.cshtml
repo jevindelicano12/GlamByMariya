@@ -1,6 +1,6 @@
 @model WebsiteContentEditorModel
 <div class="website-content-notice" role="status"><strong>Editing a draft</strong> Changes appear publicly only after publication. @if (ViewData["DemoPersistentText"] is true) { <text>Save text before saving an image; each save updates the draft revision.</text> } else if (ViewData["DraftImages"] != null) { <text>Add or replace photos below, after saving your text.</text> } else { <text>Website image editing is not available in this mode.</text> }</div>
-<div asp-validation-summary="All" class="alert error" role="alert"></div>
+@if (!ViewData.ModelState.IsValid) { <div asp-validation-summary="All" class="alert error" role="alert"></div> }
 <form asp-action="SaveForm" method="post" class="website-content-editor">
     <input asp-for="DraftId" type="hidden" /><input asp-for="Revision" type="hidden" />
     <div class="website-content-grid">
