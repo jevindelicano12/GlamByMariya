@@ -1,22 +1,22 @@
 :root {
-    --type-body: 1.0625rem;
-    --type-main: clamp(2rem, 3vw, 2.625rem);
-    --type-section: clamp(1.5rem, 2.2vw, 1.875rem);
-    --type-card: clamp(1.25rem, 1.6vw, 1.4375rem);
-    --type-helper: .9375rem;
-    --type-micro: .8125rem;
+    --type-body: clamp(1.0625rem, .96rem + .22vw, 1.25rem);
+    --type-main: clamp(2.125rem, 3.1vw, 2.875rem);
+    --type-section: clamp(1.5625rem, 2.3vw, 2rem);
+    --type-card: clamp(1.25rem, 1.7vw, 1.5rem);
+    --type-helper: clamp(.9375rem, .86rem + .16vw, 1.0625rem);
+    --type-micro: clamp(.8125rem, .76rem + .12vw, .9375rem);
 }
 body { font-size: var(--type-body); line-height: 1.65; -webkit-font-smoothing: antialiased; }
 main h1, main .page-heading h1, main .hero h2 { font-size: var(--type-main); line-height: 1.15; letter-spacing: -.025em; }
 main h2, main .section-title h2, main .admin-banner h2 { font-size: var(--type-section); line-height: 1.2; letter-spacing: -.015em; }
 main h3, main .service-body h3, main .step-heading h3 { font-size: var(--type-card); line-height: 1.25; }
-main p, main td, main th, main .detail-row, main .summary-row, main .choice, main .service-body p, main .how-it-works p { font-size: var(--type-body); line-height: 1.65; }
-main small, main .help, main .notice, main .check-label, main .policy p, main .choice small, main .travel-note, main .field-error, main .booking-location-status, main .secure-note { font-size: var(--type-helper); line-height: 1.55; }
+main p, main td, main th, main .detail-row, main .summary-row, main .choice, main .service-body p, main .how-it-works p, main .auth-wrap > p, main .terms-section > p, main .terms-section li, main .catalog-card-summary, main .appointment-copy p { font-size: var(--type-body); line-height: 1.65; }
+main small, main .help, main .notice, main .check-label, main .auth-wrap .terms-agree, main .auth-wrap .field-hint, main .policy p, main .choice small, main .travel-note, main .field-error, main .booking-location-status, main .secure-note, main .email-status, main .appointment-filters a, main .admin-appointment-head, main .admin-appointment-row, main .appointment-count, .account-menu-panel { font-size: var(--type-helper); line-height: 1.55; }
 main .eyebrow, main .pill, main .badge, main .stat > span, main .stat > small, main th, main .tabs a, .topbar > span, footer { font-size: var(--type-micro); }
 main .eyebrow { letter-spacing: .12em; }
-main label { font-size: 1rem; font-weight: 500; }
-main input, main select, main textarea, main button, main .button { font-size: 1rem; }
-.sidebar nav a, .customer-desktop-nav a, .public-desktop-nav a, .customer-mobile-menu nav a { font-size: 1rem; }
+main label { font-size: var(--type-body); font-weight: 500; }
+main input, main select, main textarea, main button, main .button { font-size: var(--type-body); }
+.sidebar nav a, .customer-desktop-nav a, .public-desktop-nav a, .customer-mobile-menu nav a { font-size: var(--type-body); }
 .calendar-month-heading { display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap; margin-bottom:1rem; }
 .admin-month { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:.35rem; margin:1rem 0; }
 .calendar-weekday { text-align:center; font-size:.875rem; }
