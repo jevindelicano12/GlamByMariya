@@ -138,3 +138,56 @@ main .subtle-link:hover {
     background: #faebed;
     border-color: #A6536B;
 }
+
+/* Ensure all small/micro text across booking, look cards, landing, and admin customers is legible. */
+main .look-card .look-duration,
+main .look-preview-copy .eyebrow,
+main .look-preview-copy small,
+main .booking-step-nav,
+main .look-selection-footer small,
+main .customers-eyebrow,
+main .customers-table th,
+main .customers-pill,
+main .time-slot-group,
+.guest-brand small,
+.brand .brand-name small {
+    font-size: var(--type-micro) !important;
+}
+main .look-description,
+main .look-card b,
+main .look-preview-copy p,
+main .look-selection-footer p,
+main .booking-type-option small,
+main .addon-description small,
+main .addon-description b,
+main .addon-quantity-control,
+main .addon-quantity-control label,
+main .addon-limit,
+main .addon-subtotal,
+main .addon-total,
+main .addon-error,
+main .booking-next-status,
+main .artist-location-status,
+main .travel-line,
+main .customers-sub,
+main .customers-table,
+main .customers-table td,
+main .customers-table td small,
+main .customers-empty,
+main .customers-back,
+main .customers-info,
+main .public-benefits span,
+main .public-gallery figcaption,
+main .public-breadcrumb,
+.public-footer nav a,
+.published-social a,
+.guest-actions a {
+    font-size: var(--type-helper) !important;
+}
+main #mixed-calendar .calendar-day small {
+    font-size: .75rem !important;
+}
+main #mixed-calendar .calendar-weekdays,
+main #mixed-calendar .mixed-legend {
+    font-size: var(--type-micro) !important;
+}
