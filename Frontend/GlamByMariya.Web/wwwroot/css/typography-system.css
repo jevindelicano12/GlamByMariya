@@ -59,8 +59,13 @@ main input, main select, main textarea, main button, main .button { font-size: v
     box-shadow: 0 0 0 3px #ebc2c866;
 }
 .member-layout .topbar {
-    background: #fff8f4eb;
-    backdrop-filter: blur(8px);
+    position: relative;
+    z-index: 40;
+    background: #FFF8F4;
+}
+.account-menu,
+.account-menu-panel {
+    z-index: 60;
 }
 .member-layout .sidebar nav a {
     padding: 12px 14px;
