@@ -29,3 +29,81 @@ main input, main select, main textarea, main button, main .button { font-size: v
     .admin-calendar-day { min-height:3.5rem; padding:.2rem; }
     .admin-calendar-day span { font-size:.75rem; }
 }
+
+/* System-wide UI craft polish: Login, Sign up, Customer, and Admin surfaces. */
+.member-layout .panel,
+.member-layout .stat,
+.guest-layout .auth-wrap .panel {
+    border-radius: 16px;
+    border-color: #EADDD7;
+    box-shadow: 0 10px 30px -10px #49363d14;
+}
+.guest-layout .auth-wrap {
+    max-width: 500px;
+    margin: 42px auto 80px;
+}
+.guest-layout .auth-wrap.auth-register { max-width: 640px; }
+.guest-layout .auth-wrap .panel { padding: 34px 36px; }
+.guest-layout .auth-wrap .button { width: 100%; min-height: 50px; border-radius: 10px; font-weight: 600; }
+:where(.guest-layout, .member-layout) :is(input:not([type=checkbox]):not([type=radio]):not([type=file]), select, textarea) {
+    min-height: 46px;
+    padding: 11px 14px;
+    border-radius: 10px;
+    border-color: #DFCFC7;
+    background: #fff;
+    transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+:where(.guest-layout, .member-layout) :is(input:not([type=checkbox]):not([type=radio]):not([type=file]), select, textarea):focus {
+    border-color: #A6536B;
+    box-shadow: 0 0 0 3px #ebc2c866;
+}
+.member-layout .topbar {
+    background: #fff8f4eb;
+    backdrop-filter: blur(8px);
+}
+.member-layout .sidebar nav a {
+    padding: 12px 14px;
+    border-radius: 10px;
+    font-weight: 500;
+}
+.customer-desktop-nav a,
+.public-desktop-nav a {
+    padding: 8px 14px;
+    border-radius: 999px;
+    transition: background-color 150ms ease, color 150ms ease;
+}
+.customer-desktop-nav a:hover,
+.public-desktop-nav a:hover {
+    background: #F6DDE1;
+    color: #49363D;
+}
+.member-layout .stat { padding: 24px 26px; }
+.member-layout .stat > strong,
+.summary-row strong,
+.detail-row strong,
+table td { font-variant-numeric: tabular-nums; }
+.member-layout .admin-banner {
+    border-radius: 18px;
+    padding: 28px 34px;
+}
+.admin-appointment-list {
+    border-radius: 14px;
+    box-shadow: 0 6px 20px -8px #49363d12;
+}
+.admin-appointment-row { transition: background-color 140ms ease; }
+.admin-appointment-row:hover { background: #fffaf8; }
+.appointment-card,
+.upcoming-item {
+    border-radius: 14px;
+    padding: 16px 18px;
+    transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+.appointment-card:hover,
+.upcoming-item:hover {
+    border-color: #D8BFC4;
+    box-shadow: 0 6px 18px -8px #49363d18;
+}
+@media (max-width: 580px) {
+    .guest-layout .auth-wrap .panel { padding: 24px 18px; }
+    .member-layout .admin-banner { padding: 22px 20px; }
+}
