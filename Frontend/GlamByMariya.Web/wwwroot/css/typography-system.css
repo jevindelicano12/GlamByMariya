@@ -118,3 +118,22 @@ main .availability-status { font-size: var(--type-helper); }
     main .calendar-day { min-height: 52px; font-size: .875rem; }
     main .calendar-day small { font-size: .6875rem; }
 }
+main .subtle-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 44px;
+    padding: 8px 18px;
+    border: 1.5px solid #D8BFC4;
+    border-radius: 999px;
+    background: #fff;
+    color: #76394D;
+    font-size: var(--type-body);
+    font-weight: 600;
+    white-space: nowrap;
+    transition: background-color 150ms ease, border-color 150ms ease;
+}
+main .subtle-link:hover {
+    background: #faebed;
+    border-color: #A6536B;
+}
