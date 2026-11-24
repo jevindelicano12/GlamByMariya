@@ -86,10 +86,10 @@
   }
 }
 
-/* Button clarity: readable labels (were 10-11px) and phone-sized tap targets (44px) everywhere. */
-.button, .public-button { min-height: 44px; font-size: 13px; gap: 10px; }
-.look-selection-footer .button { font-size: 13px; }
-.text-button { font-size: 13px; padding: 6px 8px; }
+/* Button clarity: readable labels and generous 48px tap targets everywhere. */
+.button, .public-button { min-height: 48px; padding: 12px 22px; font-size: 1rem; font-weight: 500; gap: 10px; }
+.look-selection-footer .button { font-size: 1rem; }
+.text-button { font-size: .9375rem; padding: 8px 10px; min-height: 40px; }
 /* Actions that cancel, reject or end something look different from ordinary ones. */
 .button.danger { background: #fff; color: #b3262f; border: 1.5px solid #c9474f; font-weight: 600; }
 .button.danger:hover, .button.danger:focus-visible { background: #b3262f; color: #fff; border-color: #b3262f; }
