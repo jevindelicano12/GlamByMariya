@@ -86,32 +86,27 @@ public sealed class PublicStudioStore(
         public DateTime Until { get; set; }
     }
 
-    // Travel settings (0015) are read here so the legacy makeup schema's settings row stays unchanged.
+    // Travel settings (0015) and flexible booking hours (0020) are read here in one round-trip
+    // so the legacy makeup schema's settings row stays unchanged.
     protected override BusinessSettings LoadSettings()
     {
         var value = base.LoadSettings();
-        var travel = pdb.Database.SqlQueryRaw<TravelSettingsRow>(
-            """SELECT travel_speed_kmh AS "Speed", travel_min_minutes AS "Minimum" FROM public.business_settings WHERE id=1""").AsEnumerable().Single();
-        value.TravelSpeedKmh = travel.Speed;
-        value.TravelMinimumMinutes = travel.Minimum;
-        // Flexible booking hours (0020); null means opening/closing hour.
-        var hours = pdb.Database.SqlQueryRaw<FlexibleHoursRow>(
-            """SELECT early_request_start_hour AS "Early", after_hours_end_hour AS "Latest", max_people AS "MaxPeople" FROM public.business_settings WHERE id=1""").AsEnumerable().Single();
-        value.EarlyRequestStartHour = hours.Early;
-        value.AfterHoursEndHour = hours.Latest;
-        value.MaxPeople = hours.MaxPeople;
+        var extras = pdb.Database.SqlQueryRaw<BusinessSettingsExtrasRow>(
+            """SELECT travel_speed_kmh AS "Speed", travel_min_minutes AS "Minimum", early_request_start_hour AS "Early", after_hours_end_hour AS "Latest", max_people AS "MaxPeople" FROM public.business_settings WHERE id=1""").AsEnumerable().Single();
+        value.TravelSpeedKmh = extras.Speed;
+        value.TravelMinimumMinutes = extras.Minimum;
+        value.EarlyRequestStartHour = extras.Early;
+        value.AfterHoursEndHour = extras.Latest;
+        value.MaxPeople = extras.MaxPeople;
         return value;
     }
-    private sealed class FlexibleHoursRow
-    {
-        public int? Early { get; set; }
-        public int? Latest { get; set; }
-        public int MaxPeople { get; set; }
-    }
-    private sealed class TravelSettingsRow
+    private sealed class BusinessSettingsExtrasRow
     {
         public decimal Speed { get; set; }
         public int Minimum { get; set; }
+        public int? Early { get; set; }
+        public int? Latest { get; set; }
+        public int MaxPeople { get; set; }
     }
 
     public override ArtistLocation GetArtistLocation()

@@ -29,6 +29,26 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
         return TimeZoneInfo.ConvertTimeToUtc(value, zone);
     }
     protected BusinessSettings? settings;
+    private List<CatalogItem>? cachedServices;
+    private List<CatalogItem>? cachedAddOns;
+    private List<Booking>? cachedBookings;
+    private List<Payment>? cachedPayments;
+    private List<AppUser>? cachedUsers;
+    private List<AvailabilityBlock>? cachedBlocks;
+    private Guid? cachedArtist;
+
+    protected void InvalidateRequestCache()
+    {
+        settings = null;
+        cachedServices = null;
+        cachedAddOns = null;
+        cachedBookings = null;
+        cachedPayments = null;
+        cachedUsers = null;
+        cachedBlocks = null;
+        cachedArtist = null;
+    }
+
     public BusinessSettings Settings => settings ??= LoadSettings();
     protected virtual BusinessSettings LoadSettings()
     {
@@ -38,18 +58,18 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
             TravelReminderVersion = s.TravelReminderVersion,
             ServiceAreas = string.Join(',', db.Set<AreaRow>().AsNoTracking().Where(a => a.IsActive).OrderBy(a => a.Name).Select(a => a.Name)) };
     }
-    public List<CatalogItem> Services => (from s in db.Set<ServiceRow>().AsNoTracking()
+    public List<CatalogItem> Services => cachedServices ??= (from s in db.Set<ServiceRow>().AsNoTracking()
         join c in db.Set<CategoryRow>() on s.CategoryId equals c.Id
         select new CatalogItem { Id=s.Id,Name=s.Name,Description=s.Description,Price=s.Price,Minutes=s.Minutes,
             GroupPrice=s.GroupPrice,GroupMinimumPeople=s.GroupMinimumPeople,Category=c.Name,VisualWord=s.VisualWord,Active=s.IsActive,Archived=s.IsArchived,MaxPerPackage=s.MaxPerPackage }).ToList();
-    public List<CatalogItem> AddOns => (from s in db.Set<AddonRow>().AsNoTracking()
+    public List<CatalogItem> AddOns => cachedAddOns ??= (from s in db.Set<AddonRow>().AsNoTracking()
         join c in db.Set<CategoryRow>() on s.CategoryId equals c.Id
         select new CatalogItem { Id=s.Id,Name=s.Name,Description=s.Description,Price=s.Price,Minutes=s.Minutes,
             Category=c.Name,VisualWord=s.VisualWord,Active=s.IsActive,Archived=s.IsArchived }).ToList();
     private IQueryable<BookingRow> VisibleBookings => CustomerRequest
         ? db.Set<BookingRow>().AsNoTracking().Where(b => b.CustomerId == Actor)
         : db.Set<BookingRow>().AsNoTracking();
-    public List<Booking> Bookings => LoadBookings(VisibleBookings.OrderByDescending(x => x.StartsAt));
+    public List<Booking> Bookings => cachedBookings ??= LoadBookings(VisibleBookings.OrderByDescending(x => x.StartsAt));
     // One row plus its own add-ons and refunds; customers still only see their own bookings.
     // Legacy makeup schema has no travel columns: the pins live for this request only and the
     // neighbours come from the loaded bookings. The public schema store persists both.
@@ -81,6 +101,7 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
     private List<Booking> LoadBookings(IQueryable<BookingRow> query)
     {
             var rows = query.ToList();
+            if (rows.Count == 0) return [];
             var ids = rows.Select(x => x.Id).ToArray();
             var extras = db.Set<BookingAddonRow>().AsNoTracking().Where(x => ids.Contains(x.BookingId)).ToList().ToLookup(x => x.BookingId);
             var quantityLines = PreparedPersistentBooking.Enabled ? PreparedPersistentBooking.ReadLines(db, ids, db is PublicMakeupDbContext) : null;
@@ -98,19 +119,17 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
                 PaymentStatus=b.PaymentStatus,Status=b.Status,Note=b.Note,RequestedStart=b.RequestedStart.HasValue?Local(b.RequestedStart.Value):null,
                 CancellationFee=b.CancellationFee,RefundDue=b.RefundDue,Refunded=b.Refunded,RefundReference=transfers[b.Id].FirstOrDefault()?.TransferReference??"" }).ToList();
     }
-    public List<Payment> Payments
+    public List<Payment> Payments => cachedPayments ??= LoadPayments();
+    private List<Payment> LoadPayments()
     {
-        get
-        {
-            var query = db.Set<PaymentRow>().AsNoTracking();
-            if (CustomerRequest) query=query.Where(p=>db.Set<BookingRow>().Any(b=>b.Id==p.BookingId && b.CustomerId==Actor));
-            var rows=(from p in query join m in db.Set<MethodRow>() on p.MethodId equals m.Id
-                join a in db.Set<AssetRow>() on p.ProofAssetId equals a.Id into assets from a in assets.DefaultIfEmpty()
-                select new { p,Method=m.Name,Key=a==null?null:a.ObjectKey }).ToList();
-            return rows.Select(x=>new Payment { Id=x.p.Id,BookingId=x.p.BookingId,Amount=x.p.Amount,Method=x.Method,
-                 Reference=x.p.Reference,ProofPath=x.Key==null?null:AssetPath(x.Key),ProofKey=x.Key,Verified=x.p.Status=="Verified",
-                 ReviewStatus=x.p.Status,VerifiedBy=x.p.VerifiedBy,VerifiedAt=x.p.VerifiedAt.HasValue?Local(x.p.VerifiedAt.Value):null }).ToList();
-        }
+        var query = db.Set<PaymentRow>().AsNoTracking();
+        if (CustomerRequest) query=query.Where(p=>db.Set<BookingRow>().Any(b=>b.Id==p.BookingId && b.CustomerId==Actor));
+        var rows=(from p in query join m in db.Set<MethodRow>() on p.MethodId equals m.Id
+            join a in db.Set<AssetRow>() on p.ProofAssetId equals a.Id into assets from a in assets.DefaultIfEmpty()
+            select new { p,Method=m.Name,Key=a==null?null:a.ObjectKey }).ToList();
+        return rows.Select(x=>new Payment { Id=x.p.Id,BookingId=x.p.BookingId,Amount=x.p.Amount,Method=x.Method,
+             Reference=x.p.Reference,ProofPath=x.Key==null?null:AssetPath(x.Key),ProofKey=x.Key,Verified=x.p.Status=="Verified",
+             ReviewStatus=x.p.Status,VerifiedBy=x.p.VerifiedBy,VerifiedAt=x.p.VerifiedAt.HasValue?Local(x.p.VerifiedAt.Value):null }).ToList();
     }
     public List<Payment> ReviewPayments(Guid booking)
     {
@@ -154,17 +173,11 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
         public long Revision { get; set; }
         public string Version { get; set; } = "";
     }
-    public List<AppUser> Users
-    {
-        get
-        {
-            var query=db.Set<UserRow>().AsNoTracking();
-            if (CustomerRequest) query=query.Where(x=>x.Id==Actor);
-            return (from u in query join r in db.Set<RoleRow>() on u.RoleId equals r.Id
-                select new AppUser { Id=u.Id,FirstName=u.FirstName,LastName=u.LastName,Name=u.FirstName+" "+u.LastName,
-                    Age=u.AgeAtRegistration,Gender=u.Gender,Address=u.Address,Email=u.Email,PasswordHash=u.PasswordHash,Role=r.Name,IsActive=u.IsActive }).ToList();
-        }
-    }
+    public List<AppUser> Users => cachedUsers ??= (
+        from u in (CustomerRequest ? db.Set<UserRow>().AsNoTracking().Where(x => x.Id == Actor) : db.Set<UserRow>().AsNoTracking())
+        join r in db.Set<RoleRow>() on u.RoleId equals r.Id
+        select new AppUser { Id=u.Id,FirstName=u.FirstName,LastName=u.LastName,Name=u.FirstName+" "+u.LastName,
+            Age=u.AgeAtRegistration,Gender=u.Gender,Address=u.Address,Email=u.Email,PasswordHash=u.PasswordHash,Role=r.Name,IsActive=u.IsActive }).ToList();
     public AppUser? FindUser(string email) => (from u in db.Set<UserRow>().AsNoTracking() join r in db.Set<RoleRow>() on u.RoleId equals r.Id
         where u.Email.ToLower()==email.Trim().ToLower()
         select new AppUser { Id=u.Id,FirstName=u.FirstName,LastName=u.LastName,Name=u.FirstName+" "+u.LastName,Age=u.AgeAtRegistration,
@@ -173,28 +186,30 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
         .OrderByDescending(x=>x.CreatedAt).Take(100).ToList().Select(x=>new Notification(x.UserId,x.Message,Local(x.CreatedAt))).ToList();
     public List<AuditLog> AuditLogs => db.Set<AuditRow>().AsNoTracking().OrderByDescending(x=>x.CreatedAt).Take(100)
         .ToList().Select(x=>new AuditLog(x.ActorId??Guid.Empty,$"{x.EntityType}: {x.Event}",Local(x.CreatedAt))).ToList();
-    public List<AvailabilityBlock> Blocks => db.Set<BlockRow>().AsNoTracking().Where(x=>x.ArtistId==Artist())
+    public List<AvailabilityBlock> Blocks => cachedBlocks ??= db.Set<BlockRow>().AsNoTracking().Where(x=>x.ArtistId==Artist())
         .ToList().Select(x=>new AvailabilityBlock(x.Id,Local(x.FromAt),Local(x.ToAt),x.Reason)).ToList();
     protected virtual Guid Artist()
     {
+        if (cachedArtist is { } known) return known;
         var configured=configuration["Database:ArtistId"];
-        if (Guid.TryParse(configured,out var artist)) return artist;
+        if (Guid.TryParse(configured,out var artist)) return (cachedArtist = artist).Value;
         var artists=(from u in db.Set<UserRow>() join r in db.Set<RoleRow>() on u.RoleId equals r.Id
             where r.Name=="Admin" && u.IsActive orderby u.Id select u.Id).Take(2).ToList();
         if (artists.Count!=1) throw new InvalidOperationException("Configure Database:ArtistId for the business's active makeup artist (or create one admin first).");
-        return artists[0];
+        return (cachedArtist = artists[0]).Value;
     }
     // The app registers the context with EnableRetryOnFailure, which only allows a manual
     // transaction inside the execution strategy: a transient failure retries the whole unit.
     protected T Transaction<T>(Guid? actor, Func<T> command) => db.Database.CreateExecutionStrategy().Execute(() =>
     {
+        InvalidateRequestCache();
         using var transaction=db.Database.BeginTransaction(IsolationLevel.ReadCommitted);
         try
         {
             db.Database.ExecuteSqlInterpolated($"SELECT set_config('makeup.actor_id',{(actor.HasValue?actor.Value.ToString():"")},true)");
             var result=command();
             transaction.Commit(); // Deferred constraints are part of this operation.
-            settings=null;
+            InvalidateRequestCache();
             return result;
         }
         catch (PostgresException e)

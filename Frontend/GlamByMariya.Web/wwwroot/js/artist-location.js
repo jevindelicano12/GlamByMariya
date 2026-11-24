@@ -54,16 +54,58 @@
   map.on('click', event => setPin(event.latlng.lat, event.latlng.lng));
   setPin(start[0], start[1], current || home ? 'Drag the pin to move it, then save.' : 'Drag the pin or click the map to where the artist is based, then save.', hasSaved);
 
+  const locate = (onSuccess, onError) => {
+    let settled = false;
+    let best = null;
+    let watchId = null;
+    let settleTimer = null;
+    const cleanup = () => {
+      if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+      if (settleTimer !== null) { clearTimeout(settleTimer); settleTimer = null; }
+    };
+    const finish = pos => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      onSuccess(pos);
+    };
+    const fail = error => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      onError(error);
+    };
+    settleTimer = setTimeout(() => {
+      if (best) { finish(best); return; }
+      cleanup();
+      navigator.geolocation.getCurrentPosition(finish, fail, { enableHighAccuracy: false, timeout: 10000, maximumAge: 0 });
+    }, 6000);
+    watchId = navigator.geolocation.watchPosition(pos => {
+      const acc = pos.coords?.accuracy;
+      if (!best || (Number.isFinite(acc) && (!Number.isFinite(best.coords?.accuracy) || acc < best.coords.accuracy))) best = pos;
+      if (Number.isFinite(acc) && acc <= 50) finish(pos);
+    }, error => {
+      if (error?.code === 1) { fail(error); return; }
+      if (best) { finish(best); return; }
+      cleanup();
+      navigator.geolocation.getCurrentPosition(finish, fail, { enableHighAccuracy: false, timeout: 10000, maximumAge: 0 });
+    }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
+  };
+
   geoButton?.addEventListener('click', () => {
     if (!navigator.geolocation) { say(geolocationMessage); return; }
     geoButton.disabled = true;
     say('Finding your location…');
-    navigator.geolocation.getCurrentPosition(position => {
+    locate(position => {
       geoButton.disabled = false;
-      const { latitude, longitude } = position.coords;
-      map.setView([latitude, longitude], 16);
-      setPin(latitude, longitude);
-    }, error => { geoButton.disabled = false; say(geolocationError(error)); }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 });
+      const { latitude, longitude, accuracy } = position.coords;
+      map.invalidateSize();
+      map.setView([latitude, longitude], accuracy > 500 ? 15 : 16);
+      const message = Number.isFinite(accuracy) && accuracy > 500
+        ? `Approximate location found (±${(accuracy / 1000).toFixed(1)} km). Drag the pin to your exact spot, then save.`
+        : 'Pin placed at your current location. Save it as the current location or as home base.';
+      setPin(latitude, longitude, message);
+    }, error => { geoButton.disabled = false; say(geolocationError(error)); });
   });
 
   // Search a place or address (works even where the browser blocks location). Same Nominatim
