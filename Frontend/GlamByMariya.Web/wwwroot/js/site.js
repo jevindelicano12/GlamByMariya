@@ -355,10 +355,24 @@ if (bookingForm) {
       bookingForm.dispatchEvent(new Event('booking-price-state-changed'));
       return;
     }
-    const service = bookingForm.querySelector('[name="serviceId"]:checked');
-    if (!service) return;
+    const serviceSelect = bookingForm.querySelector('select[name="serviceId"]');
+    const service = serviceSelect ? serviceSelect.selectedOptions?.[0] : bookingForm.querySelector('[name="serviceId"]:checked');
+    if (!service || !service.value) return;
     document.querySelector('#selected-look-name').textContent = service.dataset.name;
     document.querySelector('#look-selection-caption').textContent = `${service.dataset.name} · ${service.dataset.minutes} minutes`;
+    const lookAccordions = bookingForm.querySelectorAll('[data-service-accordion]');
+    if (lookAccordions.length) {
+      const addonsBox = bookingForm.querySelector('#individual-addons');
+      lookAccordions.forEach(item => {
+        const isSelected = item.contains(service);
+        item.classList.toggle('is-open', isSelected);
+        const body = item.querySelector('.look-accordion-body');
+        if (body) {
+          body.hidden = !isSelected;
+          if (isSelected && addonsBox && !body.contains(addonsBox)) body.append(addonsBox);
+        }
+      });
+    }
     const bookingType = bookingForm.querySelector('[name="bookingType"]:checked')?.value || 'individual';
     const quantity = window.BookingQuantity.forBookingType(bookingType, peopleInput.value);
     if (quantity.package === 'auto') {
@@ -490,7 +504,7 @@ if (bookingForm) {
       bookingForm.querySelectorAll('input[type="checkbox"][name="addOnIds"]').forEach(input => { input.checked = false; });
       typeNotice.textContent = 'Your add-ons were reset because you changed your booking type.';
     }
-    if (isPackage && !wasPackage) peopleInput.value = lastPackagePeople;
+    if (isPackage && !wasPackage) peopleInput.value = lastPackagePeople && Number(lastPackagePeople) >= 2 ? lastPackagePeople : '2';
     if (!isPackage && wasPackage) {
       const previousPackageQuantity = window.BookingQuantity.parse(peopleInput.value);
       if (previousPackageQuantity.valid) lastPackagePeople = String(previousPackageQuantity.people);
@@ -594,8 +608,9 @@ document.querySelectorAll('.availability-picker').forEach(picker => {
     const params = new URLSearchParams();
     if (picker.dataset.bookingId) params.set('bookingId', picker.dataset.bookingId);
     else {
-       const service = form.querySelector('[name="serviceId"]:checked');
-       if (!service) throw new Error('Choose a service to view availability.');
+       const serviceSelect = form.querySelector('select[name="serviceId"]');
+       const service = serviceSelect ? serviceSelect.selectedOptions?.[0] : form.querySelector('[name="serviceId"]:checked');
+       if (!service || !service.value) throw new Error('Choose a service to view availability.');
        if (form.querySelector('.addon-quantity[aria-invalid="true"]')) throw new Error('Correct the add-on quantities to view availability.');
       params.set('serviceId', service.value);
       const packageType = form.elements.package.value === 'group' ? 'package' : 'individual';

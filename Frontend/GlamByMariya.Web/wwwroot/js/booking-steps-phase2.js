@@ -128,7 +128,7 @@
   const show = (index, focus = true) => {
     current = index;
     form.dataset.currentStep = steps[index];
-    sections.forEach(section => { section.hidden = section.dataset.bookingStep !== steps[index] || (section.id === 'mixed-selection' && !mixed()) || (section.id === 'mixed-calendar' && !mixed()) || (mixed() && (section.classList.contains('extras-panel') || section === panels[1])); });
+    sections.forEach(section => { section.hidden = section.dataset.bookingStep !== steps[index] || (section.id === 'mixed-selection' && !mixed()) || (section.id === 'mixed-calendar' && !mixed()) || section.classList.contains('extras-panel') || (mixed() && section === panels[1]); });
     progress.querySelectorAll('a').forEach((link, i) => {
       if (i === index) link.setAttribute('aria-current', 'step');
       else link.removeAttribute('aria-current');
@@ -158,7 +158,11 @@
       invalid.reportValidity();
       return false;
     }
-    if (index === 0 && !form.querySelector('[name="serviceId"]:checked')) {
+    const selectedService = () => {
+      const sel = form.querySelector('select[name="serviceId"]');
+      return sel ? (sel.value ? sel.selectedOptions?.[0] : null) : form.querySelector('[name="serviceId"]:checked');
+    };
+    if (index === 0 && !selectedService()) {
       notify('Choose a look before continuing.');
       return false;
     }
@@ -171,7 +175,8 @@
     if (!quantity.valid) throw new Error(quantity.message);
     params.set('people', String(quantity.people));
     params.set('package', quantity.package);
-    const service = form.querySelector('[name="serviceId"]:checked');
+    const sel = form.querySelector('select[name="serviceId"]');
+    const service = sel ? (sel.value ? sel.selectedOptions?.[0] : null) : form.querySelector('[name="serviceId"]:checked');
     if (service) params.set('serviceId', service.value);
     form.querySelectorAll('input[name="addOnIds"]:checked, input[type="hidden"][name="addOnIds"]').forEach(input => params.append('addOnIds', input.value));
     const pinLat = form.elements.latitude?.value, pinLng = form.elements.longitude?.value;

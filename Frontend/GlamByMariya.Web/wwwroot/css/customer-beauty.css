@@ -38,10 +38,18 @@
 .faq-item summary::after { content:'+'; position:absolute; right:20px; top:12px; color:#A6536B; font-size:27px; font-weight:400; }
 .faq-item[open] summary::after { content:'−'; }
 .faq-item p { padding:0 20px 20px; white-space:pre-wrap; }
-.public-footer { display:grid; grid-template-columns:1fr 1fr 1fr; gap:24px; margin-top:60px; padding:38px 6%; background:linear-gradient(120deg,#f8e2e5,#FFF8F4); border-top:1px solid #EADDD7; color:#49363D; }
-.public-footer strong { font-family:var(--serif); font-size:19px; letter-spacing:.04em; }
-.public-footer p { margin:5px 0; }.public-footer nav,.published-social { display:flex; flex-wrap:wrap; gap:8px 16px; margin:0; overflow:visible; }
-.public-footer nav a,.published-social a { padding:5px 0; color:#49363D; font-size:12px; }
+.public-footer { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:24px 36px; margin-top:60px; padding:38px 6%; background:linear-gradient(120deg,#f8e2e5,#FFF8F4); border-top:1px solid #EADDD7; color:#49363D; }
+.public-footer > div { display:flex; flex-direction:column; gap:2px; }
+.public-footer strong { font-family:var(--serif); font-size:19px; letter-spacing:.04em; line-height:1.25; }
+.public-footer p { margin:2px 0; color:#6D565E; }
+.public-footer small { color:#7E6770; }
+.public-footer nav,.published-social { display:flex; flex-wrap:wrap; align-items:center; gap:8px 22px; margin:0; overflow:visible; }
+.public-footer > nav:not(.published-social) { justify-content:center; }
+.public-footer .published-social { justify-content:flex-end; gap:10px; }
+.public-footer > nav:not(.published-social) a { position:relative; display:inline-flex; align-items:center; padding:6px 2px; border-radius:4px; background:transparent; color:#49363D; font-size:12px; font-weight:500; letter-spacing:.01em; transition:color 200ms ease,transform 200ms ease; }
+.public-footer > nav:not(.published-social) a::after { content:""; position:absolute; left:0; right:0; bottom:1px; height:1.5px; border-radius:999px; background:#A6536B; transform:scaleX(0); transform-origin:left center; transition:transform 240ms cubic-bezier(.22,1,.36,1); }
+.public-footer > nav:not(.published-social) a:hover,.public-footer > nav:not(.published-social) a:focus-visible { background:transparent; color:#A6536B; transform:translateY(-1px); }
+.public-footer > nav:not(.published-social) a:hover::after,.public-footer > nav:not(.published-social) a:focus-visible::after { transform:scaleX(1); }
 .published-social a span { color:#A6536B; }
 .public-footer a:focus-visible,.faq-item summary:focus-visible { outline:3px solid #A6536B; outline-offset:3px; }
 .customer-layout .calendar-day:not(.past):not(.unavailable):not(.full):not(.limited) { background:#faebed; border-color:#e4c2c7; color:#693e4a; }
@@ -64,16 +72,16 @@
  .public-benefits { gap:10px; }.public-benefits span { padding:0 8px; font-size:10px; }.public-benefits b { font-size:22px; }
  .public-about { grid-template-columns:1fr; gap:32px; padding:48px 24px; }.public-about .portrait-placeholder { width:min(320px,90%); min-height:0; }
  .public-about-benefits { grid-template-columns:1fr; gap:16px; }.public-about-benefits span+span { border-left:0; border-top:1px solid #dda6af; padding-top:16px; }
- .public-section { padding:38px 18px; }.public-footer { grid-template-columns:1fr; gap:16px; padding:30px 20px; }.public-footer nav,.published-social { display:flex; flex-wrap:wrap; }
+ .public-section { padding:38px 18px; }.public-footer { flex-direction:column; align-items:flex-start; gap:18px; padding:30px 20px; }.public-footer > nav:not(.published-social),.public-footer .published-social { justify-content:flex-start; gap:6px 16px; }
 }
-@media(prefers-reduced-motion:reduce) { .guest-layout *,.customer-layout * { scroll-behavior:auto!important; transition-duration:.01ms!important; } }
+@media(prefers-reduced-motion:reduce) { .guest-layout *,.customer-layout * { scroll-behavior:auto!important; transition-duration:.01ms!important; }.public-footer a:hover,.published-social .social-link:hover { transform:none; } }
 
 /* Social links show each platform's logo (Facebook, Instagram, TikTok) instead of an arrow,
    which phones drew as a blue emoji box. */
-.published-social .social-link { display:inline-flex; align-items:center; gap:8px; min-height:40px; padding:6px 12px 6px 8px; border:1px solid #EADDD7; border-radius:999px; background:#fff; color:#49363D; font-size:13px; text-decoration:none; }
+.published-social .social-link { display:inline-flex; align-items:center; gap:8px; min-height:40px; padding:6px 14px 6px 10px; border:1px solid #EADDD7; border-radius:999px; background:#fff; color:#49363D; font-size:13px; text-decoration:none; transition:border-color 200ms ease,color 200ms ease,background-color 200ms ease,transform 200ms ease,box-shadow 200ms ease; }
 /* The label span must not take the sidebar icon rule (nav a span: 22px wide, 19px text). */
 .published-social .social-link span { color:inherit; width:auto; font-size:inherit; }
-.published-social .social-link:hover, .published-social .social-link:focus-visible { border-color:#A6536B; color:#A6536B; }
+.published-social .social-link:hover, .published-social .social-link:focus-visible { background:#FDF2F4; border-color:#A6536B; color:#A6536B; transform:translateY(-2px); box-shadow:0 6px 14px rgba(166,83,107,.14); }
 .published-social .social-icon { width:22px; height:22px; flex:none; }
 .published-social .social-facebook .social-icon { color:#1877F2; }
 .published-social .social-instagram .social-icon { color:#D6246E; }
