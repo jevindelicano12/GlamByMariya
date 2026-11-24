@@ -45,7 +45,13 @@
             @foreach (var role in new[] { "hero", "portrait" }) {
                 var existing = liveImages.FirstOrDefault(x => x.Role == role);
                 <section class="website-content-card"><h2>@(role == "hero" ? "Homepage hero photo" : "About Me portrait")</h2>
-                    @if (existing != null) { <img class="demo-content-preview" src="@Url.Action("DraftImage", "WebsiteContent", new { id = existing.Id })" alt="@existing.AltText" /> } else { <p>No photo in this draft yet.</p> }
+                    @if (existing != null) {
+                        <img class="demo-content-preview" src="@Url.Action("DraftImage", "WebsiteContent", new { id = existing.Id })" alt="@existing.AltText" />
+                        <form asp-action="RemoveImage" method="post" class="draft-remove-form">
+                            <input type="hidden" name="draftId" value="@Model.DraftId" /><input type="hidden" name="revision" value="@Model.Revision" /><input type="hidden" name="imageId" value="@existing.Id" />
+                            <button class="button danger" type="submit">Delete photo</button>
+                        </form>
+                    } else { <p>No photo in this draft yet.</p> }
                     <form asp-action="SaveImage" method="post" enctype="multipart/form-data" class="stack demo-image-form">
                         <input type="hidden" name="draftId" value="@Model.DraftId" /><input type="hidden" name="revision" value="@Model.Revision" /><input type="hidden" name="role" value="@role" />
                         <label>JPG or PNG, up to 5 MB<input type="file" name="image" accept="image/jpeg,image/png" required /></label>
@@ -55,17 +61,20 @@
                     </form>
                 </section>
             }
-                <section class="website-content-card"><h2>Gallery</h2><p>@gallery.Count of @GlamByMariya.Core.BusinessRules.WebsiteContentRules.MaxGalleryImages photos.</p>
-                    @if (gallery.Count == 0) { <p>No gallery photos in this draft yet.</p> }
+                <section class="website-content-card website-content-card-full"><h2>Gallery</h2><p>@gallery.Count of @GlamByMariya.Core.BusinessRules.WebsiteContentRules.MaxGalleryImages photos. Delete any photo below, then publish the draft to update your live gallery.</p>
+                    @if (gallery.Count == 0) { <p>No gallery photos in this draft yet.</p> } else {
+                    <div class="draft-gallery-grid">
                     @foreach (var item in gallery) {
-                        <div class="stack">
+                        <div class="draft-gallery-item">
                             <img class="demo-content-preview" src="@Url.Action("DraftImage", "WebsiteContent", new { id = item.Id })" alt="@item.AltText" />
-                            @if (!string.IsNullOrEmpty(item.Caption)) { <p>@item.Caption</p> }
+                            @if (!string.IsNullOrEmpty(item.Caption)) { <p class="draft-gallery-caption">@item.Caption</p> }
                             <form asp-action="RemoveImage" method="post">
                                 <input type="hidden" name="draftId" value="@Model.DraftId" /><input type="hidden" name="revision" value="@Model.Revision" /><input type="hidden" name="imageId" value="@item.Id" />
-                                <button class="button secondary" type="submit">Remove</button>
+                                <button class="button danger full" type="submit">Delete photo</button>
                             </form>
                         </div>
+                    }
+                    </div>
                     }
                     @if (gallery.Count < GlamByMariya.Core.BusinessRules.WebsiteContentRules.MaxGalleryImages) {
                         <form asp-action="SaveImage" method="post" enctype="multipart/form-data" class="stack demo-image-form">

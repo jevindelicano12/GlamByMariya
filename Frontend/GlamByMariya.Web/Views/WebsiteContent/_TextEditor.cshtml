@@ -1,17 +1,85 @@
 @model WebsiteContentEditorModel
+@{
+    static string PreviewText(string? value, string empty = "Not set yet.") =>
+        string.IsNullOrWhiteSpace(value) ? empty : value.Length > 120 ? value[..120].TrimEnd() + "…" : value;
+    var linkCount = Model.Links.Count(x => !string.IsNullOrWhiteSpace(x.Label) || !string.IsNullOrWhiteSpace(x.Url));
+    var faqCount = Model.Faqs.Count(x => !string.IsNullOrWhiteSpace(x.Question) || !string.IsNullOrWhiteSpace(x.Answer));
+}
 <div class="website-content-notice" role="status"><strong>Editing a draft</strong> Changes appear publicly only after publication. @if (ViewData["DemoPersistentText"] is true) { <text>Save text before saving an image; each save updates the draft revision.</text> } else if (ViewData["DraftImages"] != null) { <text>Add or replace photos below, after saving your text.</text> } else { <text>Website image editing is not available in this mode.</text> }</div>
 @if (!ViewData.ModelState.IsValid) { <div asp-validation-summary="All" class="alert error" role="alert"></div> }
 <form asp-action="SaveForm" method="post" class="website-content-editor">
     <input asp-for="DraftId" type="hidden" /><input asp-for="Revision" type="hidden" />
     <div class="website-content-grid">
-        <section class="website-content-card"><h2>Hero</h2><label>Headline<input asp-for="HeroHeadline" maxlength="160" /></label><label>Description<textarea asp-for="HeroDescription" rows="3" maxlength="1000"></textarea></label></section>
-        <section class="website-content-card"><h2>About Me</h2><label>Heading<input asp-for="AboutHeading" maxlength="160" /></label><label>Biography<textarea asp-for="AboutBiography" rows="4" maxlength="5000"></textarea></label></section>
-        <section class="website-content-card"><h2>Home service &amp; contact</h2><label>Home-service description<textarea asp-for="HomeServiceDescription" rows="3" maxlength="2000"></textarea></label><label>Service areas<textarea asp-for="ServiceAreaInformation" rows="2" maxlength="1000"></textarea></label><label>Contact details<textarea asp-for="ContactDetails" rows="3" maxlength="2000"></textarea></label></section>
-        <section class="website-content-card"><h2>Gallery photos</h2><p>@(ViewData["DraftImages"] != null ? "Add and remove gallery photos below. Photos appear in the order they were added." : "Gallery photos are managed separately where available. Gallery ordering through this editor is not available.")</p></section>
-        <section class="website-content-card"><h2>Social links</h2><p>Up to 10 HTTPS links. Leave unused rows blank.</p>@for (var i = 0; i < Math.Min(Model.Links.Count, 10); i++) { <div class="website-content-row"><label>Label @(i + 1)<input asp-for="Links[i].Label" maxlength="100" /></label><label>HTTPS link @(i + 1)<input asp-for="Links[i].Url" type="url" maxlength="2048" /></label></div> }</section>
-        <section class="website-content-card"><h2>Frequently asked questions</h2><p>Up to 15 questions and answers. Leave unused rows blank.</p>@for (var i = 0; i < Math.Min(Model.Faqs.Count, 15); i++) { <div class="website-content-row"><label>Question @(i + 1)<input asp-for="Faqs[i].Question" maxlength="300" /></label><label>Answer @(i + 1)<textarea asp-for="Faqs[i].Answer" rows="2" maxlength="3000"></textarea></label></div> }</section>
+        <section class="website-content-card content-summary-card">
+            <div class="content-card-head"><div><span class="content-status-pill @(!string.IsNullOrWhiteSpace(Model.HeroHeadline) ? "is-ready" : "")">@(!string.IsNullOrWhiteSpace(Model.HeroHeadline) ? "Configured" : "Not set")</span><h2>Hero</h2></div><button type="button" class="button secondary content-edit-btn" data-open-dialog="wc-hero-modal">Edit Hero</button></div>
+            <p class="content-preview-title">@PreviewText(Model.HeroHeadline, "No headline yet.")</p>
+            <p class="content-preview-copy">@PreviewText(Model.HeroDescription, "No hero description yet.")</p>
+        </section>
+        <section class="website-content-card content-summary-card">
+            <div class="content-card-head"><div><span class="content-status-pill @(!string.IsNullOrWhiteSpace(Model.AboutHeading) ? "is-ready" : "")">@(!string.IsNullOrWhiteSpace(Model.AboutHeading) ? "Configured" : "Not set")</span><h2>About Me</h2></div><button type="button" class="button secondary content-edit-btn" data-open-dialog="wc-about-modal">Edit About Me</button></div>
+            <p class="content-preview-title">@PreviewText(Model.AboutHeading, "No heading yet.")</p>
+            <p class="content-preview-copy">@PreviewText(Model.AboutBiography, "No biography yet.")</p>
+        </section>
+        <section class="website-content-card content-summary-card">
+            <div class="content-card-head"><div><span class="content-status-pill @(!string.IsNullOrWhiteSpace(Model.ContactDetails) ? "is-ready" : "")">@(!string.IsNullOrWhiteSpace(Model.ContactDetails) ? "Configured" : "Not set")</span><h2>Home service &amp; contact</h2></div><button type="button" class="button secondary content-edit-btn" data-open-dialog="wc-contact-modal">Edit Contact</button></div>
+            <p class="content-preview-title">@PreviewText(Model.ServiceAreaInformation, "No service area info yet.")</p>
+            <p class="content-preview-copy">@PreviewText(Model.ContactDetails, "No contact details yet.")</p>
+        </section>
+        <section class="website-content-card content-summary-card">
+            <div class="content-card-head"><div><span class="content-status-pill @(linkCount > 0 ? "is-ready" : "")">@(linkCount > 0 ? $"{linkCount} active" : "Not set")</span><h2>Social links</h2></div><button type="button" class="button secondary content-edit-btn" data-open-dialog="wc-links-modal">Edit Social Links</button></div>
+            <p class="content-preview-title">@(linkCount == 0 ? "No social links yet." : $"{linkCount} social link{(linkCount == 1 ? "" : "s")} configured")</p>
+            <p class="content-preview-copy">Up to 10 approved HTTPS links (Facebook, Instagram, TikTok, etc.).</p>
+        </section>
+        <section class="website-content-card content-summary-card website-content-card-full content-summary-wide">
+            <div class="content-card-head"><div><span class="content-status-pill @(faqCount > 0 ? "is-ready" : "")">@(faqCount > 0 ? $"{faqCount} active" : "Not set")</span><h2>Frequently asked questions</h2></div><button type="button" class="button secondary content-edit-btn" data-open-dialog="wc-faqs-modal">Edit FAQs</button></div>
+            <p class="content-preview-title">@(faqCount == 0 ? "No FAQs yet." : $"{faqCount} FAQ{(faqCount == 1 ? "" : "s")} configured")</p>
+            <p class="content-preview-copy">Up to 15 questions and answers shown on your public website.</p>
+        </section>
     </div>
+
+    <dialog id="wc-hero-modal" class="policies-modal" aria-labelledby="wc-hero-title">
+        <div class="stack policies-modal-form">
+            <div class="policies-modal-head"><div><div class="eyebrow">WEBSITE CONTENT</div><h3 id="wc-hero-title">Edit Hero</h3></div><button type="button" class="button secondary policies-modal-close" data-close-dialog="wc-hero-modal" aria-label="Close">✕</button></div>
+            <label>Headline<input asp-for="HeroHeadline" maxlength="160" /></label>
+            <label>Description<textarea asp-for="HeroDescription" rows="4" maxlength="1000"></textarea></label>
+            <div class="policies-modal-actions"><button type="button" class="button secondary" data-close-dialog="wc-hero-modal">Close</button><button type="submit" class="button">Save draft</button></div>
+        </div>
+    </dialog>
+    <dialog id="wc-about-modal" class="policies-modal" aria-labelledby="wc-about-title">
+        <div class="stack policies-modal-form">
+            <div class="policies-modal-head"><div><div class="eyebrow">WEBSITE CONTENT</div><h3 id="wc-about-title">Edit About Me</h3></div><button type="button" class="button secondary policies-modal-close" data-close-dialog="wc-about-modal" aria-label="Close">✕</button></div>
+            <label>Heading<input asp-for="AboutHeading" maxlength="160" /></label>
+            <label>Biography<textarea asp-for="AboutBiography" rows="6" maxlength="5000"></textarea></label>
+            <div class="policies-modal-actions"><button type="button" class="button secondary" data-close-dialog="wc-about-modal">Close</button><button type="submit" class="button">Save draft</button></div>
+        </div>
+    </dialog>
+    <dialog id="wc-contact-modal" class="policies-modal" aria-labelledby="wc-contact-title">
+        <div class="stack policies-modal-form">
+            <div class="policies-modal-head"><div><div class="eyebrow">WEBSITE CONTENT</div><h3 id="wc-contact-title">Edit Home service &amp; contact</h3></div><button type="button" class="button secondary policies-modal-close" data-close-dialog="wc-contact-modal" aria-label="Close">✕</button></div>
+            <label>Home-service description<textarea asp-for="HomeServiceDescription" rows="3" maxlength="2000"></textarea></label>
+            <label>Service areas<textarea asp-for="ServiceAreaInformation" rows="2" maxlength="1000"></textarea></label>
+            <label>Contact details<textarea asp-for="ContactDetails" rows="3" maxlength="2000"></textarea></label>
+            <div class="policies-modal-actions"><button type="button" class="button secondary" data-close-dialog="wc-contact-modal">Close</button><button type="submit" class="button">Save draft</button></div>
+        </div>
+    </dialog>
+    <dialog id="wc-links-modal" class="policies-modal" aria-labelledby="wc-links-title">
+        <div class="stack policies-modal-form">
+            <div class="policies-modal-head"><div><div class="eyebrow">WEBSITE CONTENT</div><h3 id="wc-links-title">Edit Social links</h3></div><button type="button" class="button secondary policies-modal-close" data-close-dialog="wc-links-modal" aria-label="Close">✕</button></div>
+            <p class="help">Up to 10 HTTPS links. Leave unused rows blank.</p>
+            @for (var i = 0; i < Math.Min(Model.Links.Count, 10); i++) { <div class="website-content-row"><label>Label @(i + 1)<input asp-for="Links[i].Label" maxlength="100" /></label><label>HTTPS link @(i + 1)<input asp-for="Links[i].Url" type="url" maxlength="2048" /></label></div> }
+            <div class="policies-modal-actions"><button type="button" class="button secondary" data-close-dialog="wc-links-modal">Close</button><button type="submit" class="button">Save draft</button></div>
+        </div>
+    </dialog>
+    <dialog id="wc-faqs-modal" class="policies-modal" aria-labelledby="wc-faqs-title">
+        <div class="stack policies-modal-form">
+            <div class="policies-modal-head"><div><div class="eyebrow">WEBSITE CONTENT</div><h3 id="wc-faqs-title">Edit Frequently asked questions</h3></div><button type="button" class="button secondary policies-modal-close" data-close-dialog="wc-faqs-modal" aria-label="Close">✕</button></div>
+            <p class="help">Up to 15 questions and answers. Leave unused rows blank.</p>
+            @for (var i = 0; i < Math.Min(Model.Faqs.Count, 15); i++) { <div class="website-content-row"><label>Question @(i + 1)<input asp-for="Faqs[i].Question" maxlength="300" /></label><label>Answer @(i + 1)<textarea asp-for="Faqs[i].Answer" rows="2" maxlength="3000"></textarea></label></div> }
+            <div class="policies-modal-actions"><button type="button" class="button secondary" data-close-dialog="wc-faqs-modal">Close</button><button type="submit" class="button">Save draft</button></div>
+        </div>
+    </dialog>
+
     <div class="website-content-actions"><button class="button" type="submit">Save draft</button><a class="public-button outline" asp-action="Preview">Preview saved draft</a></div>
 </form>
-<form asp-action="PublishForm" method="post" class="website-content-publish"><input type="hidden" name="draftId" value="@Model.DraftId" /><input type="hidden" name="revision" value="@Model.Revision" /><p>Publish the saved draft. Unsaved edits above are not included.</p><button class="button" type="submit">Publish saved draft</button></form>
+<form asp-action="PublishForm" method="post" class="website-content-publish"><input type="hidden" name="draftId" value="@Model.DraftId" /><input type="hidden" name="revision" value="@Model.Revision" /><div><strong>Ready to go live?</strong><p>Publish the saved draft. Unsaved edits above are not included.</p></div><button class="button" type="submit">Publish saved draft</button></form>
 @if (ViewData["DemoPersistentText"] is true) { <form asp-action="DiscardDemoDraft" method="post"><input type="hidden" name="draftId" value="@Model.DraftId" /><input type="hidden" name="revision" value="@Model.Revision" /><button class="button secondary" type="submit">Discard saved draft</button></form> }
