@@ -74,8 +74,9 @@
   // Regular-hour bookings whose service duration finishes past closing also show a gentle heads-up.
   const choose = (form, slot, durationMinutes) => {
     const text = copy(form);
+    const isReschedule = Boolean(form?.querySelector('.availability-picker')?.dataset.bookingId);
     const submit = form?.querySelector('[type="submit"]');
-    if (submit) {
+    if (submit && !isReschedule) {
       submit.dataset.defaultLabel ??= submit.textContent;
       submit.textContent = slot?.kind === 'early' ? 'Send early booking request' : submit.dataset.defaultLabel;
     }

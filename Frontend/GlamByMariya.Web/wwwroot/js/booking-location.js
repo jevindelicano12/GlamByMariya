@@ -176,6 +176,48 @@
     search();
   });
 
+  // Auto-pin from the customer's registered or selected Philippine address, and clear pin if outside service areas.
+  let lastAutoQuery = '';
+  const clearPin = msg => {
+    latitude.value = '';
+    longitude.value = '';
+    say(msg);
+    latitude.dispatchEvent(new Event('change', { bubbles: true }));
+    announce();
+  };
+  const autoPinFromAddress = async ({ query: qText, area: matchedArea, covered }) => {
+    if (!covered) {
+      lastAutoQuery = '';
+      clearPin("This address is outside Glam by Mariya's service areas. Change your address to a covered city to continue.");
+      return;
+    }
+    const cleanQuery = (qText || '').trim();
+    if (!cleanQuery || cleanQuery === lastAutoQuery) return;
+    lastAutoQuery = cleanQuery;
+    const fallback = centres[matchedArea?.trim()] || areaCentre();
+    map.setView(fallback, 14);
+    setPin(fallback[0], fallback[1], 'Pinned from your address. Refining exact location…');
+    try {
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=ph&viewbox=120.85,14.95,121.65,14.20&bounded=1&q=${encodeURIComponent(cleanQuery)}`, {
+        headers: { Accept: 'application/json' }, credentials: 'omit', referrerPolicy: 'strict-origin-when-cross-origin'
+      });
+      if (!response.ok) return;
+      const results = await response.json();
+      const hit = Array.isArray(results) ? results[0] : null;
+      const lat = hit ? parseFloat(hit.lat) : NaN, lng = hit ? parseFloat(hit.lon) : NaN;
+      if (Number.isFinite(lat) && Number.isFinite(lng) && inside(lat, lng) && lastAutoQuery === cleanQuery) {
+        map.setView([lat, lng], 16);
+        setPin(lat, lng, 'Pinned automatically from your address. Drag the pin if you need to adjust it.');
+      } else if (lastAutoQuery === cleanQuery) {
+        say('Pinned to your service area. Drag the pin to your exact house or landmark.');
+      }
+    } catch {
+      if (lastAutoQuery === cleanQuery) say('Pinned to your service area. Drag the pin to your exact house or landmark.');
+    }
+  };
+  form.addEventListener('ph-address-ready', event => { autoPinFromAddress(event.detail || {}); });
+  if (form._phAddressState) autoPinFromAddress(form._phAddressState);
+
   // The map starts inside a hidden booking step; redraw it once it becomes visible.
   if (window.ResizeObserver) new ResizeObserver(() => map.invalidateSize()).observe(root.querySelector('#booking-location-map'));
   form.addEventListener('booking-step-shown', () => map.invalidateSize());

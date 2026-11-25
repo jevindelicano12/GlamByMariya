@@ -108,10 +108,14 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
             {
                 var selection = AvailabilitySelection(serviceId, addOnIds, bookingId, people, package);
                 if (selection == null) return NotFound(new { error = "This appointment cannot be rescheduled." });
+                if (bookingId.HasValue && store.FindBooking(bookingId.Value)?.Start == date)
+                    return Json(new { available = false, message = "This is your current appointment time. Choose a different date or time." });
                 workflow.CheckSlot(date, selection.Value.Duration, selection.Value.Exclude);
                 workflow.CheckTravel(date, selection.Value.Duration, selection.Value.Exclude, latitude, longitude);
+                if (bookingId.HasValue)
+                    return Json(new { available = true, message = "This time is available for a reschedule request. Times include travel from the artist's other appointments that day. Your current appointment stays reserved until the artist approves the new time." });
                 // An early time (new booking) is a request: the artist confirms it before anything is paid.
-                var early = bookingId == null && BookingWindow.KindOf(date, store.Settings) == SlotKind.Early;
+                var early = BookingWindow.KindOf(date, store.Settings) == SlotKind.Early;
                 var next = early ? "The artist confirms this early time first; you pay the down payment after approval."
                     : UsesXendit ? "Your booking is confirmed once the down payment goes through." : "Confirmation requires payment review and approval.";
                 return Json(new { available = true, message = (UsesXendit ? "This time is available." : "Available for request at this moment.")
@@ -385,9 +389,15 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
         {
             var b = store.FindBooking(id) is { } owned && owned.CustomerId == UserId ? owned : null;
             if (b == null) return NotFound();
+            var cleanReason = (reason ?? "").Trim();
+            if (cleanReason.Length < 3 || cleanReason.Length > 1000)
+            {
+                TempData["Error"] = "Please enter your reason for cancelling (3–1,000 characters).";
+                return RedirectToAction("Details", new { id });
+            }
             try
             {
-                workflow.Cancel(b, UserId, confirmed, reason);
+                workflow.Cancel(b, UserId, confirmed, cleanReason);
                 var updated = store.FindBooking(id) ?? b;
                 var refundLine = updated.RefundDue > 0
                     ? (updated.CancellationFee > 0
@@ -397,7 +407,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
                         ? $"A cancellation fee of ₱{updated.CancellationFee:N2} applies, so no refund will be issued for this booking."
                         : "No payment was collected for this booking, so no refund is needed.");
                 EmailCustomer(updated.CustomerId, $"Glam by Mariya {updated.Reference}: your booking was cancelled",
-                    $"Your booking for {updated.ServiceDescription} on {updated.Start:MMMM d, yyyy h:mm tt} has been cancelled.{Environment.NewLine}{Environment.NewLine}{refundLine}{Environment.NewLine}{Environment.NewLine}If you have any questions, please reply to this email or contact Glam by Mariya.");
+                    $"Your booking for {updated.ServiceDescription} on {updated.Start:MMMM d, yyyy h:mm tt} has been cancelled.{Environment.NewLine}Reason: {cleanReason}{Environment.NewLine}{Environment.NewLine}{refundLine}{Environment.NewLine}{Environment.NewLine}If you have any questions, please reply to this email or contact Glam by Mariya.");
                 TempData["Success"] = "Appointment cancelled. Any refund will be sent manually by the artist.";
             }
             catch (InvalidOperationException e) { TempData["Error"] = e.Message; }

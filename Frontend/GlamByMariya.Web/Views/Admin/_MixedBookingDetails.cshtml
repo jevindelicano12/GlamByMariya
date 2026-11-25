@@ -49,6 +49,14 @@
                     <form asp-action="Action" method="post" class="stack" data-decision="decline"><input type="hidden" name="id" value="@Model.Id" /><input type="hidden" name="operation" value="decline" /><input type="hidden" name="requestedStart" value="@q.ProposedStart.ToString("s")" /><label>Reason for keeping the original time<textarea name="reason" required maxlength="1000" rows="2"></textarea></label><button class="button secondary" type="submit">Decline reschedule</button></form>
                 </section>
             }
+            else if (DataStore.IsPersistent && Model.Status == "Confirmed" && Model.RequestedStart is { } requested) {
+                <section class="panel stack"><h3>Reschedule request</h3><p>Current: @Model.Start.ToString("MMM d, yyyy h:mm tt")<br />Proposed: @requested.ToString("MMM d, yyyy h:mm tt")</p><p>The booking total stays ₱@Model.Total.ToString("N2"). The proposed time is checked again when you approve.</p>
+                    @if (User.IsInRole("SuperAdmin")) {
+                        <form asp-action="Action" method="post" class="stack" data-decision="reschedule"><input type="hidden" name="id" value="@Model.Id" /><input type="hidden" name="operation" value="reschedule" /><input type="hidden" name="requestedStart" value="@requested.ToString("s")" /><label class="check-label"><input type="checkbox" required /> I confirm replacing the original slot only if all checks pass.</label><button class="button" type="submit">Approve new time</button></form>
+                    } else { <p>Only SuperAdmin may approve this request.</p> }
+                    <form asp-action="Action" method="post" class="stack" data-decision="decline"><input type="hidden" name="id" value="@Model.Id" /><input type="hidden" name="operation" value="decline" /><input type="hidden" name="requestedStart" value="@requested.ToString("s")" /><label>Reason for keeping the original time<textarea name="reason" required maxlength="1000" rows="2"></textarea></label><button class="button secondary" type="submit">Decline reschedule</button></form>
+                </section>
+            }
             @if (Model.Status == "Confirmed" && Model.End <= DataStore.Now) {
                 <section class="panel stack"><h3>Other appointment outcomes</h3><form asp-action="Action" method="post" class="stack"><input type="hidden" name="id" value="@Model.Id" /><label>No-show / incomplete reason<textarea name="reason" required maxlength="1000" rows="2"></textarea></label><button name="operation" value="noshow" class="button secondary">Mark no-show</button><button name="operation" value="incomplete" class="button secondary">Mark incomplete</button></form></section>
             }

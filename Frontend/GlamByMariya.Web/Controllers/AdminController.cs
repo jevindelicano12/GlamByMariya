@@ -188,6 +188,8 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
                     "decline-request" => "Early booking request declined. The customer was told why.",
                     "accept" => "Booking confirmed. The customer was told by email.",
                     "refund" => "Refund recorded. The customer was told by email.",
+                    "reschedule" => "Reschedule approved. The appointment has been moved to the new time.",
+                    "decline" => "Reschedule declined. The original appointment time was kept.",
                     _ => "Booking updated successfully."
                 };
                 // Phase 9: tell the customer when the artist confirms or rejects a paid booking, and when a refund is sent.
@@ -507,7 +509,7 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
         }
     }
     [HttpPost]
-    public IActionResult Settings(int openHour, int closeHour, int bufferMinutes, decimal travelFee, decimal downPaymentPercent, string serviceAreas, string? paymentInstructions, bool confirmAffected = false, decimal? travelSpeedKmh = null, int? travelMinimumMinutes = null, int? earlyRequestStartHour = null, int? afterHoursEndHour = null, int? maxPeople = null, string? paymentPolicy = null, string? cancellationPolicy = null, string? reschedulingPolicy = null, string? transportationPolicy = null, string? afterHoursPolicy = null)
+    public IActionResult Settings(int openHour, int closeHour, int bufferMinutes, decimal travelFee, decimal downPaymentPercent, string serviceAreas, string? paymentInstructions, bool confirmAffected = false, decimal? travelSpeedKmh = null, int? travelMinimumMinutes = null, int? earlyRequestStartHour = null, int? afterHoursEndHour = null, int? maxPeople = null, int? maxAdvanceBookingDays = null, string? paymentPolicy = null, string? cancellationPolicy = null, string? reschedulingPolicy = null, string? transportationPolicy = null, string? afterHoursPolicy = null)
     {
         lock (store.Gate)
         {
@@ -521,11 +523,14 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
             var policyTooLong = new[] { nextPaymentPolicy, nextCancellationPolicy, nextReschedulingPolicy, nextTransportationPolicy, nextAfterHoursPolicy }.Any(p => p.Length > 2000);
             var speed = travelSpeedKmh ?? store.Settings.TravelSpeedKmh; var minimum = travelMinimumMinutes ?? store.Settings.TravelMinimumMinutes;
             // Phase 6: empty means "same as opening / closing"; only the SuperAdmin changes hours.
+            var hoursChanged = openHour != store.Settings.OpenHour || closeHour != store.Settings.CloseHour || earlyRequestStartHour != store.Settings.EarlyRequestStartHour || afterHoursEndHour != store.Settings.AfterHoursEndHour;
             var hoursIssue = BookingWindow.ValidateSettings(openHour, closeHour, earlyRequestStartHour, afterHoursEndHour);
             if (hoursIssue != null) TempData["Error"] = hoursIssue;
             else if (!Roles.IsSuperAdmin(User) && (earlyRequestStartHour != store.Settings.EarlyRequestStartHour || afterHoursEndHour != store.Settings.AfterHoursEndHour)) TempData["Error"] = "Only the SuperAdmin can change the early booking or latest end hours.";
             else if (maxPeople is < 1 or > BookingPricing.MaximumPeople) TempData["Error"] = $"Maximum people per booking must be from 1 to {BookingPricing.MaximumPeople}.";
             else if (!Roles.IsSuperAdmin(User) && maxPeople != null && maxPeople != store.Settings.MaxPeople) TempData["Error"] = "Only the SuperAdmin can change the maximum people per booking.";
+            else if (maxAdvanceBookingDays is < 1 or > 365) TempData["Error"] = "Maximum advance booking window must be between 1 and 365 days.";
+            else if (!Roles.IsSuperAdmin(User) && maxAdvanceBookingDays != null && maxAdvanceBookingDays != store.Settings.MaxAdvanceBookingDays) TempData["Error"] = "Only the SuperAdmin can change the advance booking limit.";
             else if (policyTooLong) TempData["Error"] = "Each policy must be at most 2,000 characters.";
             else if (!Roles.IsSuperAdmin(User) && policiesChanged) TempData["Error"] = "Only the SuperAdmin can edit customer-facing policies.";
             else if (speed < 5 || speed > 60) TempData["Error"] = TravelSpeedMessage;
@@ -535,12 +540,12 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
             else if (!Roles.IsSuperAdmin(User) && (openHour != store.Settings.OpenHour || closeHour != store.Settings.CloseHour || bufferMinutes != store.Settings.BufferMinutes)) TempData["Error"] = "Only the SuperAdmin can change service hours or the preparation buffer.";
             else if (!store.IsPersistent && store.Settings.EarlyFeeEnabled && openHour <= store.Settings.EarlyStartHour) TempData["Error"] = "Opening hour must be later than the configured early start.";
             else if (!store.IsPersistent && store.Settings.LateFeeEnabled && (closeHour > store.Settings.LateEndHour || openHour > store.Settings.LateStartHour)) TempData["Error"] = "Regular opening must not be later than the late fee boundary, and regular closing must not be later than final closing.";
-            else if (workflow.BookingsOutsideHours(openHour, closeHour, earlyRequestStartHour, afterHoursEndHour) is { Count: > 0 } outside && !confirmAffected)
+            else if (hoursChanged && workflow.BookingsOutsideHours(openHour, closeHour, earlyRequestStartHour, afterHoursEndHour) is { Count: > 0 } outside && !confirmAffected)
                 TempData["Error"] = $"{Upcoming(outside)} {(outside.Count == 1 ? "falls" : "fall")} outside the new hours: {References(outside)}. Nothing was saved. Tick \"Save anyway\" to change the hours; these bookings keep their booked times.";
             else
             {
-                var affected = workflow.BookingsOutsideHours(openHour, closeHour, earlyRequestStartHour, afterHoursEndHour);
-                var s = store.Settings; var oldPercent = s.DownPaymentPercent; s.OpenHour = openHour; s.CloseHour = closeHour; s.EarlyRequestStartHour = earlyRequestStartHour; s.AfterHoursEndHour = afterHoursEndHour; s.MaxPeople = maxPeople ?? s.MaxPeople; s.BufferMinutes = bufferMinutes; s.TravelFee = travelFee; s.TravelSpeedKmh = speed; s.TravelMinimumMinutes = minimum; s.DownPaymentPercent = downPaymentPercent; s.ServiceAreas = serviceAreas; s.PaymentInstructions = paymentInstructions ?? ""; s.PaymentPolicy = nextPaymentPolicy; s.CancellationPolicy = nextCancellationPolicy; s.ReschedulingPolicy = nextReschedulingPolicy; s.TransportationPolicy = nextTransportationPolicy; s.AfterHoursPolicy = nextAfterHoursPolicy;
+                var affected = hoursChanged ? workflow.BookingsOutsideHours(openHour, closeHour, earlyRequestStartHour, afterHoursEndHour) : [];
+                var s = store.Settings; var oldPercent = s.DownPaymentPercent; s.OpenHour = openHour; s.CloseHour = closeHour; s.EarlyRequestStartHour = earlyRequestStartHour; s.AfterHoursEndHour = afterHoursEndHour; s.MaxPeople = maxPeople ?? s.MaxPeople; s.MaxAdvanceBookingDays = maxAdvanceBookingDays ?? s.MaxAdvanceBookingDays; s.BufferMinutes = bufferMinutes; s.TravelFee = travelFee; s.TravelSpeedKmh = speed; s.TravelMinimumMinutes = minimum; s.DownPaymentPercent = downPaymentPercent; s.ServiceAreas = serviceAreas; s.PaymentInstructions = paymentInstructions ?? ""; s.PaymentPolicy = nextPaymentPolicy; s.CancellationPolicy = nextCancellationPolicy; s.ReschedulingPolicy = nextReschedulingPolicy; s.TransportationPolicy = nextTransportationPolicy; s.AfterHoursPolicy = nextAfterHoursPolicy;
                 var saved = false;
                 try { store.SaveSettings(s, UserId); saved = true; if (store is DemoStore settingsDemo) settingsDemo.RecordAdminActivity(UserId, "Business settings updated", "Settings", Guid.Empty); TempData["Success"] = "Settings saved. Existing appointments and prices are unchanged."; }
                 catch (InvalidOperationException e) { TempData["Error"] = e.Message; }

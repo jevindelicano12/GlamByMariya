@@ -57,6 +57,41 @@
       preview
     ]);
     const wrapper = el('fieldset', { className: 'ph-address full' }, [el('legend', { textContent: sourceLabel?.firstChild?.textContent?.trim() || 'Address' })]);
+    const form = textarea.closest('form');
+    const areaSelect = form?.querySelector('select[name="area"]');
+    const areaError = el('div', { className: 'alert error ph-area-error', hidden: true });
+    areaError.setAttribute('role', 'alert');
+
+    const normalizePlace = v => {
+      let s = (v || '').trim().toLowerCase();
+      if (s.startsWith('city of ')) s = s.slice(8).trim();
+      if (s.startsWith('municipality of ')) s = s.slice(16).trim();
+      if (s.endsWith(' city') && s !== 'quezon city') s = s.slice(0, -5).trim();
+      return s;
+    };
+    const areaOptions = () => areaSelect ? [...areaSelect.options].map(o => ({ value: o.value || o.textContent.trim(), norm: normalizePlace(o.value || o.textContent) })).filter(o => o.value) : [];
+    const matchArea = candidates => {
+      const opts = areaOptions();
+      for (const c of candidates) {
+        const n = normalizePlace(c);
+        if (!n) continue;
+        const hit = opts.find(o => o.norm === n);
+        if (hit) return hit.value;
+      }
+      return '';
+    };
+    const checkSavedCoverage = addr => {
+      const clean = addr.split('(Landmark:')[0].trim();
+      const segs = clean.split(',').map(s => s.trim()).filter(Boolean);
+      const hasPhZip = /\b\d{4}\s*$/.test(clean);
+      const matched = matchArea(segs);
+      if (matched) return { structured: true, covered: true, matched, place: matched };
+      if (segs.length >= 4 || hasPhZip) {
+        const place = segs.length >= 3 ? segs.slice(-3, -1).join(', ') : clean;
+        return { structured: true, covered: false, matched: '', place };
+      }
+      return { structured: false, covered: true, matched: areaSelect?.value || '', place: '' };
+    };
 
     // Booking: start from the account address and let the customer change it for this booking.
     let saved;
@@ -69,7 +104,9 @@
       keep.addEventListener('click', () => setMode(false, true));
       wrapper.append(saved);
     }
-    wrapper.append(picker);
+    wrapper.append(picker, areaError);
+    const errorSlot = sourceLabel?.querySelector('[data-error-for="address"]');
+    if (errorSlot) wrapper.append(errorSlot);
     (sourceLabel ?? textarea).after(wrapper);
     if (sourceLabel) sourceLabel.hidden = true; else textarea.hidden = true;
     textarea.required = false;
@@ -84,8 +121,70 @@
       if (withLandmark && landmark.value.trim()) text += ` (Landmark: ${landmark.value.trim()})`;
       return text;
     };
+    const applyCoverage = (covered, matchedArea, place, fullAddress, geocodeQuery) => {
+      if (!areaSelect) return;
+      const list = areaOptions().map(o => o.value).join(', ');
+      if (!covered) {
+        const msg = `Sorry, ${place || 'this city'} is outside Glam by Mariya's service areas (${list}). Bookings outside these cities cannot be accepted — please change your service address to a covered city.`;
+        areaError.textContent = msg;
+        areaError.hidden = false;
+        textarea.setCustomValidity(msg);
+        if (!picker.hidden) city.setCustomValidity(msg);
+        form.dataset.addressOutOfRange = 'true';
+        const outDetail = { address: fullAddress, query: '', area: '', covered: false };
+        form._phAddressState = outDetail;
+        form.dispatchEvent(new CustomEvent('ph-address-ready', { bubbles: true, detail: outDetail }));
+        return;
+      }
+      areaError.hidden = true;
+      areaError.textContent = '';
+      textarea.setCustomValidity('');
+      city.setCustomValidity('');
+      delete form.dataset.addressOutOfRange;
+      if (matchedArea && areaSelect.value !== matchedArea) {
+        areaSelect.value = matchedArea;
+        areaSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      if (fullAddress) {
+        const okDetail = { address: fullAddress, query: geocodeQuery || fullAddress, area: matchedArea || areaSelect.value, covered: true };
+        form._phAddressState = okDetail;
+        form.dispatchEvent(new CustomEvent('ph-address-ready', { bubbles: true, detail: okDetail }));
+      }
+    };
     const sync = () => {
-      if (picker.hidden) { textarea.value = savedValue; return; }
+      if (picker.hidden) {
+        textarea.value = savedValue;
+        const cov = checkSavedCoverage(savedValue);
+        applyCoverage(cov.covered, cov.matched, cov.place, savedValue, savedValue.split('(Landmark:')[0].trim());
+        return;
+      }
+      const p = data?.provinces.find(x => x[0] === province.value);
+      const c = data?.cities.find(x => x[0] === city.value);
+      if (areaSelect && c) {
+        const matched = matchArea([c[1], p?.[1]]);
+        const complete = controls.every(control => control.value.trim()) && zip.validity.valid;
+        const full = complete ? compose() : '';
+        const geoQ = [barangay.value, c[1], p && p[1] !== c[1] ? p[1] : '', 'Philippines'].filter(Boolean).join(', ');
+        if (!matched) {
+          textarea.value = '';
+          preview.textContent = 'Complete every required field to see the full address.';
+          applyCoverage(false, '', [c[1], p && p[1] !== c[1] ? p[1] : ''].filter(Boolean).join(', '), '', '');
+          textarea.dispatchEvent(new Event('input', { bubbles: true }));
+          return;
+        }
+        textarea.value = full;
+        preview.textContent = complete ? `Full address: ${textarea.value}` : 'Complete every required field to see the full address.';
+        applyCoverage(true, matched, c[1], full || geoQ, geoQ);
+        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        return;
+      }
+      if (areaSelect && !c) {
+        areaError.hidden = true;
+        areaError.textContent = '';
+        textarea.setCustomValidity('');
+        city.setCustomValidity('');
+        delete form.dataset.addressOutOfRange;
+      }
       const complete = controls.every(control => control.value.trim()) && zip.validity.valid;
       textarea.value = complete ? compose() : '';
       preview.textContent = complete ? `Full address: ${textarea.value}` : 'Complete every required field to see the full address.';

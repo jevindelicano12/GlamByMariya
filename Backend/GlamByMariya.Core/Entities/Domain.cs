@@ -169,6 +169,8 @@ public class BusinessSettings
     public int? AfterHoursEndHour { get; set; } = 22;
     // The most people one booking may have, set by the owner (1 to 20).
     public int MaxPeople { get; set; } = 20;
+    // Maximum days ahead a customer may book (e.g., 15 or 30 days; 1 to 365).
+    public int MaxAdvanceBookingDays { get; set; } = 30;
     public string ServiceAreas { get; set; } = "Quezon City,Makati,Manila,Pasig,Taguig,Mandaluyong";
     public string PaymentInstructions { get; set; } = "Demo only — do not send real money. Contact the artist for verified GCash, Maya or bank account details.";
     // Owner-editable customer-facing policies (shown on Booking, modals, and Terms & Conditions).

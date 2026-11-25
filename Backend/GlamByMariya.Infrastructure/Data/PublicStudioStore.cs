@@ -109,10 +109,14 @@ public sealed class PublicStudioStore(
             if (!string.IsNullOrWhiteSpace(policies.Transportation)) value.TransportationPolicy = policies.Transportation;
             if (!string.IsNullOrWhiteSpace(policies.AfterHours)) value.AfterHoursPolicy = policies.AfterHours;
         }
+        if (HasMaxAdvanceColumn())
+            value.MaxAdvanceBookingDays = pdb.Database.SqlQueryRaw<int>("""SELECT max_advance_booking_days AS "Value" FROM public.business_settings WHERE id=1""").AsEnumerable().Single();
         return value;
     }
     private bool HasPolicyColumns() =>
         pdb.Database.SqlQueryRaw<bool>("""SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='business_settings' AND column_name='payment_policy') AS "Value" """).AsEnumerable().Single();
+    private bool HasMaxAdvanceColumn() =>
+        pdb.Database.SqlQueryRaw<bool>("""SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='business_settings' AND column_name='max_advance_booking_days') AS "Value" """).AsEnumerable().Single();
     private sealed class BusinessSettingsExtrasRow
     {
         public decimal Speed { get; set; }
@@ -409,6 +413,8 @@ public sealed class PublicStudioStore(
         pdb.Database.ExecuteSqlInterpolated($"UPDATE public.business_settings SET time_zone={value.TimeZone}, open_hour={value.OpenHour}, close_hour={value.CloseHour}, buffer_minutes={value.BufferMinutes}, down_payment_percent={value.DownPaymentPercent}, travel_fee_informational={value.TravelFee}, payment_instructions={value.PaymentInstructions}, travel_speed_kmh={value.TravelSpeedKmh}, travel_min_minutes={value.TravelMinimumMinutes}, early_request_start_hour={value.EarlyRequestStartHour}, after_hours_end_hour={value.AfterHoursEndHour}, max_people={value.MaxPeople} WHERE id=1");
         if (HasPolicyColumns())
             pdb.Database.ExecuteSqlInterpolated($"UPDATE public.business_settings SET payment_policy={value.PaymentPolicy}, cancellation_policy={value.CancellationPolicy}, rescheduling_policy={value.ReschedulingPolicy}, transportation_policy={value.TransportationPolicy}, after_hours_policy={value.AfterHoursPolicy} WHERE id=1");
+        if (HasMaxAdvanceColumn())
+            pdb.Database.ExecuteSqlInterpolated($"UPDATE public.business_settings SET max_advance_booking_days={value.MaxAdvanceBookingDays} WHERE id=1");
         pdb.Database.ExecuteSqlRaw("UPDATE public.service_areas SET is_active=false");
         foreach (var name in names)
             pdb.Database.ExecuteSqlInterpolated($"INSERT INTO public.service_areas(name) VALUES({name}) ON CONFLICT DO NOTHING");
@@ -485,6 +491,9 @@ public sealed class PublicStudioStore(
                     BookingService.ValidateExpectedQuote(quote, expectedTotal, expectedMinimum);
                     PreparedPersistentBooking.ValidateClaim(deposit, quote);
                     var coverage = pdb.Set<AreaRow>().SingleOrDefault(x => x.IsActive && x.Name.ToLower() == area.Trim().ToLower()) ?? throw new InvalidOperationException("The address must be within the service area.");
+                    if (BookingLocation.AddressCoverageError(address, Settings.ServiceAreas) is { } coverageErr) throw new InvalidOperationException(coverageErr);
+                    if (Settings.MaxAdvanceBookingDays > 0 && start.Date > Now.Date.AddDays(Settings.MaxAdvanceBookingDays))
+                        throw new InvalidOperationException($"Bookings can only be made up to {Settings.MaxAdvanceBookingDays} days in advance (until {Now.Date.AddDays(Settings.MaxAdvanceBookingDays):MMMM d, yyyy}).");
                     var (artistId, _) = ResolveArtist();
                     LockTravel(artistId);
                     if (!BookingService.TravelFits(this, start, quote.DurationMinutes, Settings.BufferMinutes, latitude, longitude, null, Settings))
@@ -557,6 +566,9 @@ public sealed class PublicStudioStore(
                     if (expectedTotal != total || expectedMinimum != required) throw new InvalidOperationException("The booking price or minimum payment changed. Please review the updated quote.");
                     Money.RequireDeposit(deposit, required, total);
                     var coverage = pdb.Set<AreaRow>().SingleOrDefault(x => x.IsActive && x.Name.ToLower() == area.Trim().ToLower()) ?? throw new InvalidOperationException("The address must be within the service area.");
+                    if (BookingLocation.AddressCoverageError(address, Settings.ServiceAreas) is { } coverageErr) throw new InvalidOperationException(coverageErr);
+                    if (Settings.MaxAdvanceBookingDays > 0 && start.Date > Now.Date.AddDays(Settings.MaxAdvanceBookingDays))
+                        throw new InvalidOperationException($"Bookings can only be made up to {Settings.MaxAdvanceBookingDays} days in advance (until {Now.Date.AddDays(Settings.MaxAdvanceBookingDays):MMMM d, yyyy}).");
                     var (artistId, _) = ResolveArtist();
                     LockTravel(artistId);
                     if (!BookingService.TravelFits(this, start, minutes, Settings.BufferMinutes, latitude, longitude, null, Settings))
@@ -694,15 +706,18 @@ public sealed class PublicStudioStore(
     public override string XenditExpired(string invoiceId, string eventKey) =>
         Transaction(null, () => pdb.Database.SqlQuery<string>($"SELECT public.mvc_xendit_expired({invoiceId}, {eventKey}) AS \"Value\"").AsEnumerable().Single());
 
-    public override void CancelBooking(Guid booking, Guid customer, bool confirmed) => Transaction(customer, () =>
+    public override void CancelBooking(Guid booking, Guid customer, bool confirmed, string? reason = null) => Transaction(customer, () =>
     {
         var b = LockBooking(booking);
         if (!confirmed || b.CustomerId != customer) throw new InvalidOperationException("Confirm cancellation of your own appointment.");
         var decision = CancellationPolicy.Evaluate(b.Status, Local(b.StartsAt), Now,
             CancellationPolicy.AcceptedAt(b.ArtistAcceptedAt is { } accepted ? Local(accepted) : null, b.PaidAt is { } paidAt ? Local(paidAt) : null));
         if (!decision.Allowed) throw new InvalidOperationException(decision.Reason);
-        var note = decision.Fee > 0 ? $"Customer confirmed cancellation and the PHP {decision.Fee:N0} deduction." : b.Status == BookingService.EarlyRequestStatus ? "Customer withdrew the early booking request."
+        var cleanReason = (reason ?? "").Trim();
+        if (cleanReason.Length > 1000) throw new InvalidOperationException("Provide a cancellation reason, up to 1,000 characters.");
+        var baseNote = decision.Fee > 0 ? $"Customer confirmed cancellation and the PHP {decision.Fee:N0} deduction." : b.Status == BookingService.EarlyRequestStatus ? "Customer withdrew the early booking request."
             : b.Status == "Confirmed" ? "Customer cancelled within the free cancellation window. No fee; the full payment is refunded." : "Customer cancelled before payment. No fee.";
+        var note = cleanReason.Length > 0 ? $"Reason: {cleanReason} — {baseNote}" : baseNote;
         pdb.Database.ExecuteSqlInterpolated($"UPDATE public.reservations SET status='Cancelled', cancellation_confirmed_at=now(), notes={note} WHERE app_id={booking}");
     });
 
@@ -710,6 +725,7 @@ public sealed class PublicStudioStore(
     {
         var b = LockBooking(booking);
         if (b.CustomerId != customer) throw new InvalidOperationException("This is not your booking.");
+        if (Local(b.StartsAt) == start) throw new InvalidOperationException("Choose a different date or time from your current appointment.");
         pdb.Database.ExecuteSqlInterpolated($"UPDATE public.reschedule_requests SET status='Superseded' WHERE reservation_id=(SELECT id FROM public.reservations WHERE app_id={booking}) AND status='Pending'");
         var utc = Utc(start);
         var reservationId = ReservationBigId(booking);

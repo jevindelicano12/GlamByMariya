@@ -395,13 +395,16 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
     public virtual string XenditPaid(string invoiceId,decimal amount,string eventKey) => throw new InvalidOperationException("Xendit payments need the public schema.");
     public virtual string XenditExpired(string invoiceId,string eventKey) => throw new InvalidOperationException("Xendit payments need the public schema.");
     public virtual string? PendingCheckoutUrl(Guid booking) => null;
-    public virtual void CancelBooking(Guid booking,Guid customer,bool confirmed) => Transaction(customer,()=>
+    public virtual void CancelBooking(Guid booking,Guid customer,bool confirmed,string? reason=null) => Transaction(customer,()=>
     {
         var b=LockBooking(booking);
         if(!confirmed || b.CustomerId!=customer) throw new InvalidOperationException("Confirm cancellation of your own appointment.");
         var decision=CancellationPolicy.Evaluate(b.Status,Local(b.StartsAt),Now);
         if(!decision.Allowed) throw new InvalidOperationException(decision.Reason);
-        var note=decision.Fee>0 ? $"Customer confirmed cancellation and the PHP {decision.Fee:N0} deduction." : "Customer cancelled before payment. No fee.";
+        var cleanReason=(reason ?? "").Trim();
+        if(cleanReason.Length>1000) throw new InvalidOperationException("Provide a cancellation reason, up to 1,000 characters.");
+        var baseNote=decision.Fee>0 ? $"Customer confirmed cancellation and the PHP {decision.Fee:N0} deduction." : "Customer cancelled before payment. No fee.";
+        var note=cleanReason.Length>0 ? $"Reason: {cleanReason} — {baseNote}" : baseNote;
         db.Database.ExecuteSqlInterpolated($"UPDATE makeup.bookings SET status='Cancelled',cancellation_confirmed_at=now(),note={note} WHERE id={booking}");
     });
     public virtual void RequestReschedule(Guid booking,Guid customer,DateTime start) => Transaction(customer,()=>
