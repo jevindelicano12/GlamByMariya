@@ -1,13 +1,110 @@
 @model List<Booking>
-@{ ViewData["Title"] = "My appointments"; var notifications = (List<Notification>)ViewBag.Notifications; var payments = (List<Payment>)ViewBag.Payments; }
+@{
+    ViewData["Title"] = "My appointments";
+    var notifications = (List<Notification>)ViewBag.Notifications;
+    var payments = (List<Payment>)ViewBag.Payments;
+    string CategoryOf(Booking b) =>
+        b.Status == "Completed" ? "completed"
+        : b.Status is "Cancelled" or "Rejected" or "Expired" ? "cancelled"
+        : b.Start >= DataStore.Now && b.Status is "Confirmed" or "Pending Payment" or BookingService.EarlyRequestStatus ? "upcoming"
+        : "past";
+    bool MatchesCustomerFilter(Booking b, string key) =>
+        key == "refund-waiting" ? b.RefundDue > b.Refunded : CategoryOf(b) == key;
+    var hasPast = Model.Any(b => CategoryOf(b) == "past");
+    var customerFilters = new List<(string Key, string Label)>
+    {
+        ("upcoming", "Upcoming"),
+        ("completed", "Completed"),
+        ("cancelled", "Cancelled"),
+        ("refund-waiting", "Refund waiting")
+    };
+    if (hasPast) customerFilters.Add(("past", "Past"));
+}
 <div class="page-heading"><div><div class="eyebrow">MY APPOINTMENTS</div><h1>My appointments</h1><p>View and manage your home-service bookings.</p></div><a asp-controller="Bookings" asp-action="Create" class="button">Book a new look <span>＋</span></a></div>
 <div class="stats"><div class="stat"><span>UPCOMING MOMENTS</span><strong>@Model.Count(b => b.Status == "Confirmed" && b.Start > DataStore.Now)</strong><small>Confirmed appointments</small></div><div class="stat"><span>PENDING PAYMENT</span><strong>@Model.Count(b => b.Status == "Pending Payment")</strong><small>Payment review or correction is pending</small></div><div class="stat"><span>BEAUTIFUL MEMORIES</span><strong>@Model.Count(b => b.Status == "Completed")</strong><small>Completed appointments</small></div></div>
 <section class="panel"><div class="section-title compact"><h3>Your home-service appointments</h3><span>@Model.Count total</span></div>
-<div class="customer-appointment-filters" data-customer-filters hidden aria-label="Filter appointments"><button type="button" data-filter="all" aria-pressed="true">All (@Model.Count)</button><button type="button" data-filter="upcoming" aria-pressed="false">Upcoming (@Model.Count(b => b.Start >= DataStore.Now && b.Status is "Confirmed" or "Pending Payment"))</button><button type="button" data-filter="completed" aria-pressed="false">Completed (@Model.Count(b => b.Status == "Completed"))</button><button type="button" data-filter="cancelled" aria-pressed="false">Cancelled (@Model.Count(b => b.Status is "Cancelled" or "Rejected"))</button></div><p class="customer-filter-count" data-customer-filter-count aria-live="polite"></p>
 @if (!Model.Any()) { <div class="empty"><span>✧</span><h3>Your next glow is waiting.</h3><p>Choose a look and book your first appointment.</p><a asp-controller="Bookings" asp-action="Create" class="button">Explore your options <span aria-hidden="true">→</span></a></div> }
-else { <div class="appointment-list">@foreach (var b in Model) { var filter = b.Status == "Completed" ? "completed" : b.Status is "Cancelled" or "Rejected" or "Expired" ? "cancelled" : b.Start >= DataStore.Now && b.Status is "Confirmed" or "Pending Payment" or "Awaiting Approval" ? "upcoming" : "other"; <article class="appointment-card" data-customer-appointment="@filter">
-    <div class="appointment-date"><small>@b.Start.ToString("MMM")</small><strong>@b.Start.ToString("dd")</strong></div>
-    <div class="appointment-copy"><h3>@(b.MixedPeople.Count > 0 ? $"Mixed-service group · {b.People} people" : b.Service.Name)</h3><small>@b.Reference</small><p>@b.Start.ToString("MMM dd, yyyy") · @b.Start.ToString("h:mm tt") – @b.End.ToString("h:mm tt")</p><p>@b.Area</p><small>Payment: @(b.Status == "Pending Payment" && payments.Any(p => p.BookingId == b.Id && p.ReviewStatus == "Correction Requested") ? "Correction requested" : b.PaymentStatus)</small>@if (b.RequestedStart != null) { <small>Reschedule requested</small> }</div>
-    <div class="appointment-status"><strong>₱@b.Total.ToString("N2")</strong><span class="badge @b.Status.ToLowerInvariant()">@b.DisplayStatus(DataStore.Now)</span><a asp-controller="Bookings" asp-action="Details" asp-route-id="@b.Id" class="button secondary">View details</a></div>
-</article> }</div> }</section>
+else {
+<div class="appointments-shell" data-appointments-view>
+    <aside class="appointments-filter-rail" aria-label="Filter appointments">
+        <div class="filter-rail-head">
+            <span class="filter-rail-title" id="customer-status-filter-label">Status</span>
+            <button type="button" class="filter-clear-btn" data-filter-clear hidden>Clear</button>
+        </div>
+        <div class="filter-options" role="group" aria-labelledby="customer-status-filter-label" data-status-filters>
+        @foreach (var item in customerFilters) {
+            var count = Model.Count(b => MatchesCustomerFilter(b, item.Key));
+            <label class="filter-option">
+                <input type="checkbox" value="@item.Key" data-status-checkbox />
+                <span class="filter-option-label">@item.Label</span>
+                <span class="filter-option-count">@count</span>
+            </label>
+        }
+        </div>
+    </aside>
+    <div class="appointments-main">
+        <div class="appointments-table-wrap" tabindex="0" role="region" aria-labelledby="customer-appointments-caption">
+            <table class="appointments-table customer-appointments-table" id="customer-appointments-table" data-sortable-table>
+                <caption id="customer-appointments-caption" class="visually-hidden">Your home-service appointments</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Booking</th>
+                        <th scope="col" data-type="number" aria-sort="descending">
+                            <button type="button" class="sort-trigger" commandfor="customer-appointments-table" command="--sort">
+                                <span>Date &amp; time</span>
+                                <svg class="sort-icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+                                    <path class="sort-up" d="M8 2.5l4.5 4.5h-9z" fill="currentColor" />
+                                    <path class="sort-down" d="M8 13.5l-4.5-4.5h9z" fill="currentColor" />
+                                </svg>
+                            </button>
+                        </th>
+                        <th scope="col">Payment</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Total</th>
+                        <th scope="col">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                @foreach (var b in Model) {
+                    var matches = string.Join("|", customerFilters.Select(f => f.Key).Where(k => MatchesCustomerFilter(b, k)));
+                    var startMs = new DateTimeOffset(DateTime.SpecifyKind(b.Start, DateTimeKind.Utc), TimeSpan.Zero).ToUnixTimeMilliseconds();
+                    <tr data-appointment-row data-statuses="|@matches|">
+                        <th scope="row">
+                            <strong>@(b.MixedPeople.Count > 0 ? $"Mixed-service group · {b.People} people" : b.Service.Name)</strong>
+                            <small>@b.Reference</small>
+                            <small>@b.Area</small>
+                        </th>
+                        <td data-value="@startMs">
+                            <time datetime="@b.Start.ToString("yyyy-MM-ddTHH:mm", System.Globalization.CultureInfo.InvariantCulture)">@b.Start.ToString("MMM dd, yyyy")</time>
+                            <small>@b.Start.ToString("h:mm tt") – @b.End.ToString("h:mm tt")</small>
+                        </td>
+                        <td>
+                            @(b.Status == "Pending Payment" && payments.Any(p => p.BookingId == b.Id && p.ReviewStatus == "Correction Requested") ? "Correction requested" : b.PaymentStatus)
+                            @if (b.RequestedStart != null) { <small>Reschedule requested</small> }
+                        </td>
+                        <td>
+                            <span class="badge @b.Status.ToLowerInvariant()">@b.DisplayStatus(DataStore.Now)</span>
+                            @if (b.RefundDue > b.Refunded) { <small>Refund waiting: ₱@((b.RefundDue - b.Refunded).ToString("N2"))</small> }
+                        </td>
+                        <td class="appointment-total-cell">₱@b.Total.ToString("N2")</td>
+                        <td><a asp-controller="Bookings" asp-action="Details" asp-route-id="@b.Id" class="button secondary appointment-details" aria-label="View @b.Reference">View details</a></td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+        <p class="visually-hidden" role="status" data-sort-status></p>
+        <p class="appointments-empty-filtered" data-empty-filtered hidden>No appointments match the selected filters.</p>
+        <div class="appointment-footer">
+            <p class="appointment-count" aria-live="polite" data-appointment-count>@Model.Count appointment(s) shown</p>
+            <nav class="appointment-pager" data-appointment-pager aria-label="Appointments pagination" hidden>
+                <button type="button" class="button secondary" data-page-prev>← Previous</button>
+                <span data-page-label>Page 1 of 1</span>
+                <button type="button" class="button secondary" data-page-next>Next →</button>
+            </nav>
+        </div>
+    </div>
+</div>
+}
+</section>
 @if (notifications.Any()) { <section class="panel notifications"><div class="eyebrow">BOOKING UPDATES</div>@foreach (var n in notifications) { <div><span>✧</span><p>@n.Message<small>@n.Created.ToString("MMM d, h:mm tt")</small></p></div> }</section> }

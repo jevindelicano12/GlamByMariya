@@ -23,7 +23,7 @@
 .customers-open{color:var(--c-head);font-weight:600}
 .customers-open::after{content:'';position:absolute;inset:0}
 .customers-open:focus-visible{outline:2px solid #D7A9BA;outline-offset:2px}
-.customers-mail{color:var(--c-accent);word-break:break-all}
+.customers-mail{color:var(--c-accent);overflow-wrap:anywhere;word-break:normal}
 .customers-empty{font-size:13px;color:var(--c-ink2);padding:18px 0}
 .customers-back{display:inline-block;font-size:13px;color:var(--c-accent);margin-bottom:12px}
 .customers-card{background:#fff;border:1px solid var(--c-line);border-radius:12px;padding:20px}

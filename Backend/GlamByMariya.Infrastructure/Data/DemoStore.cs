@@ -66,6 +66,78 @@ public class DemoStore : IStudioStore
             Payments.Add(new() { BookingId = booking.Id, Amount = booking.RequiredDownPayment, Method = "GCash", Reference = "DEMO-REFERENCE-001" });
         }
     }
+    /// <summary>Generates realistic local-demo bookings and payments from the active catalog (opt-in only; never used in production).</summary>
+    public void SeedSampleTransactions(int count = 16)
+    {
+        var activeServices = Services.Where(x => x.Active && !x.Archived).ToList();
+        if (activeServices.Count == 0) return;
+        var areas = Settings.ServiceAreas.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (areas.Length == 0) areas = ["Quezon City", "Makati", "Pasig", "Taguig"];
+        var firstNames = new[] { "Camille", "Bianca", "Sofia", "Katrina", "Andrea", "Mikaela", "Clarisse", "Danica", "Patricia", "Hannah", "Tricia", "Nicole" };
+        var lastNames = new[] { "Santos", "Reyes", "Cruz", "Bautista", "Garcia", "Mendoza", "Torres", "Villanueva", "Ramos", "Navarro", "Aquino", "Castro" };
+        var streets = new[] { "14 Katipunan Ave., Loyola Heights", "88 Shaw Blvd., Kapitolyo", "22 Jupiter St., Bel-Air", "51 Tomas Morato Ave., Sacred Heart", "9 Bonifacio High St., Fort Bonifacio", "105 Ortigas Ave., Ugong" };
+        var methods = new[] { "GCash", "Maya", "Bank Transfer" };
+        var statuses = new[] { "Confirmed", "Completed", "Pending Payment", "Confirmed", "Completed", "Pending Payment", "Cancelled", "Rejected", "Expired", BookingService.EarlyRequestStatus };
+        var rng = new Random(20261125);
+        var customers = new List<AppUser>();
+        for (var i = 0; i < 8; i++)
+        {
+            var fn = firstNames[i];
+            var ln = lastNames[(i * 3 + 1) % lastNames.Length];
+            var email = $"{fn.ToLowerInvariant()}.{ln.ToLowerInvariant()}@demo.test";
+            var existing = Users.FirstOrDefault(u => u.Email.Equals(email, StringComparison.OrdinalIgnoreCase));
+            customers.Add(existing ?? AddUser(fn, ln, email, "SamplePass123!", Roles.Customer, 22 + (i % 12), "Female", $"{streets[i % streets.Length]}, {areas[i % areas.Length]}"));
+        }
+        var reviewerId = Users.FirstOrDefault(u => u.Role is Roles.SuperAdmin or Roles.Admin)?.Id;
+        for (var i = 0; i < count; i++)
+        {
+            var svc = activeServices[rng.Next(activeServices.Count)];
+            var customer = customers[rng.Next(customers.Count)];
+            var status = statuses[i % statuses.Length];
+            var area = areas[rng.Next(areas.Length)];
+            var people = i % 4 == 0 ? rng.Next(2, 5) : 1;
+            var isPast = status is "Completed" or "Expired" or "Cancelled" or "Rejected";
+            var dayOffset = isPast ? -rng.Next(3, 120) : rng.Next(1, 24);
+            var startHour = status == BookingService.EarlyRequestStatus ? 5 : rng.Next(Settings.OpenHour, Math.Max(Settings.OpenHour + 1, Settings.CloseHour - 2));
+            var start = DateTime.Today.AddDays(dayOffset).AddHours(startHour);
+            var createdAt = isPast ? start.AddDays(-rng.Next(2, 10)) : Now.AddHours(-rng.Next(1, 72));
+            var isPaid = status is "Confirmed" or "Completed";
+            var booking = new Booking
+            {
+                CustomerId = customer.Id,
+                CreatedAt = createdAt,
+                CustomerName = customer.Name,
+                Service = new(svc.Id, svc.Name, svc.Price, svc.Minutes),
+                People = people,
+                Start = start,
+                BufferMinutesSnapshot = Settings.BufferMinutes,
+                Address = streets[rng.Next(streets.Length)],
+                Area = area,
+                Latitude = 14.55m + (decimal)rng.NextDouble() * 0.16m,
+                Longitude = 121.00m + (decimal)rng.NextDouble() * 0.08m,
+                TravelFee = Settings.TravelFee,
+                Status = status,
+                PaymentStatus = isPaid ? "Verified" : status == "Rejected" ? "Rejected" : "Pending Verification",
+                PaidAt = isPaid ? createdAt.AddMinutes(12) : null,
+                ArtistAcceptedAt = isPaid ? createdAt.AddMinutes(30) : null,
+                CompletedAt = status == "Completed" ? start.AddMinutes(svc.Minutes) : null,
+                PaymentDueAt = status == "Pending Payment" ? Now.AddMinutes(15) : null
+            };
+            Bookings.Add(booking);
+            var amount = status == "Completed" ? booking.Total : booking.RequiredDownPayment;
+            Payments.Add(new Payment
+            {
+                BookingId = booking.Id,
+                Amount = amount,
+                Method = methods[rng.Next(methods.Length)],
+                Reference = $"TXN-{createdAt:yyyyMMdd}-{1000 + i}",
+                Verified = isPaid,
+                ReviewStatus = isPaid ? "Verified" : status == "Rejected" ? "Rejected" : null,
+                VerifiedAt = isPaid ? createdAt.AddMinutes(25) : null,
+                VerifiedBy = isPaid ? reviewerId : null
+            });
+        }
+    }
     public AppUser AddUser(string firstName, string lastName, string email, string password, string role = "Customer", int age = 0, string gender = "", string address = "")
     {
         var user = new AppUser { Name = $"{firstName} {lastName}".Trim(), FirstName = firstName, LastName = lastName, Age = age, Gender = gender, Address = address, Email = email, Role = role, CreatedAt = Now };

@@ -59,12 +59,6 @@
 .customer-layout .calendar-toolbar>button:not(.text-button),.customer-layout .time-slot { background:#FFF8F4; border-color:#EADDD7; color:#49363D; }
 .customer-layout .time-slot[aria-pressed=true] { background:#A6536B; color:#fff; }
 .customer-layout .settings-card,.customer-layout .appointment-card { border-radius:16px; }
-.customer-appointment-filters:not([hidden]) { display:flex; flex-wrap:wrap; gap:8px; margin-top:20px; }
-.customer-appointment-filters button { min-height:44px; padding:8px 16px; border:1px solid #EADDD7; border-radius:999px; background:#fff; color:#49363D; }
-.customer-appointment-filters button[aria-pressed=true] { background:#A6536B; border-color:#A6536B; color:#fff; }
-.customer-appointment-filters button:focus-visible { outline:3px solid #A6536B; outline-offset:2px; }
-.appointment-card[hidden] { display:none; }
-.customer-filter-count { margin-top:8px; font-size:12px; }
 @media(max-width:850px) { .landing-page .public-hero { grid-template-columns:minmax(0,1fr) minmax(0,42%); padding:24px; }.public-hero .hero-placeholder { height:280px; }.public-about::after { width:90px; opacity:.35; } }
 @media(max-width:700px) {
  .landing-page .public-hero { grid-template-columns:1fr; gap:12px; padding:24px 20px; }.public-hero-copy { padding:0; }.public-hero h1 { font-size:clamp(36px,9vw,48px); }

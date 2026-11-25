@@ -133,7 +133,13 @@ else
         builder.Services.AddSingleton(_ => new DemoCatalogSnapshot(fullRoot));
         builder.Services.AddSingleton(sp => new DemoCatalogMedia(Path.Combine(fullRoot, "media"), sp.GetRequiredService<DemoStore>()));
     }
-    builder.Services.AddSingleton(sp => new DemoStore(sp.GetService<DemoCatalogSnapshot>(), passwords as string[], presentationAccounts));
+    var sampleBookings = builder.Configuration.GetValue<bool>("DemoAccounts:SampleBookings");
+    builder.Services.AddSingleton(sp =>
+    {
+        var demo = new DemoStore(sp.GetService<DemoCatalogSnapshot>(), passwords as string[], presentationAccounts);
+        if (sampleBookings) demo.SeedSampleTransactions();
+        return demo;
+    });
     builder.Services.AddSingleton<IStudioStore>(sp => sp.GetRequiredService<DemoStore>());
 }
 if (connection != null && builder.Configuration.GetValue<bool>("DemoCatalog:Enabled")) throw new InvalidOperationException("Durable Demo catalog cannot be enabled with PostgreSQL.");

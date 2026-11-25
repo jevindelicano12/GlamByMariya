@@ -150,7 +150,7 @@ public class BusinessSettings
     public string PolicyVersion { get; set; } = "booking-v1";
     public string TravelReminderVersion { get; set; } = "travel-v1";
     public int OpenHour { get; set; } = 8;
-    public int CloseHour { get; set; } = 18;
+    public int CloseHour { get; set; } = 19;
     public bool EarlyFeeEnabled { get; set; }
     public int EarlyStartHour { get; set; }
     public decimal EarlyFee { get; set; }
@@ -166,7 +166,7 @@ public class BusinessSettings
     public int TravelMinimumMinutes { get; set; } = 30;
     // Flexible booking (Phase 6): earliest early-request start and latest booking end; null = opening/closing hour.
     public int? EarlyRequestStartHour { get; set; }
-    public int? AfterHoursEndHour { get; set; }
+    public int? AfterHoursEndHour { get; set; } = 22;
     // The most people one booking may have, set by the owner (1 to 20).
     public int MaxPeople { get; set; } = 20;
     public string ServiceAreas { get; set; } = "Quezon City,Makati,Manila,Pasig,Taguig,Mandaluyong";

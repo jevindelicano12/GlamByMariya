@@ -17,13 +17,14 @@ public static class BookingWindow
     public static SlotKind KindOf(DateTime start, BusinessSettings s) =>
         start.TimeOfDay < TimeSpan.FromHours(s.OpenHour) ? SlotKind.Early : SlotKind.Regular;
 
-    // After-hours means the makeup session itself ends after closing.
+    // Late / after-hours starts at the regular closing hour (not daytime slots whose duration runs past closing).
     public static bool IsAfterHours(DateTime start, int durationMinutes, BusinessSettings s) =>
-        start.AddMinutes(durationMinutes) > start.Date.AddHours(s.CloseHour);
+        start.TimeOfDay >= TimeSpan.FromHours(s.CloseHour);
 
     public static bool Fits(DateTime start, int durationMinutes, int bufferMinutes, BusinessSettings s) =>
         start >= start.Date.AddHours(EarliestHour(s))
-        && start.AddMinutes(durationMinutes + bufferMinutes) <= start.Date.AddHours(LatestHour(s));
+        && start < start.Date.AddHours(LatestHour(s))
+        && start.AddMinutes(durationMinutes + bufferMinutes) <= start.Date.AddHours(24);
 
     // Null when valid: early <= open < close <= latest <= 24, no crossing midnight.
     public static string? ValidateSettings(int open, int close, int? early, int? latest)

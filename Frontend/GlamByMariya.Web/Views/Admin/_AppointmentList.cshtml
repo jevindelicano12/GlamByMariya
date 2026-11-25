@@ -1,37 +1,116 @@
 @model List<Booking>
 @inject XenditClient Xendit
-@{ var all = (List<Booking>)ViewBag.All; var selected = (string?)ViewBag.Status ?? ""; var corrections = ViewBag.CorrectionBookingIds as HashSet<Guid> ?? []; var online = Xendit.Enabled && DataStore.IsPersistent; var fullPage = ViewContext.RouteData.Values["action"]?.ToString() == "Appointments" || Context.Request.Query["view"] == "appointments"; }
+@{
+    var all = ((List<Booking>)ViewBag.All)
+        .OrderByDescending(b => b.CreatedAt ?? b.Start)
+        .ThenByDescending(b => b.Start)
+        .ToList();
+    var selected = (string?)ViewBag.Status ?? "";
+    var corrections = ViewBag.CorrectionBookingIds as HashSet<Guid> ?? [];
+    var online = Xendit.Enabled && DataStore.IsPersistent;
+    var fullPage = ViewContext.RouteData.Values["action"]?.ToString() == "Appointments" || Context.Request.Query["view"] == "appointments";
+    var statusFilters = new[]
+    {
+        BookingService.EarlyRequestStatus,
+        GlamByMariya.Web.Controllers.AdminController.PaidWaitingFilter,
+        GlamByMariya.Web.Controllers.AdminController.RefundWaitingFilter,
+        "Pending Payment",
+        "Confirmed",
+        "Completed",
+        "Cancelled",
+        "Rejected",
+        "Expired"
+    };
+    var initialCount = string.IsNullOrEmpty(selected)
+        ? all.Count
+        : all.Count(b => GlamByMariya.Web.Controllers.AdminController.StatusFilterMatches(b, selected, DataStore.Now));
+}
 <section class="admin-appointments" id="appointments">
     @if (!fullPage) { <div class="appointments-heading"><div><div class="eyebrow">BOOKING MANAGEMENT</div><h2>Appointment requests</h2><p>Manage booking requests, approvals and status.</p></div><a class="button secondary" asp-controller="Admin" asp-action="Appointments">All appointments</a></div> }
-    <nav class="appointment-filters" aria-label="Filter appointments by status">
-    @foreach (var filter in new[] { "", BookingService.EarlyRequestStatus, GlamByMariya.Web.Controllers.AdminController.PaidWaitingFilter, "Pending Payment", "Confirmed", "Completed", "Cancelled", "Rejected", "Expired" }) {
-        var count = all.Count(b => GlamByMariya.Web.Controllers.AdminController.StatusFilterMatches(b, filter, DataStore.Now));
-        <a class="@(selected == filter ? "active" : "")" aria-current="@(selected == filter ? "page" : null)" asp-controller="Admin" asp-action="Appointments" asp-route-mode="list" asp-route-status="@filter">@(filter == "" ? "All" : filter) (@count)</a>
-    }
-    </nav>
-    <div class="appointment-search" data-appointment-search hidden>
-        <label>Search loaded appointments<input type="search" data-search placeholder="Customer, service or reference" /></label>
-        <label>From<input type="date" data-from /></label><label>To<input type="date" data-to /></label>
-        <button type="button" class="button secondary" data-clear>Clear</button>
-        <p class="help">Search and dates apply to the selected status shown below.</p>
-    </div>
-    <div class="admin-appointment-list">
-        <div class="admin-appointment-head" aria-hidden="true"><span>Reference</span><span>Customer</span><span>Booking</span><span>Date &amp; time</span><span>Payment</span><span>Status</span><span>Total</span><span>Action</span></div>
-        @foreach (var b in Model) {
-        <article class="admin-appointment-row" aria-label="Appointment @b.Reference" data-appointment-row data-date="@b.Start.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)" data-search-text="@b.Reference @b.CustomerName @b.ServiceDescription @b.BookingType @string.Join(" ", b.MixedPeople.Select(p => p.Service.Name)) @b.Area">
-            <div><span class="appointment-field-label">Reference</span><strong>@b.Reference</strong></div><div><span class="appointment-field-label">Customer</span>@b.CustomerName</div><div><span class="appointment-field-label">Booking</span>@b.ServiceDescription<small>@b.BookingType · @AdminPaymentLabels.PeopleCount(b.People)</small></div>
-            <div><span class="appointment-field-label">Date &amp; time</span>@b.Start.ToString("MMM dd, yyyy")<small>@b.Start.ToString("h:mm tt") – @b.End.ToString("h:mm tt")</small><small>@((int)(b.End - b.Start).TotalMinutes) min makeup + @(b.BufferMinutesSnapshot ?? DataStore.Settings.BufferMinutes) min preparation</small></div>
-            <div><span class="appointment-field-label">Payment</span><span class="badge @(corrections.Contains(b.Id) ? "payment-correction" : null)">@(corrections.Contains(b.Id) ? "Correction requested" : AdminPaymentLabels.Booking(b, online))</span></div><div><span class="appointment-field-label">Status</span><span class="badge @b.Status.ToLowerInvariant()">@b.DisplayStatus(DataStore.Now)</span>@if (!DataStore.IsPersistent && b.Status == "Pending Payment") { <small>Time reserved</small> }@if (b.RequestedStart != null) { <small>Reschedule requested</small> }</div>
-            <div><span class="appointment-field-label">Total</span>₱@b.Total.ToString("N2")</div><div>@if (b.MixedPeople.Count == 0 || User.IsInRole("SuperAdmin")) { <a class="button secondary appointment-details" asp-action="Details" asp-route-id="@b.Id" aria-label="View @b.Reference">View details</a> } else { <small>SuperAdmin review required</small> }</div>
-        </article>
-        }
-    </div>
-    <div class="appointment-footer">
-        <p class="appointment-count" aria-live="polite" data-appointment-count>@Model.Count appointment(s) shown</p>
-        <nav class="appointment-pager" data-appointment-pager aria-label="Appointments pagination" hidden>
-            <button type="button" class="button secondary" data-page-prev>← Previous</button>
-            <span data-page-label>Page 1 of 1</span>
-            <button type="button" class="button secondary" data-page-next>Next →</button>
-        </nav>
+    <div class="appointments-shell" data-appointments-view>
+        <aside class="appointments-filter-rail" aria-label="Filter appointments">
+            <div class="filter-rail-head">
+                <span class="filter-rail-title" id="admin-status-filter-label">Status</span>
+                <button type="button" class="filter-clear-btn" data-filter-clear @(string.IsNullOrEmpty(selected) ? "hidden" : null)>Clear</button>
+            </div>
+            <div class="filter-options" role="group" aria-labelledby="admin-status-filter-label" data-status-filters>
+                @foreach (var filter in statusFilters) {
+                    var count = all.Count(b => GlamByMariya.Web.Controllers.AdminController.StatusFilterMatches(b, filter, DataStore.Now));
+                    <label class="filter-option">
+                        <input type="checkbox" value="@filter" data-status-checkbox checked="@(selected == filter)" />
+                        <span class="filter-option-label">@filter</span>
+                        <span class="filter-option-count">@count</span>
+                    </label>
+                }
+            </div>
+        </aside>
+        <div class="appointments-main">
+            <div class="appointment-search" data-appointment-search hidden>
+                <label>Search appointments<input type="search" data-search placeholder="Customer, service or reference" /></label>
+                <label>From<input type="date" data-from /></label><label>To<input type="date" data-to /></label>
+                <button type="button" class="button secondary" data-clear>Clear</button>
+            </div>
+            <div class="appointments-table-wrap" tabindex="0" role="region" aria-labelledby="admin-appointments-caption">
+                <table class="appointments-table" id="admin-appointments-table" data-sortable-table>
+                    <caption id="admin-appointments-caption" class="visually-hidden">Appointment requests</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Reference</th>
+                            <th scope="col">Customer</th>
+                            <th scope="col">Booking</th>
+                            <th scope="col" data-type="number">
+                                <button type="button" class="sort-trigger" commandfor="admin-appointments-table" command="--sort">
+                                    <span>Date &amp; time</span>
+                                    <svg class="sort-icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+                                        <path class="sort-up" d="M8 2.5l4.5 4.5h-9z" fill="currentColor" />
+                                        <path class="sort-down" d="M8 13.5l-4.5-4.5h9z" fill="currentColor" />
+                                    </svg>
+                                </button>
+                            </th>
+                            <th scope="col">Payment</th>
+                            <th scope="col">Status</th>
+                            <th scope="col">Total</th>
+                            <th scope="col">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    @foreach (var b in all) {
+                        var matches = string.Join("|", statusFilters.Where(f => GlamByMariya.Web.Controllers.AdminController.StatusFilterMatches(b, f, DataStore.Now)));
+                        var isHidden = !string.IsNullOrEmpty(selected) && !GlamByMariya.Web.Controllers.AdminController.StatusFilterMatches(b, selected, DataStore.Now);
+                        var startMs = new DateTimeOffset(DateTime.SpecifyKind(b.Start, DateTimeKind.Utc), TimeSpan.Zero).ToUnixTimeMilliseconds();
+                        <tr data-appointment-row data-statuses="|@matches|" data-date="@b.Start.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)" data-search-text="@b.Reference @b.CustomerName @b.ServiceDescription @b.BookingType @string.Join(" ", b.MixedPeople.Select(p => p.Service.Name)) @b.Area" hidden="@isHidden">
+                            <th scope="row"><strong>@b.Reference</strong></th>
+                            <td>@b.CustomerName</td>
+                            <td>@b.ServiceDescription<small>@b.BookingType · @AdminPaymentLabels.PeopleCount(b.People)</small></td>
+                            <td data-value="@startMs">
+                                <time datetime="@b.Start.ToString("yyyy-MM-ddTHH:mm", System.Globalization.CultureInfo.InvariantCulture)">@b.Start.ToString("MMM dd, yyyy")</time>
+                                <small>@b.Start.ToString("h:mm tt") – @b.End.ToString("h:mm tt")</small>
+                                <small>@((int)(b.End - b.Start).TotalMinutes) min makeup + @(b.BufferMinutesSnapshot ?? DataStore.Settings.BufferMinutes) min preparation</small>
+                            </td>
+                            <td><span class="badge @(corrections.Contains(b.Id) ? "payment-correction" : null)">@(corrections.Contains(b.Id) ? "Correction requested" : AdminPaymentLabels.Booking(b, online))</span></td>
+                            <td>
+                                <span class="badge @b.Status.ToLowerInvariant()">@b.DisplayStatus(DataStore.Now)</span>
+                                @if (!DataStore.IsPersistent && b.Status == "Pending Payment") { <small>Time reserved</small> }
+                                @if (b.RequestedStart != null) { <small>Reschedule requested</small> }
+                                @if (b.RefundDue > b.Refunded) { <small>Refund waiting: ₱@((b.RefundDue - b.Refunded).ToString("N2"))</small> }
+                            </td>
+                            <td class="appointment-total-cell">₱@b.Total.ToString("N2")</td>
+                            <td>@if (b.MixedPeople.Count == 0 || User.IsInRole("SuperAdmin")) { <a class="button secondary appointment-details" asp-action="Details" asp-route-id="@b.Id" aria-label="View @b.Reference">View details</a> } else { <small>SuperAdmin review required</small> }</td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+            <p class="visually-hidden" role="status" data-sort-status></p>
+            <p class="appointments-empty-filtered" data-empty-filtered hidden="@(initialCount > 0)">No appointments match the selected filters.</p>
+            <div class="appointment-footer">
+                <p class="appointment-count" aria-live="polite" data-appointment-count>@initialCount appointment(s) shown</p>
+                <nav class="appointment-pager" data-appointment-pager aria-label="Appointments pagination" hidden>
+                    <button type="button" class="button secondary" data-page-prev>← Previous</button>
+                    <span data-page-label>Page 1 of 1</span>
+                    <button type="button" class="button secondary" data-page-next>Next →</button>
+                </nav>
+            </div>
+        </div>
     </div>
 </section>

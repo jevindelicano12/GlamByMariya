@@ -1,10 +1,150 @@
 @model List<Booking>
 @inject XenditClient Xendit
-@{ ViewData["Title"] = "Payments"; var payments = (List<Payment>)ViewBag.Payments; var online = Xendit.Enabled && DataStore.IsPersistent; }
+@{
+    ViewData["Title"] = "Payments";
+    var payments = (List<Payment>)ViewBag.Payments;
+    var online = Xendit.Enabled && DataStore.IsPersistent;
+    var bookingsById = Model.ToDictionary(b => b.Id);
+    var verifiedByBooking = payments
+        .Where(x => x.Verified)
+        .GroupBy(x => x.BookingId)
+        .ToDictionary(g => g.Key, g => g.Sum(x => x.Amount));
+    var rows = payments
+        .Where(p => bookingsById.ContainsKey(p.BookingId))
+        .Select(p => (Payment: p, Booking: bookingsById[p.BookingId]))
+        .OrderByDescending(x => x.Payment.VerifiedAt ?? x.Booking.CreatedAt ?? x.Booking.Start)
+        .ThenByDescending(x => x.Booking.Start)
+        .ToList();
+
+    bool IsNotPaid(Payment p, Booking b) => !p.Verified && b.Status is "Cancelled" or "Rejected" or "Expired";
+    bool IsPending(Payment p, Booking b) => !p.Verified && !IsNotPaid(p, b);
+    bool MatchesFilter(Payment p, Booking b, string key) => key switch
+    {
+        "verified" => p.Verified,
+        "pending" => IsPending(p, b),
+        "refund-waiting" => b.RefundDue > b.Refunded,
+        "not-paid" => IsNotPaid(p, b),
+        _ => true
+    };
+    var paymentFilters = new (string Key, string Label)[]
+    {
+        ("pending", online ? "Waiting for Xendit" : "Awaiting review"),
+        ("verified", "Verified"),
+        ("refund-waiting", "Refund waiting"),
+        ("not-paid", "Not paid")
+    };
+}
 <div class="page-heading"><div><div class="eyebrow">PAYMENT MANAGEMENT</div><h1>Payments</h1><p>@(online ? "Down payments made through Xendit, and cash balances recorded when an appointment is completed. Xendit marks a down payment verified only after it goes through." : "Review submitted claims and recorded decisions. A screenshot does not confirm a transfer.")</p></div></div>
-<section class="panel"><h2>Payment records</h2>
-@if (!payments.Any()) { <p>No payments recorded.</p> }
-@foreach (var p in payments) { var b = Model.FirstOrDefault(x => x.Id == p.BookingId); if (b == null) { continue; }
-<article class="calendar-item"><div><strong>@b.CustomerName · @b.Reference · @b.ServiceDescription</strong><p>@b.BookingType · @AdminPaymentLabels.PeopleCount(b.People)</p><p>Total ₱@b.Total.ToString("N2") · Minimum ₱@b.RequiredDownPayment.ToString("N2") · @(p.Method == "Cash" ? "Cash balance" : online ? "Down payment" : "Submitted") ₱@p.Amount.ToString("N2")</p><p>@p.Method · Reference @p.Reference · @AdminPaymentLabels.Payment(p, b, online)</p><small>Verified for booking ₱@payments.Where(x => x.BookingId == b.Id && x.Verified).Sum(x => x.Amount).ToString("N2") · Remaining ₱@Math.Max(0, b.Total - payments.Where(x => x.BookingId == b.Id && x.Verified).Sum(x => x.Amount)).ToString("N2")</small><div class="payment-record-actions">@if (!DataStore.IsPersistent && (p.ProofPath != null || p.ProofKey != null)) { <a class="button secondary" asp-action="Proof" asp-route-id="@p.Id" asp-route-bookingId="@b.Id">View private proof</a> }<a class="button secondary" asp-action="Details" asp-route-id="@b.Id">Review booking and actions</a></div></div></article>
+<section class="admin-appointments" id="payments" aria-label="Payment records">
+@if (!rows.Any()) {
+    <div class="panel"><p>No payments recorded.</p></div>
+} else {
+    <div class="appointments-shell" data-appointments-view data-item-label="payment(s)">
+        <aside class="appointments-filter-rail" aria-label="Filter payments">
+            <div class="filter-rail-head">
+                <span class="filter-rail-title" id="admin-payment-filter-label">Status</span>
+                <button type="button" class="filter-clear-btn" data-filter-clear hidden>Clear</button>
+            </div>
+            <div class="filter-options" role="group" aria-labelledby="admin-payment-filter-label" data-status-filters>
+            @foreach (var item in paymentFilters) {
+                var count = rows.Count(r => MatchesFilter(r.Payment, r.Booking, item.Key));
+                <label class="filter-option">
+                    <input type="checkbox" value="@item.Key" data-status-checkbox />
+                    <span class="filter-option-label">@item.Label</span>
+                    <span class="filter-option-count">@count</span>
+                </label>
+            }
+            </div>
+        </aside>
+        <div class="appointments-main">
+            <div class="appointment-search" data-appointment-search hidden>
+                <label>Search payments<input type="search" data-search placeholder="Customer, reference, method or service" /></label>
+                <label>From<input type="date" data-from /></label><label>To<input type="date" data-to /></label>
+                <button type="button" class="button secondary" data-clear>Clear</button>
+            </div>
+            <div class="appointments-table-wrap" tabindex="0" role="region" aria-labelledby="admin-payments-caption">
+                <table class="appointments-table" id="admin-payments-table" data-sortable-table>
+                    <caption id="admin-payments-caption" class="visually-hidden">Payment records</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Booking</th>
+                            <th scope="col" data-type="number">
+                                <button type="button" class="sort-trigger" commandfor="admin-payments-table" command="--sort">
+                                    <span>Date</span>
+                                    <svg class="sort-icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+                                        <path class="sort-up" d="M8 2.5l4.5 4.5h-9z" fill="currentColor" />
+                                        <path class="sort-down" d="M8 13.5l-4.5-4.5h9z" fill="currentColor" />
+                                    </svg>
+                                </button>
+                            </th>
+                            <th scope="col">Method &amp; Ref</th>
+                            <th scope="col">Amount</th>
+                            <th scope="col">Balance</th>
+                            <th scope="col">Status</th>
+                            <th scope="col">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    @foreach (var (p, b) in rows) {
+                        var verifiedTotal = verifiedByBooking.GetValueOrDefault(b.Id, 0m);
+                        var remaining = Math.Max(0m, b.Total - verifiedTotal);
+                        var matches = string.Join("|", paymentFilters.Select(f => f.Key).Where(k => MatchesFilter(p, b, k)));
+                        var startMs = new DateTimeOffset(DateTime.SpecifyKind(b.Start, DateTimeKind.Utc), TimeSpan.Zero).ToUnixTimeMilliseconds();
+                        var paymentLabel = p.ReviewStatus == "Correction Requested" && !p.Verified ? "Correction requested" : AdminPaymentLabels.Payment(p, b, online);
+                        var badgeClass = p.Verified ? "confirmed" : p.ReviewStatus == "Correction Requested" ? "payment-correction" : IsNotPaid(p, b) ? "cancelled" : "pending";
+                        <tr data-appointment-row data-statuses="|@matches|" data-date="@b.Start.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)" data-search-text="@b.Reference @b.CustomerName @b.ServiceDescription @b.BookingType @p.Method @p.Reference @paymentLabel">
+                            <th scope="row">
+                                <strong>@b.Reference</strong>
+                                <small>@b.CustomerName</small>
+                                <small>@b.ServiceDescription · @AdminPaymentLabels.PeopleCount(b.People)</small>
+                            </th>
+                            <td data-value="@startMs">
+                                <time datetime="@b.Start.ToString("yyyy-MM-ddTHH:mm", System.Globalization.CultureInfo.InvariantCulture)">@b.Start.ToString("MMM dd, yyyy")</time>
+                                <small>@b.Start.ToString("h:mm tt")</small>
+                                @if (p.VerifiedAt != null) { <small>Verified @p.VerifiedAt.Value.ToString("MMM dd, h:mm tt")</small> }
+                            </td>
+                            <td>
+                                <strong>@p.Method</strong>
+                                <small>@p.Reference</small>
+                                <small>@(p.Method == "Cash" ? "Cash balance" : online ? "Down payment" : "Submitted")</small>
+                            </td>
+                            <td class="appointment-total-cell">
+                                ₱@p.Amount.ToString("N2")
+                                <small>Total ₱@b.Total.ToString("N2")</small>
+                                <small>Min ₱@b.RequiredDownPayment.ToString("N2")</small>
+                            </td>
+                            <td class="appointment-total-cell">
+                                ₱@remaining.ToString("N2")
+                                <small>Verified ₱@verifiedTotal.ToString("N2")</small>
+                            </td>
+                            <td>
+                                <span class="badge @badgeClass">@paymentLabel</span>
+                                @if (b.RefundDue > b.Refunded) { <small>Refund waiting: ₱@((b.RefundDue - b.Refunded).ToString("N2"))</small> }
+                            </td>
+                            <td>
+                                <div class="payment-table-actions">
+                                    <a class="button secondary appointment-details" asp-action="Details" asp-route-id="@b.Id" aria-label="Review booking @b.Reference">Review</a>
+                                    @if (!DataStore.IsPersistent && (p.ProofPath != null || p.ProofKey != null)) {
+                                        <a class="button secondary appointment-details" asp-action="Proof" asp-route-id="@p.Id" asp-route-bookingId="@b.Id" aria-label="View private proof for @b.Reference">Proof</a>
+                                    }
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+            <p class="visually-hidden" role="status" data-sort-status></p>
+            <p class="appointments-empty-filtered" data-empty-filtered hidden>No payments match the selected filters.</p>
+            <div class="appointment-footer">
+                <p class="appointment-count" aria-live="polite" data-appointment-count>@rows.Count payment(s) shown</p>
+                <nav class="appointment-pager" data-appointment-pager aria-label="Payments pagination" hidden>
+                    <button type="button" class="button secondary" data-page-prev>← Previous</button>
+                    <span data-page-label>Page 1 of 1</span>
+                    <button type="button" class="button secondary" data-page-next>Next →</button>
+                </nav>
+            </div>
+        </div>
+    </div>
 }
 </section>

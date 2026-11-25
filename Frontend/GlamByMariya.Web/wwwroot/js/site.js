@@ -94,33 +94,131 @@ const paginateItems = (allItems, pager, page, getMatched = () => allItems) => {
   return { current, matchedCount: matched.length };
 };
 
-const customerFilters = document.querySelector('[data-customer-filters]');
-const customerCards = [...document.querySelectorAll('[data-customer-appointment]')];
-if (customerCards.length) {
-  const listEl = customerCards[0].closest('.appointment-list') || customerCards[0].parentElement;
-  const count = document.querySelector('[data-customer-filter-count]');
-  const pager = createPager(listEl, 10);
-  let activeFilter = 'all';
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+const reorderNodes = (container, orderedNodes) => {
+  const move = Object.hasOwn(Element.prototype, 'moveBefore')
+    ? node => container.moveBefore(node, null)
+    : node => container.append(node);
+  for (const node of orderedNodes) move(node);
+};
+
+document.querySelectorAll('[data-appointments-view]').forEach(view => {
+  const table = view.querySelector('[data-sortable-table]');
+  const tbody = table?.tBodies[0];
+  if (!table || !tbody) return;
+  const rows = [...tbody.querySelectorAll('[data-appointment-row]')];
+  const checkboxes = [...view.querySelectorAll('[data-status-checkbox]')];
+  const clearStatuses = view.querySelector('[data-filter-clear]');
+  const searchBar = view.querySelector('[data-appointment-search]');
+  const search = searchBar?.querySelector('[data-search]');
+  const from = searchBar?.querySelector('[data-from]');
+  const to = searchBar?.querySelector('[data-to]');
+  const clearSearch = searchBar?.querySelector('[data-clear]');
+  const count = view.querySelector('[data-appointment-count]');
+  const emptyMsg = view.querySelector('[data-empty-filtered]');
+  const sortStatus = view.querySelector('[data-sort-status]');
+  const pagerNav = view.querySelector('[data-appointment-pager]');
+  const pager = pagerNav ? {
+    nav: pagerNav,
+    prev: pagerNav.querySelector('[data-page-prev]'),
+    next: pagerNav.querySelector('[data-page-next]'),
+    label: pagerNav.querySelector('[data-page-label]'),
+    pageSize: 10
+  } : null;
   let page = 1;
-  const render = () => {
-    const { current, matchedCount } = paginateItems(customerCards, pager, page, () =>
-      customerCards.filter(card => activeFilter === 'all' || card.dataset.customerAppointment === activeFilter));
-    page = current;
-    if (count) count.textContent = `${matchedCount} appointment(s) shown`;
+  let lastMatchedCount = rows.length;
+
+  const getMatched = () => {
+    const selected = checkboxes.filter(input => input.checked).map(input => `|${input.value}|`);
+    const query = search?.value.trim().toLocaleLowerCase() || '';
+    const fromDate = from?.value || '';
+    const toDate = to?.value || '';
+    return rows.filter(row => {
+      if (selected.length && !selected.some(token => (row.dataset.statuses || '').includes(token))) return false;
+      if (query && !(row.dataset.searchText || '').toLocaleLowerCase().includes(query)) return false;
+      if (fromDate && (row.dataset.date || '') < fromDate) return false;
+      if (toDate && (row.dataset.date || '') > toDate) return false;
+      return true;
+    });
   };
-  pager.prev.addEventListener('click', () => { page--; render(); });
-  pager.next.addEventListener('click', () => { page++; render(); });
-  if (customerFilters) {
-    customerFilters.querySelectorAll('button').forEach(button => button.addEventListener('click', () => {
-      activeFilter = button.dataset.filter;
-      page = 1;
-      customerFilters.querySelectorAll('button').forEach(item => item.setAttribute('aria-pressed', String(item === button)));
+
+  const render = () => {
+    const anyChecked = checkboxes.some(input => input.checked);
+    if (clearStatuses) clearStatuses.hidden = !anyChecked;
+    const matched = getMatched();
+    lastMatchedCount = matched.length;
+    if (pager) {
+      page = paginateItems(rows, pager, page, () => matched).current;
+    } else {
+      const matchedSet = new Set(matched);
+      rows.forEach(row => { row.hidden = !matchedSet.has(row); });
+    }
+    if (count) count.textContent = `${matched.length} ${view.dataset?.itemLabel || 'appointment(s)'} shown`;
+    if (emptyMsg) emptyMsg.hidden = matched.length > 0;
+  };
+
+  const resetAndRender = () => { page = 1; render(); };
+
+  const sortBy = button => {
+    const th = button.closest('th');
+    if (!th) return;
+    const direction = th.getAttribute('aria-sort') === 'ascending' ? 'descending' : 'ascending';
+    for (const header of table.tHead.rows[0].cells) header.removeAttribute('aria-sort');
+    th.setAttribute('aria-sort', direction);
+
+    const index = th.cellIndex;
+    const isNumber = th.dataset.type === 'number';
+    const factor = direction === 'ascending' ? 1 : -1;
+    const keyed = rows.map(row => {
+      const cell = row.cells[index];
+      const raw = cell?.dataset.value ?? cell?.textContent.trim() ?? '';
+      return { row, value: isNumber ? Number(raw) : raw };
+    });
+    keyed.sort((a, b) => factor * (isNumber ? a.value - b.value : collator.compare(a.value, b.value)));
+    rows.splice(0, rows.length, ...keyed.map(item => item.row));
+    page = 1;
+
+    const update = () => {
+      reorderNodes(tbody, rows);
       render();
-    }));
-    customerFilters.hidden = false;
+    };
+    const animate = rows.length <= 150 && !matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (animate && table.startViewTransition) table.startViewTransition(update);
+    else if (animate && document.startViewTransition) document.startViewTransition(update);
+    else update();
+
+    if (sortStatus) sortStatus.textContent = `Sorted by ${button.textContent.trim()}, ${direction}, ${lastMatchedCount} rows`;
+  };
+
+  table.addEventListener('command', event => {
+    if (event.command === '--sort' && event.source instanceof HTMLButtonElement) sortBy(event.source);
+  });
+  // Only without invoker commands: in supporting browsers a click also fires `command`.
+  if (!('commandForElement' in HTMLButtonElement.prototype)) {
+    for (const button of table.tHead.querySelectorAll('button[command="--sort"]')) {
+      button.addEventListener('click', () => sortBy(button));
+    }
   }
+
+  checkboxes.forEach(input => input.addEventListener('change', resetAndRender));
+  clearStatuses?.addEventListener('click', () => {
+    checkboxes.forEach(input => { input.checked = false; });
+    resetAndRender();
+  });
+  if (searchBar) {
+    [search, from, to].filter(Boolean).forEach(input => input.addEventListener('input', resetAndRender));
+    clearSearch?.addEventListener('click', () => {
+      if (search) search.value = '';
+      if (from) from.value = '';
+      if (to) to.value = '';
+      resetAndRender();
+    });
+    searchBar.hidden = false;
+  }
+  pager?.prev.addEventListener('click', () => { page--; render(); });
+  pager?.next.addEventListener('click', () => { page++; render(); });
   render();
-}
+});
 
 [
   ['.customers-table-wrap', '.customers-table tbody tr'],
@@ -153,47 +251,6 @@ document.querySelectorAll('.catalog-image-block input[type="file"]').forEach(inp
     current = URL.createObjectURL(file); preview.src = current; preview.hidden = false;
   });
 });
-const appointmentSearch = document.querySelector('[data-appointment-search]');
-if (appointmentSearch) {
-  const rows = [...document.querySelectorAll('[data-appointment-row]')];
-  const search = appointmentSearch.querySelector('[data-search]');
-  const from = appointmentSearch.querySelector('[data-from]');
-  const to = appointmentSearch.querySelector('[data-to]');
-  const count = document.querySelector('[data-appointment-count]');
-  const pager = document.querySelector('[data-appointment-pager]');
-  const prevBtn = pager?.querySelector('[data-page-prev]');
-  const nextBtn = pager?.querySelector('[data-page-next]');
-  const pageLabel = pager?.querySelector('[data-page-label]');
-  const pageSize = 10;
-  let page = 1;
-  const render = () => {
-    const query = search.value.trim().toLocaleLowerCase();
-    const matched = rows.filter(row =>
-      row.dataset.searchText.toLocaleLowerCase().includes(query) &&
-      (!from.value || row.dataset.date >= from.value) && (!to.value || row.dataset.date <= to.value));
-    const totalPages = Math.max(1, Math.ceil(matched.length / pageSize));
-    if (page > totalPages) page = totalPages;
-    if (page < 1) page = 1;
-    const start = (page - 1) * pageSize;
-    const end = start + pageSize;
-    const pageSet = new Set(matched.slice(start, end));
-    rows.forEach(row => { row.hidden = !pageSet.has(row); });
-    count.textContent = `${matched.length} appointment(s) shown`;
-    if (pager) {
-      pager.hidden = totalPages <= 1;
-      if (pageLabel) pageLabel.textContent = `Page ${page} of ${totalPages}`;
-      if (prevBtn) prevBtn.disabled = page <= 1;
-      if (nextBtn) nextBtn.disabled = page >= totalPages;
-    }
-  };
-  const filter = () => { page = 1; render(); };
-  [search, from, to].forEach(input => input.addEventListener('input', filter));
-  appointmentSearch.querySelector('[data-clear]').addEventListener('click', () => { search.value = from.value = to.value = ''; filter(); });
-  prevBtn?.addEventListener('click', () => { page--; render(); });
-  nextBtn?.addEventListener('click', () => { page++; render(); });
-  appointmentSearch.hidden = false;
-  render();
-}
 const staffMenu = document.querySelector('#staff-mobile-menu');
 if (staffMenu) {
   const mobile = matchMedia('(max-width: 850px)');
@@ -703,7 +760,7 @@ document.querySelectorAll('.availability-picker').forEach(picker => {
       button.addEventListener('click', () => {
          startInput.value = slot.start;
          startInput.dispatchEvent(new Event('change', { bubbles: true }));
-        window.FlexibleTimes?.choose(form, slot);
+        window.FlexibleTimes?.choose(form, slot, snapshot?.durationMinutes);
         renderSlots();
         validateTime();
       });

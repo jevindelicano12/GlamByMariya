@@ -139,12 +139,10 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
         }
     }
     private static decimal EarlyFeeAt(DateTime start, BusinessSettings settings) => settings.EarlyFeeEnabled && start.TimeOfDay >= TimeSpan.FromHours(settings.EarlyStartHour) && start.TimeOfDay < TimeSpan.FromHours(settings.OpenHour) ? settings.EarlyFee : 0;
-    // One rule for every booking type: late when makeup starts at or after the late
-    // boundary, or starts in regular hours but finishes after regular closing.
+    // Late fee applies only when makeup starts at or after the configured late/closing boundary.
     private static decimal LateFeeAt(DateTime start, int duration, BusinessSettings settings) =>
-        settings.LateFeeEnabled && settings.LateStartHour.HasValue && start.TimeOfDay >= TimeSpan.FromHours(settings.OpenHour)
-        && (start.TimeOfDay >= TimeSpan.FromHours(settings.LateStartHour.Value)
-            || start.TimeOfDay + TimeSpan.FromMinutes(duration) > TimeSpan.FromHours(settings.CloseHour))
+        settings.LateFeeEnabled && settings.LateStartHour.HasValue
+        && start.TimeOfDay >= TimeSpan.FromHours(settings.LateStartHour.Value)
             ? settings.LateFee : 0;
     private List<CatalogItem> SelectAddOns(Guid[] ids, int people)
     {
@@ -257,8 +255,9 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
         var opening = FirstHour(settings);
         var existing = (cachedBookings ?? bookings.Bookings).FirstOrDefault(b => b.Id == exclude);
         var closing = LastHour(settings);
-        var endLimit = start.Date.AddHours(closing);
-        if ((existing == null || existing.Start != start) && (start < start.Date.AddHours(opening) || reservedEnd > endLimit)) return $"Choose a time after {opening}:00 that allows your session and {buffer}-minute preparation buffer to finish by {closing}:00.";
+        var startLimit = start.Date.AddHours(closing);
+        var dayEnd = start.Date.AddHours(24);
+        if ((existing == null || existing.Start != start) && (start < start.Date.AddHours(opening) || start >= startLimit || reservedEnd > dayEnd)) return $"Choose a start time between {opening}:00 and {closing}:00 that finishes by midnight (including the {buffer}-minute preparation buffer).";
         if ((cachedBlocks ?? store.Blocks).Any(b => start < b.To && reservedEnd > b.From)) return "The artist is unavailable during this time. Please choose another slot.";
         var occupied = cachedOccupied ?? (store is PublicStudioStore publicStore ? publicStore.OccupiedIntervals(start.Date.AddDays(-1), start.Date.AddDays(2), exclude) : null);
         if (occupied != null ? occupied.Any(b => start < b.To && reservedEnd > b.From) :
@@ -352,7 +351,9 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
                 var dayStops = stopsByDay?[date].ToList();
                 if (date >= now.Date)
                 {
-                    var last = date.AddHours(LastHour(settings)).AddMinutes(-duration - buffer);
+                    var latestStart = date.AddHours(LastHour(settings)).AddMinutes(-15);
+                    var latestByMidnight = date.AddHours(24).AddMinutes(-duration - buffer);
+                    var last = latestStart < latestByMidnight ? latestStart : latestByMidnight;
                     for (var start = date.AddHours(FirstHour(settings)); start <= last; start = start.AddMinutes(15))
                     {
                         cancellationToken.ThrowIfCancellationRequested();

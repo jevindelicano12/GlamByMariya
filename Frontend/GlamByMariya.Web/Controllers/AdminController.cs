@@ -111,7 +111,10 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
             var all = store.Bookings.ToList(); var payments = store.Payments.ToList();
             ViewBag.All = all; ViewBag.Payments = payments; ViewBag.Status = status;
             ViewBag.CorrectionBookingIds = CorrectionBookings(all, payments);
-            return View(all.Where(b => StatusFilterMatches(b, status, store.Now)).OrderBy(b => b.Start).ToList());
+            return View(all.Where(b => StatusFilterMatches(b, status, store.Now))
+                .OrderByDescending(b => b.CreatedAt ?? b.Start)
+                .ThenByDescending(b => b.Start)
+                .ToList());
         }
     }
     // Does the proposed reschedule time fit the artist's travel? null when there is nothing to check (no pending request, or a mixed booking).
@@ -290,9 +293,14 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
         }
     }
     // "Paid · waiting": paid bookings the artist has not confirmed yet (their status is Confirmed).
+    // "Refund waiting": bookings with an outstanding manual refund balance.
     public const string PaidWaitingFilter = "Paid · waiting";
+    public const string RefundWaitingFilter = "Refund waiting";
     public static bool StatusFilterMatches(Booking b, string? status, DateTime now) =>
-        string.IsNullOrEmpty(status) || (status == PaidWaitingFilter ? b.AwaitingArtist(now) : b.Status == status);
+        string.IsNullOrEmpty(status)
+        || (status == PaidWaitingFilter ? b.AwaitingArtist(now)
+            : status == RefundWaitingFilter ? b.RefundDue > b.Refunded
+            : b.Status == status);
 
     public IActionResult Appointments(string? mode, string? status, int? year, int? month, int? day)
     {
@@ -303,9 +311,12 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
         if (day.HasValue && (day < 1 || day > DateTime.DaysInMonth(first.Year, first.Month))) return BadRequest();
         lock (store.Gate)
         {
-            var all = store.Bookings.OrderBy(b => b.Start).ToList();
+            var isCalendar = mode == "calendar";
+            var all = isCalendar
+                ? store.Bookings.OrderBy(b => b.Start).ToList()
+                : store.Bookings.OrderByDescending(b => b.CreatedAt ?? b.Start).ThenByDescending(b => b.Start).ToList();
             ViewBag.All = all; ViewBag.Status = status; ViewBag.Mode = mode ?? "list";
-            if (mode != "calendar") ViewBag.CorrectionBookingIds = CorrectionBookings(all, store.Payments);
+            if (!isCalendar) ViewBag.CorrectionBookingIds = CorrectionBookings(all, store.Payments);
             ViewBag.Month = first; ViewBag.Day = day; ViewBag.Blocks = store.Blocks.ToList();
             ViewBag.Hours = store.Settings;
             ViewBag.OpenWindows = day.HasValue && !store.IsPersistent ? workflow.DemoOpenWindows(first.AddDays(day.Value - 1)) : null;

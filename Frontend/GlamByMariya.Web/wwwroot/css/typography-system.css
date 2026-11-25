@@ -351,3 +351,334 @@ main #mixed-calendar .mixed-legend {
     color: #604B50;
     font-weight: 500;
 }
+
+/* Cross-device UI/UX polish: Desktop, Laptop (1280px), iOS & Android mobile. */
+a, button, summary, input, select, textarea, label {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: rgba(166, 83, 107, 0.14);
+}
+/* Prevent iOS Safari auto-zoom on focus even for inputs outside <main>. */
+input:not([type=checkbox]):not([type=radio]):not([type=file]), select, textarea {
+    font-size: max(1rem, var(--type-body));
+}
+
+/* Laptop (1101px-1380px): prevent authenticated customer topbar horizontal overflow. */
+@media (max-width: 1380px) and (min-width: 1101px) {
+    .customer-layout .topbar { gap: 10px; padding-inline: 18px; }
+    .customer-layout .customer-desktop-nav { gap: 2px; }
+    .customer-layout .customer-desktop-nav a { padding: 8px 10px; font-size: .95rem; }
+    .customer-layout .account-menu-name { max-width: 130px; overflow: hidden; text-overflow: ellipsis; }
+}
+
+/* Touch targets >= 44x44px (iOS HIG & Material Design). */
+.guest-brand,
+.staff-layout .sidebar .brand,
+.public-footer nav a,
+.environment-info summary,
+.dash-card-head a,
+.calendar-month-heading a {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+}
+.environment-info summary { display: flex; }
+.public-footer nav a { padding: 6px 8px; }
+.dash-card-head a,
+.calendar-month-heading a { padding: 6px 8px; }
+.button,
+a.button,
+button.content-edit-btn,
+.content-edit-btn,
+.payment-box > a,
+.appointment-details,
+.text-button,
+.payment-record-actions .button,
+.gbm-intro-skip,
+.dash-pill,
+.dash-legend-row {
+    min-height: 44px !important;
+    box-sizing: border-box;
+}
+.guest-layout .auth-wrap .password-toggle,
+.password-toggle,
+.policies-modal-close {
+    width: 44px;
+    height: 44px;
+    min-width: 44px !important;
+    min-height: 44px !important;
+}
+.calendar-header button,
+.calendar-nav button {
+    min-width: 44px;
+    min-height: 44px;
+}
+
+/* Safe-area insets for iOS notch / Dynamic Island and Android gesture bar. */
+.mobile-menu .menu-panel,
+.catalog-drawer-panel,
+footer,
+.public-footer {
+    padding-bottom: max(18px, env(safe-area-inset-bottom));
+}
+@media (max-width: 850px) {
+    .topbar {
+        padding-top: env(safe-area-inset-top);
+        padding-left: max(14px, env(safe-area-inset-left));
+        padding-right: max(14px, env(safe-area-inset-right));
+    }
+    .staff-layout .sidebar {
+        padding-top: max(12px, env(safe-area-inset-top));
+        padding-left: max(16px, env(safe-area-inset-left));
+        padding-right: max(16px, env(safe-area-inset-right));
+    }
+    .staff-layout .staff-menu.is-open nav {
+        padding-bottom: max(18px, env(safe-area-inset-bottom));
+    }
+}
+
+/* Mobile phone refinements (iOS 390px & Android 360px). */
+@media (max-width: 768px) {
+    .auth-wrap a:not(.button),
+    .public-breadcrumb a,
+    .customers-back,
+    .booking-location-view-body a {
+        display: inline-flex;
+        align-items: center;
+        min-height: 44px;
+    }
+    .leaflet-control-zoom a {
+        width: 44px !important;
+        height: 44px !important;
+        line-height: 44px !important;
+        font-size: 20px !important;
+    }
+}
+@media (max-width: 520px) {
+    #booking-form .booking-location-search,
+    .artist-location-search {
+        flex-direction: column;
+        align-items: stretch;
+        width: 100%;
+    }
+    #booking-form .booking-location-tools > button,
+    #booking-form .booking-location-search > button,
+    .artist-location-search > button {
+        width: 100%;
+        justify-content: center;
+    }
+}
+
+/* Customer booking calendar & time-slot polish (Individual, Package, Reschedule). */
+.availability-picker .calendar-toolbar {
+    grid-template-columns: 44px minmax(0, 1fr) 44px auto;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+.availability-picker .calendar-toolbar > button:not(.text-button) {
+    width: 44px;
+    height: 44px;
+    border: 1.5px solid #DFC8CE;
+    border-radius: 50%;
+    background: #fff;
+    color: #76394D;
+    font-size: 1.35rem;
+    display: grid;
+    place-items: center;
+    transition: background-color .16s ease, border-color .16s ease, color .16s ease;
+}
+.availability-picker .calendar-toolbar > button:not(.text-button):hover:not(:disabled) {
+    background: #FDF2F4;
+    border-color: #A6536B;
+    color: #A6536B;
+}
+.availability-picker .calendar-toolbar h4 {
+    margin: 0;
+    font-family: var(--serif);
+    font-size: clamp(1.35rem, 1.8vw, 1.65rem);
+    font-weight: 500;
+    color: #49363D;
+}
+.availability-picker .calendar-toolbar .text-button {
+    padding: 6px 14px;
+    border: 1.5px solid #DFC8CE;
+    border-radius: 999px;
+    background: #fff;
+    color: #76394D;
+    font-weight: 600;
+}
+.availability-picker .calendar-toolbar .text-button:hover {
+    background: #FDF2F4;
+    border-color: #A6536B;
+}
+.availability-picker .calendar-weekdays {
+    gap: 8px;
+    margin-bottom: 8px;
+    color: #7E626B;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+}
+.availability-picker .calendar-days {
+    gap: 8px;
+}
+.availability-picker .calendar-day {
+    min-height: 68px;
+    padding: 8px 6px;
+    border-radius: 12px;
+    border-width: 1.5px;
+    gap: 3px;
+    font-variant-numeric: tabular-nums;
+    transition: background-color .16s ease, border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+}
+.availability-picker .calendar-day span {
+    font-weight: 600;
+    font-size: 1rem;
+    line-height: 1.2;
+}
+.availability-picker .calendar-day small {
+    font-size: .75rem;
+    line-height: 1.25;
+}
+.availability-picker .calendar-day:not(:disabled):hover {
+    filter: none;
+    transform: translateY(-1px);
+    box-shadow: 0 6px 14px rgba(73, 54, 61, .09);
+}
+.availability-picker .calendar-day[aria-pressed="true"] {
+    background: #A6536B !important;
+    border-color: #8E455C !important;
+    color: #fff !important;
+    outline: none;
+    box-shadow: 0 8px 20px rgba(166, 83, 107, .28);
+}
+.availability-picker .calendar-day[aria-pressed="true"] small {
+    color: rgba(255, 255, 255, .92) !important;
+}
+.availability-picker .slot-heading {
+    margin: 24px 0 14px;
+    padding-top: 18px;
+    border-top: 1px solid #EFE2DC;
+    align-items: center;
+}
+.availability-picker .slot-heading h4 {
+    margin: 0;
+    font-family: var(--serif);
+    font-size: clamp(1.25rem, 1.6vw, 1.5rem) !important;
+    font-weight: 600;
+    color: #49363D;
+}
+.availability-picker .slot-heading small {
+    display: inline-flex;
+    align-items: center;
+    padding: 5px 12px;
+    border-radius: 999px;
+    background: #FDF4F6;
+    border: 1px solid #EFE0E4;
+    color: #76394D;
+    font-weight: 600;
+}
+.availability-picker .time-slots {
+    grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+    gap: 10px;
+    max-height: 360px;
+    padding: 4px 6px 10px 4px;
+    scrollbar-width: thin;
+    scrollbar-color: #DFC8CE transparent;
+}
+.availability-picker .time-slot-group {
+    margin: 14px 0 4px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #F1E5E0;
+    color: #7E4758;
+    letter-spacing: .08em;
+}
+.availability-picker .time-slot-group:first-child {
+    margin-top: 2px;
+}
+.availability-picker .time-slot {
+    min-height: 44px;
+    padding: 10px 12px;
+    border: 1.5px solid #E5CFD5;
+    border-radius: 10px;
+    background: #FFFDFB;
+    color: #49363D;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    transition: background-color .15s ease, border-color .15s ease, color .15s ease, box-shadow .15s ease, transform .15s ease;
+}
+.availability-picker .time-slot:not(:disabled):hover {
+    background: #FDF2F4;
+    border-color: #A6536B;
+    color: #76394D;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px rgba(73, 54, 61, .08);
+}
+.availability-picker .time-slot.early {
+    border-style: dashed;
+    border-color: #D8B4BE;
+    background: #FFF9FA;
+}
+.availability-picker .time-slot.after-hours {
+    border-color: #D7CCE8;
+    background: #FAF7FD;
+    color: #45306B;
+}
+.availability-picker .time-slot[aria-pressed="true"] {
+    background: #A6536B !important;
+    border-color: #8E455C !important;
+    border-style: solid !important;
+    color: #fff !important;
+    box-shadow: 0 6px 16px rgba(166, 83, 107, .28);
+}
+@media (max-width: 580px) {
+    .availability-picker .calendar-toolbar {
+        grid-template-columns: 44px minmax(0, 1fr) 44px;
+        gap: 8px;
+    }
+    .availability-picker .calendar-days,
+    .availability-picker .calendar-weekdays {
+        gap: 4px;
+    }
+    .availability-picker .calendar-day {
+        min-height: 54px;
+        padding: 6px 2px;
+        border-radius: 9px;
+    }
+    .availability-picker .calendar-day span {
+        font-size: .9rem;
+    }
+    .availability-picker .calendar-day small {
+        font-size: .6875rem;
+    }
+    .availability-picker .time-slots {
+        grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+        gap: 8px;
+        max-height: 320px;
+    }
+    .availability-picker .time-slot {
+        padding: 9px 8px;
+    }
+}
+
+/* Standard Philippine address picker (sign up + booking service address). */
+fieldset.ph-address { min-width: 0; margin: 0; padding: 16px 18px 18px; border: 1px solid #EADDD7; border-radius: 14px; background: #FFFCFA; }
+fieldset.ph-address > legend { padding: 0 6px; font-weight: 600; color: #49363D; font-size: var(--type-body); }
+.ph-address-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px; margin: 0; }
+.ph-address-fields[hidden] { display: none; }
+.ph-address-fields > label { display: grid; gap: 6px; min-width: 0; margin: 0; }
+.ph-address-fields > .full, .ph-address-fields > .ph-address-preview { grid-column: 1 / -1; }
+.ph-address-fields select:disabled { background: #F6F1EF; color: #9A888E; cursor: not-allowed; }
+.ph-address-quick input { background: #FDF6F8 !important; }
+.ph-address-preview { margin: 0; padding: 10px 14px; border-radius: 10px; background: #FDF4F6; border: 1px dashed #E3C6CF; color: #5C464D; font-size: var(--type-helper); overflow-wrap: anywhere; }
+.ph-address-saved { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 16px; }
+.ph-address-saved[hidden] { display: none; }
+.ph-address-saved > div { display: grid; gap: 2px; min-width: 0; flex: 1 1 260px; }
+.ph-address-saved span { font-size: var(--type-micro); font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: #8E455C; }
+.ph-address-saved strong { font-weight: 500; color: #49363D; overflow-wrap: anywhere; }
+.ph-address-keep { display: flex; justify-content: flex-end; }
+@media (max-width: 640px) {
+    fieldset.ph-address { padding: 14px 12px 16px; }
+    .ph-address-fields { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+    .ph-address-saved .button { width: 100%; justify-content: center; }
+}

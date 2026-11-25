@@ -66,7 +66,7 @@
       status.textContent = `Selected makeup start: ${chosen?.label ?? start.slice(11)}, ${date(selectedDate).toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric' })}.`;
       price.textContent = `Services ${money(q.serviceTotal)} · Add-ons ${money(q.addOnTotal)} · Early fee ${money(q.earlyFee)}${q.lateFee > 0 ? ` · Late fee ${money(q.lateFee)}` : ''} · Total ${money(q.finalTotal)} · Minimum down payment ${money(q.requiredDownPayment)}`;
       if (startInput) startInput.value = start;
-      window.FlexibleTimes?.choose(form, chosen);
+      window.FlexibleTimes?.choose(form, chosen, q.durationMinutes);
       form.mixedSlot = { start, quote: q, bufferMinutes: result.bufferMinutes, selection: JSON.stringify(people) };
       form.dispatchEvent(new Event('mixed-slot-changed'));
     } catch (error) { if (key === revision && error.name !== 'AbortError') { selectedStart = ''; timeStatus.textContent = error.message; showSlots(snapshot.days.find(d => d.date === selectedDate)); } }

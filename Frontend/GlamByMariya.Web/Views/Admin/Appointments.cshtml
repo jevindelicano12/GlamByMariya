@@ -3,7 +3,7 @@
 <link rel="stylesheet" href="~/css/admin-mixed-booking.css" asp-append-version="true" />
 @if (!User.IsInRole("SuperAdmin")) { <p class="notice">Mixed-service review and private payment proofs are SuperAdmin-only until granular permissions are implemented. Appointment metadata remains visible here.</p> }
 <div class="page-heading"><div><div class="eyebrow">BOOKING MANAGEMENT</div><h1>Appointments</h1><p>Manage requests, confirmed appointments and the artist's schedule.</p></div></div>
-<nav class="appointment-filters" aria-label="Appointment view">
+<nav class="tabs appointment-view-tabs" aria-label="Appointment view">
     <a asp-action="Appointments" asp-route-mode="list" class="@(!calendar ? "active" : "")" aria-current="@(!calendar ? "page" : null)">List View</a>
     <a asp-action="Appointments" asp-route-mode="calendar" class="@(calendar ? "active" : "")" aria-current="@(calendar ? "page" : null)">Calendar View</a>
 </nav>

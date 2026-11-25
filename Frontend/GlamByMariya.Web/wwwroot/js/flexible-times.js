@@ -62,8 +62,17 @@
 
   let lastPromptedStart = '';
 
+  const formatClock = totalMinutes => {
+    const mins = ((totalMinutes % 1440) + 1440) % 1440;
+    const h24 = Math.floor(mins / 60), m = mins % 60;
+    const suffix = h24 >= 12 ? 'PM' : 'AM';
+    const h12 = h24 % 12 || 12;
+    return `${h12}:${String(m).padStart(2, '0')} ${suffix}`;
+  };
+
   // The note under the chosen time, and the submit label for an early request.
-  const choose = (form, slot) => {
+  // Regular-hour bookings whose service duration finishes past closing also show a gentle heads-up.
+  const choose = (form, slot, durationMinutes) => {
     const text = copy(form);
     const submit = form?.querySelector('[type="submit"]');
     if (submit) {
@@ -71,6 +80,35 @@
       submit.textContent = slot?.kind === 'early' ? 'Send early booking request' : submit.dataset.defaultLabel;
     }
     if (form) form.dataset.earlyRequest = String(slot?.kind === 'early');
+    let overtimeLine = '';
+    const closeHour = Number(form?.dataset.closeHour);
+    const dur = Number(durationMinutes);
+    if (!slot?.afterHours && slot?.start && Number.isFinite(closeHour) && dur > 0) {
+      const m = /T(\d{2}):(\d{2})/.exec(slot.start);
+      if (m) {
+        const endMins = Number(m[1]) * 60 + Number(m[2]) + dur;
+        if (endMins > closeHour * 60) {
+          overtimeLine = `Estimated finish: ${formatClock(endMins)} (past ${formatClock(closeHour * 60)} closing — any extra after-hours fee is arranged directly with the artist).`;
+        }
+      }
+    }
+    const activePicker = form?.classList.contains('is-mixed')
+      ? form.querySelector('#mixed-time-quote')
+      : form?.querySelector('.availability-picker [data-time-status], .availability-picker .time-slots');
+    let inlineNote = form?.querySelector('[data-overtime-note]');
+    if (!inlineNote && activePicker) {
+      inlineNote = document.createElement('p');
+      inlineNote.className = 'flexible-note';
+      inlineNote.dataset.overtimeNote = '';
+      inlineNote.setAttribute('role', 'status');
+      activePicker.after(inlineNote);
+    } else if (inlineNote && activePicker && inlineNote.previousElementSibling !== activePicker) {
+      activePicker.after(inlineNote);
+    }
+    if (inlineNote) {
+      inlineNote.textContent = overtimeLine;
+      inlineNote.hidden = !overtimeLine;
+    }
     let note = form?.querySelector('[data-flexible-note]');
     if (!note && form) {
       note = document.createElement('p'); note.className = 'flexible-note'; note.dataset.flexibleNote = ''; note.setAttribute('role', 'status');
@@ -80,6 +118,7 @@
     const lines = [];
     if (slot?.kind === 'early' && text.earlyNote) lines.push(text.earlyNote);
     if (slot?.afterHours && text.afterHoursNote) lines.push(text.afterHoursNote);
+    if (overtimeLine) lines.push(overtimeLine);
     note.textContent = lines.join(' ');
     note.hidden = lines.length === 0;
     // A time ending after closing needs the customer's agreement to the after-hours terms.
