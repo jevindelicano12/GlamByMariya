@@ -192,11 +192,20 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
                     "decline" => "Reschedule declined. The original appointment time was kept.",
                     _ => "Booking updated successfully."
                 };
-                // Phase 9: tell the customer when the artist confirms or rejects a paid booking, and when a refund is sent.
-                var bookingLink = operation == "accept" ? Url?.Action("Details", "Bookings", new { id }, Request.Scheme) : null;
-                if (operation == "accept")
+                // Tell the customer by email when their booking is confirmed, rejected, rescheduled, cancelled, or refunded.
+                var bookingLink = Url?.Action("Details", "Bookings", new { id }, Request.Scheme);
+                if (operation is "accept" or "verify" or "approve")
                     EmailCustomer(b.CustomerId, $"Glam by Mariya {b.Reference}: your booking is confirmed",
                         $"{BookingService.ArtistAcceptedMessage}{Environment.NewLine}{Environment.NewLine}{b.ServiceDescription} · {b.Start:dddd, MMMM d, yyyy h:mm tt}{Environment.NewLine}{bookingLink}");
+                if (operation == "reject")
+                    EmailCustomer(b.CustomerId, $"Glam by Mariya {b.Reference}: your booking was declined",
+                        $"Glam by Mariya could not confirm your booking request for {b.ServiceDescription} on {b.Start:MMMM d, yyyy h:mm tt}.{Environment.NewLine}Reason: {reason.Trim()}{Environment.NewLine}{Environment.NewLine}If you already sent a payment, Mariya will coordinate with you directly.{Environment.NewLine}{bookingLink}");
+                if (operation == "reschedule")
+                    EmailCustomer(b.CustomerId, $"Glam by Mariya {b.Reference}: reschedule approved",
+                        $"Your reschedule request was approved. Your updated appointment is on {b.Start:dddd, MMMM d, yyyy h:mm tt}.{Environment.NewLine}{bookingLink}");
+                if (operation == "decline")
+                    EmailCustomer(b.CustomerId, $"Glam by Mariya {b.Reference}: reschedule declined",
+                        $"Your reschedule request was declined, so your original appointment on {b.Start:MMMM d, yyyy h:mm tt} remains reserved.{Environment.NewLine}Reason: {reason.Trim()}{Environment.NewLine}{bookingLink}");
                 if (operation == "cancel")
                     EmailCustomer(b.CustomerId, $"Glam by Mariya {b.Reference}: your booking was cancelled",
                         $"Glam by Mariya could not take your booking for {b.Start:MMMM d, yyyy h:mm tt}.{Environment.NewLine}Reason: {reason.Trim()}{Environment.NewLine}{Environment.NewLine}"
@@ -207,7 +216,7 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
                 if (operation is "approve-request" or "decline-request")
                     EmailCustomer(b.CustomerId, $"Glam by Mariya {b.Reference}: early booking request",
                         operation == "approve-request"
-                            ? $"{BookingService.EarlyRequestApprovedMessage}{Environment.NewLine}{Environment.NewLine}Open your booking to pay: {Url.Action("Details", "Bookings", new { id }, Request.Scheme)}"
+                            ? $"{BookingService.EarlyRequestApprovedMessage}{Environment.NewLine}{Environment.NewLine}Open your booking to pay: {bookingLink}"
                             : string.Format(BookingService.EarlyRequestDeclinedMessage, reason.Trim()));
             }
             catch (InvalidOperationException e) { TempData["Error"] = e.Message; }

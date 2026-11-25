@@ -45,7 +45,7 @@
     <div><div class="eyebrow">MAKE IT YOURS</div><h2 id="notifications-title">Notifications</h2><p>Choose what appears in your appointment workspace.</p></div>
     <form asp-action="SaveNotifications" method="post" class="stack">
         <label class="preference-toggle"><input name="notificationsEnabled" type="checkbox" value="true" checked="@Model.Preferences.NotificationsEnabled" /><span><strong>In-app booking notifications</strong><small>Show booking updates, payment reviews and reschedule messages.</small></span></label>
-        <p>Security emails and verification codes are always sent when requested. Email booking reminders are not currently available.</p>
+        <p>Security emails, booking status updates (confirmed, declined, rescheduled), and 24-hour appointment reminders are sent automatically to your email.</p>
         <button class="button" type="submit">Save preferences</button>
     </form>
     <div class="settings-divider"></div><h3>Your session</h3><p>Signed in as @Model.User.Name.</p>
