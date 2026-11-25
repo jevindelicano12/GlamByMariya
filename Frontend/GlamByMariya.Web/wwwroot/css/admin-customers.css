@@ -11,8 +11,8 @@
 .customers-bar input:focus,.customers-bar select:focus{outline:2px solid #F3DDE5;border-color:#D7A9BA;box-shadow:none}
 .customers-apply{border:1px solid #E3D8D6;background:#fff;color:var(--c-ink);border-radius:8px;padding:9px 14px;font:500 13px 'DM Sans',Arial,sans-serif}
 .customers-bar.is-live .customers-apply{display:none}
-.customers-table-wrap{overflow-x:auto;border:1px solid var(--c-line);border-radius:10px;background:#fff}
-.customers-table{width:100%;border-collapse:collapse;font-size:13px;color:var(--c-ink);white-space:normal}
+.customers-table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--c-line);border-radius:10px;background:#fff}
+.customers-table{width:100%;min-width:600px;border-collapse:collapse;font-size:13px;color:var(--c-ink);white-space:normal}
 .customers-table th{text-align:left;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--c-soft);background:#FAF5F3;padding:11px 12px;font-weight:500}
 .customers-table td{padding:12px;border-bottom:1px solid #F3ECEA;vertical-align:top;font-size:13px}
 .customers-table tr:last-child td{border-bottom:0}

@@ -1,10 +1,10 @@
 :root {
-    --type-body: clamp(1.0625rem, .96rem + .22vw, 1.25rem);
-    --type-main: clamp(2.125rem, 3.1vw, 2.875rem);
-    --type-section: clamp(1.5625rem, 2.3vw, 2rem);
-    --type-card: clamp(1.25rem, 1.7vw, 1.5rem);
-    --type-helper: clamp(1rem, .92rem + .18vw, 1.125rem);
-    --type-micro: clamp(.875rem, .82rem + .14vw, 1rem);
+    --type-body: clamp(1.0625rem, .98rem + .28vw, 1.3125rem);
+    --type-main: clamp(2.125rem, 3.2vw, 3rem);
+    --type-section: clamp(1.5625rem, 2.3vw, 2.125rem);
+    --type-card: clamp(1.25rem, 1.75vw, 1.625rem);
+    --type-helper: clamp(1rem, .94rem + .2vw, 1.1875rem);
+    --type-micro: clamp(.9rem, .86rem + .16vw, 1.0625rem);
 }
 body { font-size: var(--type-body); line-height: 1.65; -webkit-font-smoothing: antialiased; }
 main h1, main .page-heading h1, main .hero h2 { font-size: var(--type-main); line-height: 1.15; letter-spacing: -.025em; }
@@ -186,8 +186,55 @@ main .public-gallery figcaption,
 main .public-breadcrumb,
 .public-footer nav a,
 .published-social a,
-.guest-actions a {
+.guest-actions a,
+main .calendar-item small,
+main .activity small,
+main .payment-box > small,
+main .demo-credentials small,
+main .environment-info,
+main .environment-info summary,
+main .environment-info p,
+main .customer-filter-count,
+main .booking-location-status,
+main .travel-note,
+main .secure-note,
+main .date-tile small,
+main .upcoming-item small,
+main .appointment-copy small,
+main .admin-appointment-row small,
+.account,
+.account small,
+.account-menu-name small,
+.account-menu-panel,
+.account-menu-panel small,
+.sidebar .studio-note p,
+.sidebar .nav-label,
+.topbar > span,
+footer,
+footer span,
+footer small {
     font-size: var(--type-helper) !important;
+    line-height: 1.55;
+}
+main .page-heading p,
+main .calendar-item strong,
+main .calendar-item p,
+main .block-item strong,
+main .block-item p,
+main .activity p,
+main .payment-box strong,
+main .payment-box p,
+main .admin-banner p,
+main .demo-credentials strong,
+main .demo-credentials p,
+main .appointment-copy p,
+main .detail-row,
+main .summary-row,
+.travel-modal-card p,
+.travel-policy-check,
+.account-menu-name strong {
+    font-size: var(--type-body) !important;
+    line-height: 1.6;
 }
 main #mixed-calendar .calendar-day small {
     font-size: .75rem !important;

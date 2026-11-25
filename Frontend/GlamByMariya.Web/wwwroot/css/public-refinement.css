@@ -57,7 +57,8 @@
 }
 
 .guest-layout .auth-wrap.auth-register { max-width: 620px; }
-.auth-register .name-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(110px, 130px); }
+.auth-register .name-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(140px, 165px); align-items: end; }
+.auth-register .name-grid label { white-space: nowrap; }
 .guest-layout .auth-wrap > p { max-width: 60ch; font-size: 14px; line-height: 1.65; }
 .guest-layout .auth-wrap input,
 .guest-layout .auth-wrap select { min-height: 44px; }
