@@ -694,3 +694,19 @@ fieldset.ph-address > legend { padding: 0 6px; font-weight: 600; color: #49363D;
     .landing-page .public-hero .public-benefits span:first-child { padding-top: 0; border-top: 0; }
     .landing-page .public-hero .public-benefits br { display: none; }
 }
+
+/* Live password strength meter & checklist (Register, Reset Password, Change Password, Invite). */
+.pw-meter { display: grid; gap: 8px; margin-top: 8px; }
+.pw-bar { width: 100%; height: 4px; border-radius: 999px; background: #EAE2DE; overflow: hidden; }
+.pw-bar-fill { display: block; height: 100%; width: 0; border-radius: 999px; background: #D94F5C; transition: width .2s ease, background-color .2s ease; }
+.pw-meter[data-strength="medium"] .pw-bar-fill { background: #E69524; }
+.pw-meter[data-strength="strong"] .pw-bar-fill { background: #2E9E68; }
+.pw-heading { margin: 2px 0 0; font-size: var(--type-helper) !important; font-weight: 600; color: #3D2B31; }
+.pw-emoji-note { margin: 0; font-size: var(--type-micro) !important; color: #B43D4B; font-weight: 500; }
+.pw-rules { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
+.pw-rules li { display: flex; align-items: center; gap: 8px; font-size: var(--type-helper) !important; color: #7C6B70; line-height: 1.4; }
+.pw-rules li i { display: inline-flex; align-items: center; justify-content: center; width: 14px; font-style: normal; font-weight: 700; color: #9A888E; }
+.pw-rules li i::before { content: "✕"; font-size: 11px; }
+.pw-rules li.is-met { color: #2E9E68; }
+.pw-rules li.is-met i { color: #2E9E68; }
+.pw-rules li.is-met i::before { content: "✓"; font-size: 13px; }

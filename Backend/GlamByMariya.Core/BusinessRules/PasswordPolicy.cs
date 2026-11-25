@@ -21,16 +21,24 @@ public static class PasswordPolicy
     {
         if (string.IsNullOrEmpty(password)) return "Enter a new password.";
         if (password.Length < MinimumLength || password.Length > ProvisionalMaximumLength)
-            return "Use 8–128 characters for the new password. Some characters, such as emoji, count as two.";
+            return "Password must be 8–128 characters.";
 
-        var hasLetter = false;
+        var hasLower = false;
+        var hasUpper = false;
         var hasDigit = false;
+        var hasSpecial = false;
         foreach (var character in password)
         {
-            hasLetter |= character is >= 'A' and <= 'Z' or >= 'a' and <= 'z';
-            hasDigit |= character is >= '0' and <= '9';
+            if (character < 0x20 || character > 0x7E)
+                return "Emojis and unsupported characters are not allowed in passwords.";
+            if (character is >= 'a' and <= 'z') hasLower = true;
+            else if (character is >= 'A' and <= 'Z') hasUpper = true;
+            else if (character is >= '0' and <= '9') hasDigit = true;
+            else hasSpecial = true;
         }
-        return hasLetter && hasDigit ? null : "Include at least one English letter (A–Z) and one number (0–9).";
+        return hasLower && hasUpper && hasDigit && hasSpecial
+            ? null
+            : "Password must include at least 1 uppercase letter, 1 lowercase letter, 1 number, and 1 special character.";
     }
 
     /// <summary>

@@ -56,6 +56,74 @@ document.querySelectorAll('[data-password-toggle]').forEach(toggle => {
   });
   paint();
 });
+
+// Block emojis/non-ASCII on all new-password inputs and show a live strength checklist.
+document.querySelectorAll('input[type="password"][autocomplete="new-password"]').forEach(input => {
+  const stripDisallowed = () => {
+    const cleaned = input.value.replace(/[^\x20-\x7E]/g, '');
+    if (cleaned !== input.value) {
+      input.value = cleaned;
+      return true;
+    }
+    return false;
+  };
+  const isConfirm = /confirm/i.test(input.name || '');
+  if (isConfirm) {
+    input.addEventListener('input', stripDisallowed);
+    return;
+  }
+  const wrapper = input.closest('.password-field') || input;
+  const meter = document.createElement('div');
+  meter.className = 'pw-meter';
+  meter.setAttribute('aria-live', 'polite');
+  meter.innerHTML = `<div class="pw-bar" aria-hidden="true"><span class="pw-bar-fill"></span></div>
+    <p class="pw-heading">Password must contain:</p>
+    <p class="pw-emoji-note" hidden>Emojis and unsupported characters are not allowed.</p>
+    <ul class="pw-rules">
+      <li data-rule="len"><i></i><span>At least 8 characters</span></li>
+      <li data-rule="num"><i></i><span>At least 1 number</span></li>
+      <li data-rule="low"><i></i><span>At least 1 lowercase letter</span></li>
+      <li data-rule="upp"><i></i><span>At least 1 uppercase letter</span></li>
+      <li data-rule="sym"><i></i><span>At least 1 special character</span></li>
+    </ul>`;
+  wrapper.after(meter);
+  const fill = meter.querySelector('.pw-bar-fill');
+  const heading = meter.querySelector('.pw-heading');
+  const emojiNote = meter.querySelector('.pw-emoji-note');
+  const rules = {
+    len: v => v.length >= 8 && v.length <= 128,
+    num: v => /[0-9]/.test(v),
+    low: v => /[a-z]/.test(v),
+    upp: v => /[A-Z]/.test(v),
+    sym: v => /[^A-Za-z0-9]/.test(v)
+  };
+  let emojiTimer;
+  const update = () => {
+    const stripped = stripDisallowed();
+    if (stripped) {
+      emojiNote.hidden = false;
+      window.clearTimeout(emojiTimer);
+      emojiTimer = window.setTimeout(() => { emojiNote.hidden = true; }, 3500);
+    }
+    const val = input.value;
+    let passed = 0;
+    for (const [key, test] of Object.entries(rules)) {
+      const ok = val.length > 0 && test(val);
+      if (ok) passed++;
+      meter.querySelector(`[data-rule="${key}"]`)?.classList.toggle('is-met', ok);
+    }
+    const level = val.length === 0 ? 'empty' : passed <= 2 ? 'weak' : passed < 5 ? 'medium' : 'strong';
+    meter.dataset.strength = level;
+    fill.style.width = `${(passed / 5) * 100}%`;
+    heading.textContent = level === 'empty' ? 'Password must contain:'
+      : level === 'weak' ? 'Weak password. Must contain:'
+      : level === 'medium' ? 'Medium password. Must contain:'
+      : 'Strong password.';
+    input.setCustomValidity(val.length > 0 && passed < 5 ? 'Meet all password requirements below.' : '');
+  };
+  input.addEventListener('input', update);
+  update();
+});
 document.querySelectorAll('.account-menu').forEach(menu => {
   const summary = menu.querySelector('summary');
   document.addEventListener('click', event => {
