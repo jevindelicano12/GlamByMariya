@@ -113,8 +113,8 @@ public sealed class PostgresWebsiteContentRepository(NpgsqlDataSource source) : 
 
     public async Task ReplaceDraftImages(Guid actor, Guid draftId, long expectedRevision, IReadOnlyList<WebsiteImageReference> images, CancellationToken ct)
     {
-        if (actor == Guid.Empty || draftId == Guid.Empty || expectedRevision < 1 || images == null || images.Any(x => x == null) || images.Count > WebsiteContentRules.MaxGalleryImages + 2 ||
-            images.Count(x => x.Role == "gallery") > WebsiteContentRules.MaxGalleryImages || images.Count(x => x.Role == "hero") > 1 || images.Count(x => x.Role == "portrait") > 1 ||
+        if (actor == Guid.Empty || draftId == Guid.Empty || expectedRevision < 1 || images == null || images.Any(x => x == null) ||
+            images.Count(x => x.Role == "hero") > 1 || images.Count(x => x.Role == "portrait") > 1 ||
             images.Any(x => x.Id == Guid.Empty || x.AssetId == Guid.Empty || x.Role is not ("hero" or "portrait" or "gallery") || string.IsNullOrWhiteSpace(x.AltText) || x.AltText.Length > 250 || x.Caption == null || x.Caption.Length > 500 || x.SortOrder < 0) ||
             images.Select(x => x.Id).Distinct().Count() != images.Count)
             throw new ArgumentException("Invalid website images.");

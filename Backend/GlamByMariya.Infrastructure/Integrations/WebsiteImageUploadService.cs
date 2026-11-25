@@ -34,7 +34,6 @@ public sealed class WebsiteImageUploadService(IWebsiteImageRepository images, IW
 
         var current = await images.ReadDraftImages(draftId, ct);
         var gallery = current.Where(x => x.Role == "gallery").ToList();
-        if (role == "gallery" && gallery.Count >= WebsiteContentRules.MaxGalleryImages) throw new ArgumentException("The gallery already has 20 photos.");
 
         NormalizedWebsiteImage image;
         try { image = WebsiteImageValidator.Normalize(bytes); }
