@@ -7,11 +7,59 @@ var requests = all.Count(b => b.Status == BookingService.EarlyRequestStatus);
 @if (requests > 0) { <a class="notice early-requests-waiting" asp-controller="Admin" asp-action="Appointments" asp-route-mode="list" asp-route-status="@BookingService.EarlyRequestStatus"><strong>@requests early booking @(requests == 1 ? "request is" : "requests are") waiting for your approval.</strong> Open @(requests == 1 ? "it" : "them") to approve or decline. Requests close by themselves after 7 days. <span aria-hidden="true">→</span></a> }
 var awaitingArtist = all.Count(b => b.AwaitingArtist(DataStore.Now));
 @if (awaitingArtist > 0) { <a class="notice early-requests-waiting" asp-controller="Admin" asp-action="Appointments" asp-route-mode="list" asp-route-status="Confirmed"><strong>@awaitingArtist paid @(awaitingArtist == 1 ? "booking is" : "bookings are") waiting for your confirmation.</strong> Open @(awaitingArtist == 1 ? "it" : "them") to confirm or reject. Unconfirmed bookings confirm by themselves 24 hours after payment. <span aria-hidden="true">→</span></a> }
-<div class="stats four"><div class="stat"><span>PENDING PAYMENT</span><strong>@all.Count(b => b.Status == "Pending Payment")</strong><small>@(online ? "Waiting for Xendit checkout" : "Down payments to verify")</small></div><div class="stat"><span>CONFIRMED APPOINTMENTS</span><strong>@all.Count(b => b.Status == "Confirmed")</strong><small>Your reserved moments</small></div><div class="stat"><span>RESCHEDULE REQUESTS</span><strong>@all.Count(b => b.RequestedStart != null)</strong><small>Keep original slots until approved</small></div><div class="stat"><span>VERIFIED COLLECTIONS</span><strong class="money">₱@payments.Where(p => p.Verified).Sum(p => p.Amount).ToString("N2")</strong><small>Before refunds</small></div></div>
+<div class="stats four"><a class="stat stat-link" asp-controller="Admin" asp-action="Appointments" asp-route-mode="list" asp-route-status="Pending Payment"><span>PENDING PAYMENT</span><strong>@all.Count(b => b.Status == "Pending Payment")</strong><small>@(online ? "Waiting for Xendit checkout" : "Down payments to verify")</small></a><a class="stat stat-link" asp-controller="Admin" asp-action="Appointments" asp-route-mode="list" asp-route-status="Confirmed"><span>CONFIRMED APPOINTMENTS</span><strong>@all.Count(b => b.Status == "Confirmed")</strong><small>Your reserved moments</small></a><a class="stat stat-link" asp-controller="Admin" asp-action="Appointments" asp-route-mode="list"><span>RESCHEDULE REQUESTS</span><strong>@all.Count(b => b.RequestedStart != null)</strong><small>Keep original slots until approved</small></a><a class="stat stat-link" asp-controller="Admin" asp-action="Reports"><span>VERIFIED COLLECTIONS</span><strong class="money">₱@payments.Where(p => p.Verified).Sum(p => p.Amount).ToString("N2")</strong><small>Before refunds</small></a></div>
+var paidByBooking = payments.Where(p => p.Verified).GroupBy(p => p.BookingId).ToDictionary(g => g.Key, g => g.Sum(x => x.Amount));
+var dashboardJson = System.Text.Json.JsonSerializer.Serialize(new
+{
+    now = DataStore.Now.ToString("yyyy-MM-ddTHH:mm:ss"),
+    bookings = all.Select(b => new
+    {
+        start = b.Start.ToString("yyyy-MM-ddTHH:mm:ss"),
+        status = b.Status,
+        service = b.MixedPeople.Count > 0 ? "Mixed-service group" : b.Service.Name,
+        total = b.Total,
+        collected = paidByBooking.GetValueOrDefault(b.Id, 0m)
+    })
+});
+<section class="overview-dashboard" id="overview-dashboard" aria-label="Business performance analytics">
+    <div class="dash-toolbar">
+        <div><h3>Performance overview</h3><p class="help">Live collections, booking trends, and service mix from your studio data.</p></div>
+        <div class="dash-pills" role="group" aria-label="Time range">
+            <button type="button" class="dash-pill" data-dash-range="6m" aria-pressed="true">Last 6 months</button>
+            <button type="button" class="dash-pill" data-dash-range="year" aria-pressed="false">This year</button>
+            <button type="button" class="dash-pill" data-dash-range="all" aria-pressed="false">All time</button>
+        </div>
+    </div>
+    <div class="dash-grid">
+        <article class="panel dash-card dash-card-wide">
+            <div class="dash-card-head">
+                <div><h4>Monthly trend</h4><p class="help" data-trend-summary>Loading studio data…</p></div>
+                <div class="dash-pills" role="group" aria-label="Chart metric">
+                    <button type="button" class="dash-pill" data-dash-metric="revenue" aria-pressed="true">Collections (₱)</button>
+                    <button type="button" class="dash-pill" data-dash-metric="count" aria-pressed="false">Bookings</button>
+                </div>
+            </div>
+            <div class="dash-chart-wrap" data-chart="trend"></div>
+            <p class="dash-tooltip" data-trend-tooltip aria-live="polite"></p>
+        </article>
+        <article class="panel dash-card">
+            <div class="dash-card-head"><div><h4>Booking status</h4><p class="help">Click any status to filter appointments.</p></div></div>
+            <div class="dash-donut-layout">
+                <div class="dash-donut-wrap" data-chart="status"></div>
+                <div class="dash-legend" data-status-legend></div>
+            </div>
+        </article>
+        <article class="panel dash-card">
+            <div class="dash-card-head"><div><h4>Top makeup services</h4><p class="help">Ranked by verified collections.</p></div><a asp-action="Reports">Full report →</a></div>
+            <div class="dash-services" data-chart="services"></div>
+        </article>
+    </div>
+</section>
+<script type="application/json" id="dashboard-data">@Html.Raw(dashboardJson)</script>
 <section class="panel upcoming-panel"><div class="section-title compact"><h3>Upcoming bookings</h3><a asp-action="Calendar">View calendar →</a></div>
 @{ var upcoming = all.Where(b => b.Start >= DataStore.Now && (b.Status == "Confirmed" || b.Status == "Pending Payment" || b.Status == BookingService.EarlyRequestStatus)).OrderBy(b => b.Start).Take(4).ToList(); }
 @if (upcoming.Count == 0) { <p>No upcoming bookings.</p> } else { <div class="upcoming-list">@foreach (var booking in upcoming) { <a class="upcoming-item" asp-action="Details" asp-route-id="@booking.Id"><span class="appointment-date"><small>@booking.Start.ToString("MMM")</small><strong>@booking.Start.ToString("dd")</strong></span><span><strong>@booking.CustomerName</strong><small>@(booking.MixedPeople.Count > 0 ? $"Mixed-service group · {booking.MixedPeople.Count} people" : booking.People > 1 ? $"{booking.Service.Name} · {booking.People} people" : booking.Service.Name) · @booking.Start.ToString("h:mm tt")</small></span><span class="badge @booking.Status.ToLowerInvariant()">@booking.DisplayStatus(DataStore.Now)</span></a> }</div> }</section>
-<div class="admin-banner"><div><span class="eyebrow">THE LITTLE DETAILS MATTER</span><h2>A seamless experience starts here.</h2><p>Review deposits, confirm your next appointments, and make space for beautiful moments.</p></div><span>✧</span></div>
+<script src="~/js/admin-dashboard.js" asp-append-version="true"></script>
 } else {
 <partial name="_AppointmentList" model="Model" />
 }
