@@ -192,7 +192,7 @@ public class AccountController(
     }
 
     [HttpPost, EnableRateLimiting(RateLimitPolicies.Register)]
-    public async Task<IActionResult> Register(string firstName, string lastName, string email, int age, string gender, string address, string password, string? returnUrl = null, string? suffix = null, DateOnly? birthday = null, bool acceptTerms = false)
+    public async Task<IActionResult> Register(string firstName, string lastName, string email, int age, string gender, string? address, string password, string? returnUrl = null, string? suffix = null, DateOnly? birthday = null, bool acceptTerms = false)
     {
         ViewBag.ReturnUrl = Url.IsLocalUrl(returnUrl) ? returnUrl : null;
         ViewBag.Gender = gender;
@@ -206,7 +206,7 @@ public class AccountController(
         if (suffix is not ("" or "Jr." or "Sr." or "II" or "III" or "IV"))
         { ViewBag.Error = "Choose a valid suffix."; return View("Login"); }
         age = RegistrationRules.CalculateAge(birthday!.Value, today);
-        var error = RegistrationRules.Validate(firstName, lastName, email, age, gender ?? "", address, password);
+        var error = RegistrationRules.Validate(firstName, lastName, email, age, gender ?? "", address ?? "", password, enforceAddress: false);
         if (error != null)
         { ViewBag.Error = error; return View("Login"); }
         if (string.IsNullOrEmpty(gender))
@@ -216,7 +216,7 @@ public class AccountController(
         { ViewBag.Error = "This email is already registered."; return View("Login"); }
 
         var pending = new EmailVerificationService.PendingRegistration(
-            firstName.Trim(), lastName.Trim(), email, age, gender ?? "", address.Trim(), password, Suffix: suffix, Birthday: birthday);
+            firstName.Trim(), lastName.Trim(), email, age, gender ?? "", (address ?? "").Trim(), password, Suffix: suffix, Birthday: birthday);
         try { await codes.RequestRegistrationCodeAsync(email, pending, IssueRegistrationBrowserToken()); }
         catch (CodeCooldownException)
         {

@@ -1,8 +1,8 @@
 @model List<Booking>
 @inject XenditClient Xendit
-@{ var appointmentsView = Context.Request.Query["view"] == "appointments"; ViewData["Title"] = appointmentsView ? "Appointments" : "Business overview"; var all = (List<Booking>)ViewBag.All; var payments = (List<Payment>)ViewBag.Payments; var online = Xendit.Enabled && DataStore.IsPersistent; }
+@{ var appointmentsView = Context.Request.Query["view"] == "appointments"; ViewData["Title"] = appointmentsView ? "Appointments" : "Dashboard"; var all = (List<Booking>)ViewBag.All; var payments = (List<Payment>)ViewBag.Payments; var online = Xendit.Enabled && DataStore.IsPersistent; }
 @if (!appointmentsView) {
-<div class="page-heading"><div><div class="eyebrow">HOME-SERVICE BOOKINGS AT A GLANCE</div><h1>A beautiful day ahead.</h1><p>Welcome back. Here’s what’s happening at Glam by Mariya.</p></div><a class="button" asp-controller="Admin" asp-action="Calendar">View calendar <span aria-hidden="true">→</span></a></div>
+<div class="page-heading"><div><div class="eyebrow">HOME-SERVICE BOOKINGS AT A GLANCE</div><h1>Dashboard</h1></div><a class="button" asp-controller="Admin" asp-action="Calendar">View calendar <span aria-hidden="true">→</span></a></div>
 var requests = all.Count(b => b.Status == BookingService.EarlyRequestStatus);
 @if (requests > 0) { <a class="notice early-requests-waiting" asp-controller="Admin" asp-action="Appointments" asp-route-mode="list" asp-route-status="@BookingService.EarlyRequestStatus"><strong>@requests early booking @(requests == 1 ? "request is" : "requests are") waiting for your approval.</strong> Open @(requests == 1 ? "it" : "them") to approve or decline. Requests close by themselves after 7 days. <span aria-hidden="true">→</span></a> }
 var awaitingArtist = all.Count(b => b.AwaitingArtist(DataStore.Now));

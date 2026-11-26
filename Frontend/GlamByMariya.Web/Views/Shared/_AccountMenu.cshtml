@@ -13,14 +13,12 @@
     </summary>
     <div class="account-menu-panel">
         <div class="account-menu-heading"><strong>@name</strong><small>@User.FindFirstValue(ClaimTypes.Email)</small></div>
-        <a asp-controller="Account" asp-action="Settings" asp-fragment="profile-title">My profile</a>
-        <a asp-controller="Account" asp-action="Settings" asp-fragment="email-title">Email verification</a>
-        <a asp-controller="Account" asp-action="Settings" asp-fragment="password-title">Password & security</a>
+        <a asp-controller="Account" asp-action="Settings">My profile</a>
+        @if (!GlamByMariya.Core.Entities.Roles.IsStaff(User)) { <a asp-controller="Bookings" asp-action="Index">My appointments</a> }
         <form asp-controller="Account" asp-action="SaveNotifications" method="post" class="account-menu-preferences">
             <label class="notification-switch"><span>Booking notifications<small>In-app updates</small></span><input type="checkbox" role="switch" name="notificationsEnabled" value="true" checked="@preferences.NotificationsEnabled" /><span class="switch-track" aria-hidden="true"></span></label>
             <button type="submit" class="button secondary">Save preference</button>
         </form>
-        <a asp-controller="Account" asp-action="Settings">All account settings</a>
         <form asp-controller="Account" asp-action="Logout" method="post"><button type="submit" class="text-button">Sign out</button></form>
     </div>
 </details>

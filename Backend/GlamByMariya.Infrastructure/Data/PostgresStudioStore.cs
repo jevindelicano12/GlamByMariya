@@ -249,7 +249,7 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
     public virtual AppUser AddCustomerWithPasswordHash(string firstName,string lastName,string email,string passwordHash,int age,string gender,string address,DateOnly? birthday=null,string? suffix=null)
     {
         if(string.IsNullOrWhiteSpace(passwordHash)) throw new InvalidOperationException("Registration expired. Please register again.");
-        var error=RegistrationRules.ValidateProfile(firstName,lastName,email,age,gender,address,enforceLegacyAge:false);
+        var error=RegistrationRules.ValidateProfile(firstName,lastName,email,age,gender,address,enforceLegacyAge:false,enforceAddress:false);
         if(error!=null) throw new InvalidOperationException(error);
         var user=new AppUser { FirstName=firstName.Trim(),LastName=lastName.Trim(),Name=$"{firstName.Trim()} {lastName.Trim()}",
             Email=email.Trim(),Age=age,Gender=gender,Address=address.Trim(),Role="Customer",PasswordHash=passwordHash };
