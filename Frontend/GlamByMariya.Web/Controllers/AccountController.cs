@@ -309,11 +309,28 @@ public class AccountController(
         return RedirectToAction("ResetPassword", new { email });
     }
 
+    // Sends a fresh reset code from the ResetPassword page. The service enforces the
+    // 60-second cooldown and replaces the old code, so only the newest code works.
+    [HttpPost, EnableRateLimiting(RateLimitPolicies.ResendCode)]
+    public async Task<IActionResult> ResendResetCode(string email)
+    {
+        email = (email ?? "").Trim();
+        if (email.Length == 0) return RedirectToAction("ForgotPassword");
+        try
+        {
+            await codes.RequestPasswordResetCodeAsync(email);
+            TempData["Notice"] = "If that email has an account, a new reset code was sent. Use the latest code you received.";
+        }
+        catch (InvalidOperationException e) { TempData["ResetError"] = e.Message; }
+        return RedirectToAction("ResetPassword", new { email });
+    }
+
     [HttpGet]
     public IActionResult ResetPassword(string email)
     {
         ViewBag.Email = email;
         ViewBag.Notice = TempData["Notice"];
+        ViewBag.Error = TempData["ResetError"];
         return View();
     }
 
