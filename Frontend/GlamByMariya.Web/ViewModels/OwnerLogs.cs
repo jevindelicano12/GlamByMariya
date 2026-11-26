@@ -59,7 +59,7 @@ public static class OwnerLogs
                 list.Add(new(h.At, h.ActorName, users.TryGetValue(h.ActorId, out var hu) ? hu.Role : "Customer", "Cancellation", h.Action + (string.IsNullOrWhiteSpace(h.Reason) ? "" : $": {h.Reason}"),
                     reference, null, h.Status, true));
             if (b.Refunded > 0)
-                list.Add(new(b.StaffCancelledAt ?? created, "Staff", "Admin", "Refund", "Refund sent" + (string.IsNullOrWhiteSpace(b.RefundReference) ? "" : $" · Ref {b.RefundReference}"),
+                list.Add(new(b.StaffCancelledAt ?? created, Name(b.StaffCancelledBy, "Staff"), Role(b.StaffCancelledBy, "Admin"), "Refund", "Refund sent" + (string.IsNullOrWhiteSpace(b.RefundReference) ? "" : $" · Ref {b.RefundReference}"),
                     reference, Peso(b.Refunded), "Sent", true));
             if (b.RefundDue > b.Refunded)
                 list.Add(new(b.StaffCancelledAt ?? created, "System", "System", "Refund", "Refund owed to customer",

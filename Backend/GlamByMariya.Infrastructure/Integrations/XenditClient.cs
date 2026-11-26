@@ -29,6 +29,8 @@ public sealed class XenditClient(IHttpClientFactory http, IConfiguration config)
     }
 
     public bool Enabled => !string.IsNullOrWhiteSpace(config["Xendit:SecretKey"]) && !string.IsNullOrWhiteSpace(config["Xendit:CallbackToken"]);
+    // True only with a Xendit TEST key (xnd_development_...): every payment is test money.
+    public bool IsTestMode => Enabled && (config["Xendit:SecretKey"] ?? "").StartsWith("xnd_development_", StringComparison.Ordinal);
 
     public async Task<XenditInvoice> CreateInvoiceAsync(string externalId, decimal amount, string payerEmail, string description,
         string successUrl, string failureUrl, CancellationToken ct = default, int? durationSeconds = null)

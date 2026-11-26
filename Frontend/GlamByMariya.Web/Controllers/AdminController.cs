@@ -315,6 +315,12 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
                 if (!ModelState.IsValid) throw new InvalidOperationException("Check the action details and try again.");
                 if (store.IsPersistent && (operation is "verify" or "approve") && (!paymentId.HasValue || paymentId == Guid.Empty || !reviewRevision.HasValue || reviewRevision < 0 || !uint.TryParse(reviewVersion, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out _) || !reviewed))
                     throw new InvalidOperationException("Reload and inspect the latest payment proof and confirm your review before verifying.");
+                if (operation == "xendit-test-refund")
+                {
+                    if (!DemoXenditRefunds) return NotFound();
+                    TempData["Success"] = DemoXenditRefund(b) ?? throw new InvalidOperationException("Nothing to refund through Xendit: no refund is waiting, or the booking was not paid through Xendit.");
+                    return string.Equals(returnTo, "refunds", StringComparison.OrdinalIgnoreCase) ? RedirectToAction("Refunds") : RedirectToAction("Details", new { id });
+                }
                 if (operation == "verify-cancelled-receipt")
                 {
                     if (!User.IsInRole("SuperAdmin") || store.IsPersistent) return Forbid();
@@ -343,7 +349,15 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
                 if ((b.MixedPeople.Count > 0 || store.IsPersistent) && (operation is "reschedule" or "decline") && (!requestedStart.HasValue || b.RequestedStart != requestedStart))
                     throw new InvalidOperationException("The requested time changed. Reload this booking before deciding.");
                 workflow.AdminAction(b, operation, UserId, reason, amount, reference, confirmed, paymentId, reviewRevision, reviewVersion, travelOverride);
-                TempData["Success"] = operation switch
+                // Auto-refund: a business cancel or reject refunds the verified Xendit payment right away (demo test mode).
+                string? autoRefund = null;
+                if (operation is "cancel" or "reject" && DemoXenditRefunds)
+                {
+                    // The cancel is already saved; a refund problem must not read as a failed cancel.
+                    try { autoRefund = DemoXenditRefund(b); }
+                    catch (InvalidOperationException e) { autoRefund = $"The Xendit test refund was not recorded ({e.Message}) Record it on the Refunds page."; }
+                }
+                TempData["Success"] = autoRefund != null ? $"{(operation == "cancel" ? "Appointment cancelled" : "Booking rejected")}. {autoRefund}" : operation switch
                 {
                     "cancel" => "Appointment cancelled. Payment and refund arrangements require personal review.",
                     "complete" => "Appointment marked completed. Payment status was not changed.",
@@ -388,6 +402,38 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
                 : RedirectToAction("Details", new { id });
         }
     }
+    // ── Xendit test refunds (simulated) ──
+    // On when payments are test money: local Development + Demo + Xendit:DemoTestCheckout, or the
+    // live site while its Xendit key is a TEST key (xnd_development_). Never with a live key.
+    // A real refund (POST /v3/refunds with the Xendit payment_id) is a later step.
+    private bool DemoXenditRefunds =>
+        (!store.IsPersistent
+            && HttpContext.RequestServices.GetService<IWebHostEnvironment>()?.IsDevelopment() == true
+            && HttpContext.RequestServices.GetRequiredService<IConfiguration>().GetValue<bool>("Xendit:DemoTestCheckout"))
+        || (store is IPersistentStudioStore && HttpContext.RequestServices.GetService<XenditClient>()?.IsTestMode == true);
+
+    // Simulates a successful Xendit refund of what is still owed on the booking and records it like a
+    // sent refund. Returns a message, or null when nothing is owed or the payment did not go through Xendit.
+    private string? DemoXenditRefund(Booking b)
+    {
+        // Database mode writes through SQL, so read the booking again for the refund now owed.
+        if (store.IsPersistent) b = store.FindBooking(b.Id) ?? b;
+        var owed = b.RefundDue - b.Refunded;
+        if (owed <= 0) return null;
+        if (!PaidThroughXendit(b.Id)) return null;
+        var refundId = "rfd-test-" + Guid.NewGuid().ToString("N")[..12];
+        workflow.AdminAction(b, "refund", UserId, "", owed, $"Xendit test refund {refundId}", false, null, null, null, false);
+        if (!store.IsPersistent) store.Notifications.Add(new(b.CustomerId, $"Xendit test refund of ₱{owed:N2} for {b.Reference} was sent back to your original payment method (refund {refundId}).", store.Now));
+        if (store is DemoStore demo) demo.RecordAdminActivity(UserId, $"Refund sent via Xendit (test): ₱{owed:N2} for {b.Reference} · {refundId}", "Booking", b.Id);
+        EmailCustomer(b.CustomerId, $"Glam by Mariya {b.Reference}: your refund was sent",
+            $"We refunded ₱{owed:N2} for {b.Reference} to your original payment method through Xendit (test refund {refundId}).");
+        return $"₱{owed:N2} was refunded automatically through Xendit (test refund {refundId}).";
+    }
+
+    // A down payment made through Xendit: method "Xendit", or the XENDIT- reference the checkout creates.
+    private bool PaidThroughXendit(Guid bookingId) => store.Payments.Any(p => p.BookingId == bookingId
+        && (p.Method == "Xendit" || (p.Reference ?? "").StartsWith("XENDIT-", StringComparison.OrdinalIgnoreCase)));
+
     public IActionResult Refunds(string? filter = null)
     {
         lock (store.Gate)
@@ -400,6 +446,8 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
                 .ToList();
             var normalized = filter?.ToLowerInvariant() is "waiting" or "sent" or "all" ? filter.ToLowerInvariant() : "all";
             ViewBag.AllRefunds = all;
+            ViewBag.DemoXenditRefunds = DemoXenditRefunds;
+            ViewBag.XenditPaid = store.Payments.Where(p => p.Method == "Xendit" || (p.Reference ?? "").StartsWith("XENDIT-", StringComparison.OrdinalIgnoreCase)).Select(p => p.BookingId).ToHashSet();
             ViewBag.Filter = normalized;
             var filtered = normalized switch
             {

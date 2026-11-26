@@ -89,6 +89,14 @@ else
                                     <input name="reference" type="text" maxlength="150" placeholder="Transfer reference" aria-label="Refund transfer reference" required />
                                     <button name="operation" value="refund" type="submit" class="button secondary">Record sent</button>
                                 </form>
+                                @if (ViewBag.DemoXenditRefunds == true && ((HashSet<Guid>)ViewBag.XenditPaid).Contains(b.Id))
+                                {
+                                    <form asp-action="Action" method="post" class="refund-xendit-form">
+                                        <input type="hidden" name="id" value="@b.Id" />
+                                        <input type="hidden" name="returnTo" value="refunds" />
+                                        <button name="operation" value="xendit-test-refund" type="submit" class="button">Refund ₱@remaining.ToString("N2") via Xendit (test)</button>
+                                    </form>
+                                }
                             }
                             else
                             {

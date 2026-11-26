@@ -5026,3 +5026,7 @@ dialog.policies-modal {
 .staff-layout .log-table .log-record { max-width: 170px; }
 .staff-layout .log-table td:nth-child(3), .staff-layout .log-table td:nth-child(4), .staff-layout .log-table .log-record { overflow-wrap: anywhere; word-break: normal; }
 .staff-layout .log-table .log-record small { display: block; }
+
+/* Refunds: one-click Xendit test refund (demo mode). */
+.refund-xendit-form { margin: 8px 0 0; }
+.refund-xendit-form .button { width: 100%; min-height: 38px; font-size: 12.5px !important; white-space: nowrap; }
