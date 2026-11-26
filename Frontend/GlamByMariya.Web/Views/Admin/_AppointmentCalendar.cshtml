@@ -8,7 +8,7 @@
         @for (var blank = 0; blank < (int)month.DayOfWeek; blank++) { <span aria-hidden="true"></span> }
         @for (var day = 1; day <= DateTime.DaysInMonth(month.Year, month.Month); day++) {
             var date = month.AddDays(day - 1); var entries = Model.Where(b => b.Start.Date == date && AdminPaymentLabels.OnCalendar(b)).ToList(); var blocked = blocks.Any(b => b.From < date.AddDays(1) && b.To > date);
-            <a class="admin-calendar-day" asp-action="Appointments" asp-route-mode="calendar" asp-route-year="@month.Year" asp-route-month="@month.Month" asp-route-day="@day" aria-current="@(selectedDay == day ? "date" : null)" aria-label="@date.ToString("MMMM d"): @entries.Count appointments@(blocked ? ", blocked time" : "")"><strong>@day</strong><span>@if (entries.Count > 0) { <text>@entries.Count appointment(s)</text> } @if (blocked) { <text> · Blocked</text> }</span></a>
+            <a class="admin-calendar-day" asp-action="Appointments" asp-route-mode="calendar" asp-route-year="@month.Year" asp-route-month="@month.Month" asp-route-day="@day" aria-current="@(selectedDay == day ? "date" : null)" aria-label="@date.ToString("MMMM d"): @entries.Count appointments@(blocked ? ", blocked time" : "")"><strong>@day</strong><span>@if (entries.Count > 0) { <text>@(entries.Count == 1 ? "1 appt" : $"{entries.Count} appts")</text> } @if (blocked) { <text> · Blocked</text> }</span></a>
         }
     </div>
 </section>

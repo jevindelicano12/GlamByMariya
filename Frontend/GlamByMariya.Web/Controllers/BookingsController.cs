@@ -153,7 +153,12 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
             ViewBag.AddOns = store.AddOns.Where(x => x.Active && !x.Archived).ToList();
             ViewBag.Settings = store.Settings;
             ViewBag.SelectedService = serviceId;
-            ViewBag.AccountAddress = store.Users.FirstOrDefault(u => u.Id == UserId)?.Address ?? "";
+            var savedAddresses = store.ListCustomerAddresses(UserId);
+            var accountAddr = store.Users.FirstOrDefault(u => u.Id == UserId)?.Address ?? "";
+            if (string.IsNullOrWhiteSpace(accountAddr) || accountAddr == "Address on file")
+                accountAddr = savedAddresses.FirstOrDefault()?.AddressText ?? "";
+            ViewBag.AccountAddress = accountAddr;
+            ViewBag.SavedAddresses = savedAddresses;
             return View();
         }
     }
@@ -175,6 +180,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
             if (string.IsNullOrWhiteSpace(reference)) throw new InvalidOperationException("Enter your payment reference number.");
             path = await SaveProof(proof);
             workflow.Create(UserId, serviceId, addOnIds, start, address, area, deposit, method, reference, path, agreed, people, package, travelAcknowledged, expectedTotal, expectedMinimum, latitude: latitude, longitude: longitude);
+            store.SaveCustomerAddress(UserId, address, area, latitude, longitude);
             CompleteStaging(path);
             path = null;
             TempData["Success"] = "Your booking is submitted. The artist will verify your deposit and confirm your appointment.";
@@ -254,6 +260,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
     {
         var reference = "XENDIT-" + Guid.NewGuid().ToString("N")[..16].ToUpperInvariant();
         var booking = workflow.Create(UserId, serviceId, addOnIds, start, address, area, deposit, "Xendit", reference, null, agreed, people, package, travelAcknowledged, expectedTotal, expectedMinimum, latitude: latitude, longitude: longitude);
+        store.SaveCustomerAddress(UserId, address, area, latitude, longitude);
         return Redirect(await NextStepUrl(booking, deposit));
     }
 
@@ -275,6 +282,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
             var reference = "XENDIT-" + Guid.NewGuid().ToString("N")[..16].ToUpperInvariant();
             var booking = workflow.CreateMixed(UserId, people, start, address, area, deposit, "Xendit", reference, null, agreed, travelAcknowledged,
                 expectedTotal.Value, expectedMinimum.Value, latitude: latitude, longitude: longitude);
+            store.SaveCustomerAddress(UserId, address, area, latitude, longitude);
             var next = await NextStepUrl(booking, deposit);
             return wantsJson ? Json(new { confirmationUrl = next }) : Redirect(next);
         }
@@ -340,6 +348,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
             string? imageFingerprint = null;
             path = await SaveProof(proof, hash => imageFingerprint = hash);
             var booking = workflow.CreateMixed(UserId, people, mixedStart, address, area, deposit, method, reference, path, agreed, travelAcknowledged, expectedTotal.Value, expectedMinimum.Value, submissionId, policyVersion, travelReminderVersion, imageFingerprint, latitude, longitude);
+            store.SaveCustomerAddress(UserId, address, area, latitude, longitude);
             lock (store.Gate)
             {
                 if (!store.Payments.Any(p => p.BookingId == booking.Id && p.ProofPath == path)) CleanupFailedStaging(path);

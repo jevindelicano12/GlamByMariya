@@ -7,7 +7,7 @@ namespace GlamByMariya.Core.BusinessRules;
 public static partial class RegistrationRules
 {
     public static readonly string[] Genders = ["Male", "Female", "Others"];
-    public const int MinimumAge = 13;
+    public const int MinimumAge = 16;
     public const int MaximumAge = 110;
 
     public static int CalculateAge(DateOnly birthday, DateOnly today)
@@ -39,8 +39,12 @@ public static partial class RegistrationRules
     {
         if (string.IsNullOrWhiteSpace(firstName) || firstName.Trim().Length > 50 || !NameCharacters().IsMatch(firstName.Trim()))
             return "Enter your first name (letters only, up to 50 characters).";
+        if (ProfanityFilter.ValidateName(firstName, "first name") is { } firstNameErr)
+            return firstNameErr;
         if (string.IsNullOrWhiteSpace(lastName) || lastName.Trim().Length > 50 || !NameCharacters().IsMatch(lastName.Trim()))
             return "Enter your last name (letters only, up to 50 characters).";
+        if (ProfanityFilter.ValidateName(lastName, "last name") is { } lastNameErr)
+            return lastNameErr;
         if (string.IsNullOrWhiteSpace(email) || email.Trim().Length > 254 || !System.Net.Mail.MailAddress.TryCreate(email.Trim(), out _))
             return "Enter a valid email address.";
         if (enforceLegacyAge && (age < MinimumAge || age > MaximumAge))
@@ -49,6 +53,8 @@ public static partial class RegistrationRules
             return "Choose a valid option for gender.";
         if ((enforceAddress || !string.IsNullOrWhiteSpace(address)) && (string.IsNullOrWhiteSpace(address) || address.Trim().Length < 8 || address.Trim().Length > 500))
             return "Enter your address (8–500 characters).";
+        if (!string.IsNullOrWhiteSpace(address) && ProfanityFilter.ValidateAddress(address) is { } addressErr)
+            return addressErr;
         return null;
     }
 }

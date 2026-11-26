@@ -75,9 +75,10 @@ public sealed class AccountSettingsService(IStudioStore store, IServiceProvider 
 
     private static string? ValidateCustomerProfile(int age, string gender, string address)
     {
-        if (age < 0 || age > RegistrationRules.MaximumAge) return $"Enter a valid age (0–{RegistrationRules.MaximumAge}).";
+        if (age < RegistrationRules.MinimumAge || age > RegistrationRules.MaximumAge) return $"Enter a valid age ({RegistrationRules.MinimumAge}–{RegistrationRules.MaximumAge}).";
         if (!string.IsNullOrEmpty(gender) && !RegistrationRules.Genders.Contains(gender)) return "Choose a valid option for gender.";
-        return string.IsNullOrWhiteSpace(address) || address.Trim().Length is < 8 or > 500 ? "Enter your address (8–500 characters)." : null;
+        if (string.IsNullOrWhiteSpace(address) || address.Trim().Length is < 8 or > 500) return "Enter your address (8–500 characters).";
+        return GlamByMariya.Core.BusinessRules.ProfanityFilter.ValidateAddress(address);
     }
 
 }

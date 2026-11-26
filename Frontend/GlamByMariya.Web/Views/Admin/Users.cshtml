@@ -1,31 +1,39 @@
 @{ ViewData["Title"] = "Manage administrators"; }
+<div class="users-page">
 <div class="page-heading"><div><div class="eyebrow">SYSTEM OWNER</div><h1>Manage administrators</h1><p>Invite administrators, and disable or enable their accounts.</p></div><span class="pill">Super Admin</span></div>
-<section class="panel"><h2>Permission management preparation</h2><p>These categories are planned, not active. Existing Admins retain their current access. Permission selection, changes and revocation are unavailable until secure storage and server-side enforcement are verified.</p><ul>@foreach (var permission in GlamByMariya.Core.BusinessRules.AdminPermissionCatalog.Items) { <li>@permission.Label</li> }</ul><p>Website Content publishing and administrator management remain SuperAdmin-only.</p></section>
+<div class="users-grid">
 <section class="panel settings-card">
-    <div><div class="eyebrow">INVITE</div><h2>Invite an administrator</h2><p>The invitation email contains a single-use setup link. The Admin role is assigned automatically.</p></div>
-    <form asp-action="Invite" method="post" class="stack">
-        <label>Email address<input name="email" type="email" required autocomplete="email" maxlength="50" /></label>
+    <div class="users-card-head"><div class="eyebrow">INVITE</div><h2>Invite an administrator</h2><p>The invitation email contains a single-use setup link. The Admin role is assigned automatically.</p></div>
+    <form asp-action="Invite" method="post" class="users-invite-form">
+        <label>Email address<input name="email" type="email" required autocomplete="email" maxlength="50" placeholder="admin@glambymariya.com" /></label>
         <button class="button" type="submit">Send invitation</button>
     </form>
 </section>
 <section class="panel settings-card">
-    <div><div class="eyebrow">PENDING</div><h2>Outstanding invitations</h2></div>
-    @if (!((IReadOnlyList<GlamByMariya.Core.Entities.AdminInvitation>)ViewBag.Invites).Any()) { <p>No pending invitations.</p> }
+    <div class="users-card-head"><div class="eyebrow">PENDING</div><h2>Outstanding invitations</h2><p>Active single-use links waiting for acceptance.</p></div>
+    @if (!((IReadOnlyList<GlamByMariya.Core.Entities.AdminInvitation>)ViewBag.Invites).Any()) { <p class="users-empty">No pending invitations.</p> }
     @foreach (var invite in (IReadOnlyList<GlamByMariya.Core.Entities.AdminInvitation>)ViewBag.Invites)
     {
-        <div class="detail-row"><span>@invite.Email<small>Expires @invite.ExpiresAt.ToString("MMM d, yyyy h:mm tt") UTC</small></span>
-        <form asp-action="RevokeInvite" method="post"><input type="hidden" name="id" value="@invite.Id" /><button class="text-button" type="submit">Revoke</button></form></div>
+        <div class="detail-row"><span><strong>@invite.Email</strong><small>Expires @invite.ExpiresAt.ToString("MMM d, yyyy h:mm tt") UTC</small></span>
+        <form asp-action="RevokeInvite" method="post"><input type="hidden" name="id" value="@invite.Id" /><button class="button secondary users-row-btn" type="submit">Revoke</button></form></div>
     }
 </section>
+</div>
 <section class="panel settings-card">
-    <div><div class="eyebrow">ROSTER</div><h2>Administrators</h2><p>Only this screen can invite administrators. Admin accounts cannot change Super Admin privileges.</p></div>
+    <div class="users-card-head"><div class="eyebrow">ROSTER</div><h2>Administrators</h2><p>Only this screen can invite administrators. Admin accounts cannot change Super Admin privileges.</p></div>
     @foreach (var admin in (System.Collections.Generic.List<GlamByMariya.Core.Entities.AppUser>)ViewBag.Admins)
     {
-        <div class="detail-row"><span>@admin.Name<small>@admin.Email · @admin.Role · @(admin.IsActive ? "Active" : "Disabled")</small></span>
+        <div class="detail-row"><span><strong>@admin.Name</strong><small>@admin.Email · @admin.Role · @(admin.IsActive ? "Active" : "Disabled")</small></span>
         @if (admin.Role == "Admin")
         {
-            <form asp-action="SetAdminActive" method="post"><input type="hidden" name="id" value="@admin.Id" /><input type="hidden" name="active" value="@(admin.IsActive ? "false" : "true")" /><button class="text-button" type="submit">@(admin.IsActive ? "Disable" : "Enable")</button></form>
+            <form asp-action="SetAdminActive" method="post"><input type="hidden" name="id" value="@admin.Id" /><input type="hidden" name="active" value="@(admin.IsActive ? "false" : "true")" /><button class="button secondary users-row-btn" type="submit">@(admin.IsActive ? "Disable" : "Enable")</button></form>
         }
         </div>
     }
 </section>
+<section class="panel users-permissions-card">
+    <div class="users-card-head"><div class="eyebrow">ROADMAP</div><h2>Permission management preparation</h2><p>These categories are planned, not active. Existing Admins retain their current access. Permission selection, changes and revocation are unavailable until secure storage and server-side enforcement are verified.</p></div>
+    <ul class="users-permission-list">@foreach (var permission in GlamByMariya.Core.BusinessRules.AdminPermissionCatalog.Items) { <li>@permission.Label</li> }</ul>
+    <p class="users-permissions-note">Website Content publishing and administrator management remain SuperAdmin-only.</p>
+</section>
+</div>

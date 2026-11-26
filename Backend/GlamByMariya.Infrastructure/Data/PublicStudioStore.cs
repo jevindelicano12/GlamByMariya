@@ -117,6 +117,68 @@ public sealed class PublicStudioStore(
         pdb.Database.SqlQueryRaw<bool>("""SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='business_settings' AND column_name='payment_policy') AS "Value" """).AsEnumerable().Single();
     private bool HasMaxAdvanceColumn() =>
         pdb.Database.SqlQueryRaw<bool>("""SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='business_settings' AND column_name='max_advance_booking_days') AS "Value" """).AsEnumerable().Single();
+    private bool HasCustomerAddressesTable() =>
+        pdb.Database.SqlQueryRaw<bool>("""SELECT to_regclass('public.customer_addresses') IS NOT NULL AS "Value" """).AsEnumerable().Single();
+    public override IReadOnlyList<CustomerAddress> ListCustomerAddresses(Guid customerId)
+    {
+        var bigId = CustomerBigId(customerId);
+        if (!HasCustomerAddressesTable())
+        {
+            var single = Users.FirstOrDefault(u => u.Id == customerId)?.Address?.Trim() ?? "";
+            return single.Length > 0 && single != "Address on file"
+                ? [new CustomerAddress { CustomerId = customerId, Label = "Primary address", AddressText = single, IsDefault = true }]
+                : [];
+        }
+        return pdb.Database.SqlQuery<CustomerAddressRow>($"""
+            SELECT ca.id AS "Id", ca.label AS "Label", ca.address_text AS "AddressText",
+                   coalesce(sa.name, '') AS "Area", ca.latitude AS "Latitude", ca.longitude AS "Longitude",
+                   ca.is_default AS "IsDefault", ca.updated_at AS "UpdatedAt"
+              FROM public.customer_addresses ca
+              LEFT JOIN public.service_areas sa ON sa.id = ca.area_id
+             WHERE ca.customer_id = {bigId}
+             ORDER BY ca.is_default DESC, ca.updated_at DESC
+            """).AsEnumerable().Select(r => new CustomerAddress
+            {
+                Id = r.Id, CustomerId = customerId, Label = r.Label, AddressText = r.AddressText,
+                Area = r.Area, Latitude = r.Latitude, Longitude = r.Longitude, IsDefault = r.IsDefault, UpdatedAt = r.UpdatedAt
+            }).ToList();
+    }
+    public override void SaveCustomerAddress(Guid customerId, string addressText, string area, decimal? latitude = null, decimal? longitude = null)
+    {
+        var clean = (addressText ?? "").Trim();
+        if (clean.Length == 0 || clean == "Address on file") return;
+        Transaction(null, () =>
+        {
+            var bigId = CustomerBigId(customerId);
+            pdb.Database.ExecuteSqlInterpolated($"""
+                UPDATE public.customers
+                   SET address = {clean}
+                 WHERE id = {bigId}
+                   AND (address IS NULL OR length(btrim(address)) = 0 OR btrim(address) = 'Address on file')
+                """);
+            if (!HasCustomerAddressesTable()) return;
+            var areaId = pdb.Set<AreaRow>().Where(x => x.Name.ToLower() == (area ?? "").Trim().ToLower()).Select(x => (Guid?)x.Id).FirstOrDefault();
+            var existingCount = pdb.Database.SqlQueryRaw<int>("""SELECT count(*)::int AS "Value" FROM public.customer_addresses WHERE customer_id={0}""", bigId).AsEnumerable().Single();
+            var label = existingCount == 0 ? "Primary address" : $"Address {existingCount + 1}";
+            pdb.Database.ExecuteSqlInterpolated($"""UPDATE public.customer_addresses SET is_default = false WHERE customer_id = {bigId} AND is_default""");
+            pdb.Database.ExecuteSqlInterpolated($"""
+                INSERT INTO public.customer_addresses (customer_id, area_id, label, address_text, latitude, longitude, is_default)
+                VALUES ({bigId}, {areaId}, {label}, {clean}, {latitude}, {longitude}, true)
+                ON CONFLICT (customer_id, lower(btrim(address_text)))
+                DO UPDATE SET area_id = COALESCE(EXCLUDED.area_id, public.customer_addresses.area_id),
+                              latitude = COALESCE(EXCLUDED.latitude, public.customer_addresses.latitude),
+                              longitude = COALESCE(EXCLUDED.longitude, public.customer_addresses.longitude),
+                              is_default = true,
+                              updated_at = now()
+                """);
+        });
+    }
+    private sealed class CustomerAddressRow
+    {
+        public Guid Id { get; set; } public string Label { get; set; } = ""; public string AddressText { get; set; } = "";
+        public string Area { get; set; } = ""; public decimal? Latitude { get; set; } public decimal? Longitude { get; set; }
+        public bool IsDefault { get; set; } public DateTime UpdatedAt { get; set; }
+    }
     private sealed class BusinessSettingsExtrasRow
     {
         public decimal Speed { get; set; }

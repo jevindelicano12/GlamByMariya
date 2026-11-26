@@ -38,9 +38,6 @@
     const subdivision = el('input', { id: `${id}-subdivision`, autocomplete: 'address-line3', maxLength: 80, placeholder: 'e.g. Villa Verde Subd.' });
     const zip = el('input', { id: `${id}-zip`, autocomplete: 'postal-code', inputMode: 'numeric', maxLength: 4, pattern: '[0-9]{4}', placeholder: 'e.g. 1600', title: 'Enter your 4-digit ZIP code' });
     const landmark = el('input', { id: `${id}-landmark`, maxLength: 120, placeholder: 'e.g. Beside the blue gate, near 7-Eleven' });
-    const quick = el('input', { id: `${id}-quick`, type: 'search', autocomplete: 'off', placeholder: 'Start typing your city or municipality…' });
-    const quickList = el('datalist', { id: `${id}-quick-list` });
-    quick.setAttribute('list', quickList.id);
     const preview = el('p', { className: 'ph-address-preview', role: 'status' });
     preview.setAttribute('aria-live', 'polite');
 
@@ -48,7 +45,6 @@
     fill(region, 'Loading regions…', []); fill(province, 'Select province', []); fill(city, 'Select city / municipality', []); fill(barangay, 'Select barangay', []);
 
     const picker = el('div', { className: 'ph-address-fields form-grid' }, [
-      field('Quick find (optional)', quick, 'full ph-address-quick'), quickList,
       field('Region', region), field('Province', province),
       field('City / Municipality', city), field('Barangay', barangay),
       field('House / Unit / Bldg No.', houseNo), field('Street Name', streetName),
@@ -93,16 +89,39 @@
       return { structured: false, covered: true, matched: areaSelect?.value || '', place: '' };
     };
 
-    // Booking: start from the account address and let the customer change it for this booking.
+    // Booking: start from saved customer addresses (if any) and let the customer pick, change, or add a new address.
+    let savedList = [];
+    try {
+      const raw = textarea.dataset.savedAddresses;
+      if (raw) savedList = JSON.parse(raw).filter(x => x && x.address);
+    } catch { }
+    if (!savedList.length && savedValue) savedList = [{ label: 'Saved address', address: savedValue, area: '' }];
+    let currentSaved = savedList[0]?.address || '';
+
     let saved;
-    if (savedValue) {
-      const change = el('button', { type: 'button', className: 'button secondary', textContent: 'Change address' });
+    if (savedList.length) {
+      const change = el('button', { type: 'button', className: 'button secondary', textContent: savedList.length > 1 ? 'Add new address' : 'Change address' });
       const keep = el('button', { type: 'button', className: 'text-button', textContent: 'Use my saved address' });
-      saved = el('div', { className: 'ph-address-saved' }, [el('div', {}, [el('span', { textContent: 'Saved address' }), el('strong', { textContent: savedValue })]), change]);
+      const savedStrong = el('strong', { textContent: currentSaved });
+      const savedInfo = el('div', {}, [el('span', { textContent: savedList.length > 1 ? 'Saved addresses' : 'Saved address' }), savedStrong]);
+      if (savedList.length > 1) {
+        const pickerSelect = el('select', { className: 'ph-address-select', ariaLabel: 'Choose a saved address' });
+        savedList.forEach((item, idx) => pickerSelect.append(option(String(idx), `${item.label}: ${item.address}`)));
+        pickerSelect.addEventListener('change', () => {
+          const picked = savedList[Number(pickerSelect.value)] || savedList[0];
+          currentSaved = picked.address;
+          savedStrong.textContent = currentSaved;
+          sync();
+        });
+        savedInfo.append(pickerSelect);
+      }
+      saved = el('div', { className: 'ph-address-saved' }, [savedInfo, change]);
       picker.append(el('div', { className: 'full ph-address-keep' }, [keep]));
       change.addEventListener('click', () => setMode(true, true));
       keep.addEventListener('click', () => setMode(false, true));
       wrapper.append(saved);
+    } else {
+      picker.prepend(el('p', { className: 'full ph-address-empty-note', textContent: 'Add your address here — it will be saved to your profile for future bookings.' }));
     }
     wrapper.append(picker, areaError);
     const errorSlot = sourceLabel?.querySelector('[data-error-for="address"]');
@@ -153,9 +172,9 @@
     };
     const sync = () => {
       if (picker.hidden) {
-        textarea.value = savedValue;
-        const cov = checkSavedCoverage(savedValue);
-        applyCoverage(cov.covered, cov.matched, cov.place, savedValue, savedValue.split('(Landmark:')[0].trim());
+        textarea.value = currentSaved;
+        const cov = checkSavedCoverage(currentSaved);
+        applyCoverage(cov.covered, cov.matched, cov.place, currentSaved, currentSaved.split('(Landmark:')[0].trim());
         return;
       }
       const p = data?.provinces.find(x => x[0] === province.value);
@@ -194,9 +213,9 @@
       picker.hidden = !editing;
       if (saved) saved.hidden = editing;
       controls.forEach(control => { control.required = editing; });
-      [...controls, subdivision, landmark, quick].forEach(control => { if (!editing) control.disabled = true; });
+      [...controls, subdivision, landmark].forEach(control => { if (!editing) control.disabled = true; });
       if (editing) {
-        region.disabled = !data; houseNo.disabled = streetName.disabled = subdivision.disabled = zip.disabled = landmark.disabled = quick.disabled = false;
+        region.disabled = !data; houseNo.disabled = streetName.disabled = subdivision.disabled = zip.disabled = landmark.disabled = false;
         province.disabled = province.options.length < 2;
         city.disabled = city.options.length < 2; barangay.disabled = barangay.options.length < 2;
         if (focus) region.focus();
@@ -231,30 +250,27 @@
     [barangay, houseNo, streetName, subdivision, zip, landmark].forEach(control => control.addEventListener(control.tagName === 'SELECT' ? 'change' : 'input', sync));
     zip.addEventListener('input', () => { zip.value = zip.value.replace(/\D/g, '').slice(0, 4); });
 
-    // Quick find: choosing "City, Province" fills region, province and city in one step.
-    const quickMap = new Map();
-    quick.addEventListener('input', () => {
-      const match = quickMap.get(quick.value.trim().toLowerCase());
-      if (!match) return;
-      region.value = match.region; setProvinces();
-      province.value = match.province; setCities();
-      city.value = match.city;
-      setBarangays().then(() => { sync(); barangay.focus(); });
-      quick.value = '';
-    });
-
     getIndex().then(index => {
-      data = index;
+      const provinceOfAll = Object.fromEntries(index.provinces.map(p => [p[0], p]));
+      const provinceNorms = new Set(index.provinces.map(p => normalizePlace(p[1])));
+      const coveredCities = areaSelect ? index.cities.filter(c => {
+        const provName = provinceOfAll[c[2]]?.[1] || '';
+        const cityCandidate = provinceNorms.has(normalizePlace(c[1])) && normalizePlace(provName) !== normalizePlace(c[1]) ? '' : c[1];
+        return matchArea([cityCandidate, provName]);
+      }) : [];
+      if (coveredCities.length) {
+        const provIds = new Set(coveredCities.map(c => c[2]));
+        const coveredProvinces = index.provinces.filter(p => provIds.has(p[0]));
+        const regIds = new Set(coveredProvinces.map(p => p[2]));
+        data = { regions: index.regions.filter(r => regIds.has(r[0])), provinces: coveredProvinces, cities: coveredCities };
+      } else {
+        data = index;
+      }
       fill(region, 'Select region', data.regions.map(r => [r[0], r[1]]));
-      const provinceOf = Object.fromEntries(data.provinces.map(p => [p[0], p]));
-      quickList.replaceChildren(...data.cities.map(c => {
-        const p = provinceOf[c[2]], label = p[1] === c[1] ? c[1] : `${c[1]}, ${p[1]}`;
-        quickMap.set(label.toLowerCase(), { region: p[2], province: p[0], city: c[0] });
-        return option(label, '');
-      }));
-      setMode(!savedValue, false);
+      if (region.options.length === 2) { region.selectedIndex = 1; setProvinces(); }
+      setMode(!currentSaved, false);
     }).catch(fallback);
-    setMode(!savedValue, false);
+    setMode(!currentSaved, false);
 
     // If the address list cannot load, give back the plain address box so nobody gets stuck.
     function fallback() {

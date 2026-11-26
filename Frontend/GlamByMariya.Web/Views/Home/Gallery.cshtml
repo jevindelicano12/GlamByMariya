@@ -1,2 +1,2 @@
 @{ ViewData["Title"] = "Gallery"; var images = ViewData["PublishedWebsiteImages"] as IReadOnlyList<GlamByMariya.Infrastructure.Services.WebsiteImageReference> ?? []; }
-<div class="public-page"><h1>Gallery</h1><p class="public-breadcrumb"><a asp-action="Index">Home</a> / Gallery</p><partial name="_PublishedGallery" model="images" /></div>
+<div class="public-page"><div class="eyebrow">PORTFOLIO</div><h1>Gallery</h1><p class="public-breadcrumb"><a asp-action="Index">Home</a> / Gallery</p><partial name="_PublishedGallery" model="images" /></div>

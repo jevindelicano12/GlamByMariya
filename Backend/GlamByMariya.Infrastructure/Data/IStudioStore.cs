@@ -43,6 +43,8 @@ public interface IStudioStore : IServiceRepository, IAddOnRepository, IBookingRe
     ArtistLocation GetArtistLocation();
     void SetArtistHome(decimal lat, decimal lng);
     void SetArtistCurrent(decimal? lat, decimal? lng);
+    IReadOnlyList<CustomerAddress> ListCustomerAddresses(Guid customerId) => [];
+    void SaveCustomerAddress(Guid customerId, string addressText, string area, decimal? latitude = null, decimal? longitude = null) { }
     // Bookings holding a slot between from and until (Asia/Manila local), in start order, without exclude.
     IReadOnlyList<TravelAppointment> TravelStops(DateTime from, DateTime until, Guid? exclude);
     // InProgress or Completed bookings between from and until (Asia/Manila local): where the artist already is today.

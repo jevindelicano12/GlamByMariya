@@ -68,6 +68,15 @@ public class AccountController(
         is { IsActive: true } user && user.Id.ToString() == User.FindFirstValue(ClaimTypes.NameIdentifier)
         ? user : throw new InvalidOperationException("Sign in again to manage your account.");
 
+    [Authorize, HttpGet("/Account/Avatar/{userId:guid}/{name}"), ResponseCache(Duration = 86400, Location = ResponseCacheLocation.Client)]
+    public IActionResult Avatar(Guid userId, string name)
+    {
+        if (userId != CurrentAccount().Id) return Forbid();
+        var image = avatars.ReadLocal(userId, name);
+        if (image == null) return NotFound();
+        Response.Headers.XContentTypeOptions = "nosniff";
+        return File(image.Value.Bytes, image.Value.Type);
+    }
     [Authorize, HttpGet, ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
     public IActionResult DemoAvatar()
     {

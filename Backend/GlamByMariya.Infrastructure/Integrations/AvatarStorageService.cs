@@ -7,20 +7,21 @@ namespace GlamByMariya.Infrastructure.Integrations;
 // Server-only credentials. Public objects are pictures only; writes require our authenticated controller.
 // Provider B2 (Backblaze, S3-compatible) is used when B2 settings are present;
 // otherwise Supabase Storage is used when its server key is present.
-public sealed class AvatarStorageService(IHttpClientFactory factory, IConfiguration config, ILogger<AvatarStorageService> log)
+public sealed class AvatarStorageService(IHttpClientFactory factory, IConfiguration config, IWebHostEnvironment env, ILogger<AvatarStorageService> log)
 {
     public string Provider =>
         !string.IsNullOrWhiteSpace(config["B2:Bucket"]) && !string.IsNullOrWhiteSpace(config["B2:Endpoint"])
         && !string.IsNullOrWhiteSpace(config["B2:KeyId"]) && !string.IsNullOrWhiteSpace(config["B2:AppKey"]) ? "B2"
-        : SupabaseReady ? "Supabase" : "None";
+        : SupabaseReady ? "Supabase" : "Local";
 
     private bool SupabaseReady => Uri.TryCreate(BaseUrl, UriKind.Absolute, out var url) && url.Scheme == "https"
         && !string.IsNullOrWhiteSpace(config["SupabaseStorage:ServiceKey"]);
 
-    public bool IsConfigured => Provider is "B2" or "Supabase";
+    public bool IsConfigured => true;
 
     private string BaseUrl => (config["Supabase:Url"] ?? "").Trim().TrimEnd('/');
     private const string Bucket = "profile-avatars";
+    private string LocalRoot => Path.Combine(env.ContentRootPath, "App_Data", "avatars");
 
     private static (byte[] Bytes, string Extension, string Mime) ReadImage(IFormFile? file)
     {
@@ -43,7 +44,7 @@ public sealed class AvatarStorageService(IHttpClientFactory factory, IConfigurat
         {
             "B2" => await B2Upload(path, bytes, mime),
             "Supabase" => await SupabaseUpload(path, bytes, mime),
-            _ => throw new InvalidOperationException("Profile uploads are not configured. Run scripts/Configure-B2AvatarStorage.ps1 or scripts/Configure-AvatarStorage.ps1 first."),
+            _ => await LocalUpload(userId, bytes, ext),
         };
     }
 
@@ -52,11 +53,39 @@ public sealed class AvatarStorageService(IHttpClientFactory factory, IConfigurat
         if (url == null) return;
         try
         {
-            if (Provider == "B2") await B2Delete(userId, url);
+            if (url.StartsWith("/Account/Avatar/", StringComparison.Ordinal)) LocalDelete(userId, url);
+            else if (Provider == "B2") await B2Delete(userId, url);
             else if (Provider == "Supabase") await SupabaseDelete(userId, url);
         }
-        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or AmazonS3Exception or InvalidOperationException)
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or AmazonS3Exception or InvalidOperationException or IOException)
         { log.LogWarning("Old avatar cleanup failed."); }
+    }
+
+    private async Task<string> LocalUpload(Guid userId, byte[] bytes, string ext)
+    {
+        var dir = Path.Combine(LocalRoot, userId.ToString("D"));
+        Directory.CreateDirectory(dir);
+        var name = $"{Guid.NewGuid():N}.{ext}";
+        await File.WriteAllBytesAsync(Path.Combine(dir, name), bytes);
+        return $"/Account/Avatar/{userId:D}/{name}";
+    }
+
+    public (byte[] Bytes, string Type)? ReadLocal(Guid userId, string name)
+    {
+        if (!System.Text.RegularExpressions.Regex.IsMatch(name ?? "", @"\A[a-f0-9]{32}\.(jpg|png)\z")) return null;
+        var full = Path.Combine(LocalRoot, userId.ToString("D"), name!);
+        if (!File.Exists(full) || new FileInfo(full).Length > 2 * 1024 * 1024) return null;
+        return (File.ReadAllBytes(full), name!.EndsWith(".png", StringComparison.Ordinal) ? "image/png" : "image/jpeg");
+    }
+
+    private void LocalDelete(Guid userId, string url)
+    {
+        var prefix = $"/Account/Avatar/{userId:D}/";
+        if (!url.StartsWith(prefix, StringComparison.Ordinal)) return;
+        var name = url[prefix.Length..];
+        if (!System.Text.RegularExpressions.Regex.IsMatch(name, @"\A[a-f0-9]{32}\.(jpg|png)\z")) return;
+        var full = Path.Combine(LocalRoot, userId.ToString("D"), name);
+        if (File.Exists(full)) File.Delete(full);
     }
 
     private AmazonS3Client B2Client() => new(

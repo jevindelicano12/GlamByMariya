@@ -222,6 +222,67 @@ public class DemoStore : IStudioStore
                 .Select(b => new TravelAppointment(b.Start, b.End, b.BufferMinutesSnapshot ?? Settings.BufferMinutes, b.Latitude, b.Longitude))
                 .Where(s => s.Start < until && s.End > from).OrderBy(s => s.End).ToList();
     }
+    private readonly List<CustomerAddress> _customerAddresses = [];
+    public IReadOnlyList<CustomerAddress> ListCustomerAddresses(Guid customerId)
+    {
+        lock (Gate)
+        {
+            var list = _customerAddresses.Where(a => a.CustomerId == customerId)
+                .OrderByDescending(a => a.IsDefault).ThenByDescending(a => a.UpdatedAt).ToList();
+            if (list.Count == 0 && Users.FirstOrDefault(u => u.Id == customerId) is { Address.Length: > 0 } u && u.Address != "Address on file")
+                list.Add(new CustomerAddress { CustomerId = customerId, Label = "Saved address", AddressText = u.Address, IsDefault = true });
+            return list;
+        }
+    }
+    public void SaveCustomerAddress(Guid customerId, string addressText, string area, decimal? latitude = null, decimal? longitude = null)
+    {
+        var clean = (addressText ?? "").Trim();
+        if (clean.Length == 0 || clean == "Address on file") return;
+        lock (Gate)
+        {
+            var user = Users.FirstOrDefault(u => u.Id == customerId);
+            if (!_customerAddresses.Any(a => a.CustomerId == customerId)
+                && user is { Address.Length: > 0 }
+                && user.Address != "Address on file"
+                && !string.Equals(user.Address.Trim(), clean, StringComparison.OrdinalIgnoreCase))
+            {
+                _customerAddresses.Add(new CustomerAddress
+                {
+                    CustomerId = customerId,
+                    Label = "Primary address",
+                    AddressText = user.Address.Trim(),
+                    IsDefault = false,
+                    UpdatedAt = Now.AddMinutes(-1)
+                });
+            }
+            foreach (var item in _customerAddresses.Where(a => a.CustomerId == customerId)) item.IsDefault = false;
+            var existing = _customerAddresses.FirstOrDefault(a => a.CustomerId == customerId && string.Equals(a.AddressText.Trim(), clean, StringComparison.OrdinalIgnoreCase));
+            if (existing != null)
+            {
+                existing.Area = (area ?? "").Trim();
+                existing.Latitude = latitude ?? existing.Latitude;
+                existing.Longitude = longitude ?? existing.Longitude;
+                existing.IsDefault = true;
+                existing.UpdatedAt = Now;
+            }
+            else
+            {
+                _customerAddresses.Add(new CustomerAddress
+                {
+                    CustomerId = customerId,
+                    Label = _customerAddresses.Any(a => a.CustomerId == customerId) ? $"Address {_customerAddresses.Count(a => a.CustomerId == customerId) + 1}" : "Primary address",
+                    AddressText = clean,
+                    Area = (area ?? "").Trim(),
+                    Latitude = latitude,
+                    Longitude = longitude,
+                    IsDefault = true,
+                    UpdatedAt = Now
+                });
+            }
+            if (user != null && (string.IsNullOrWhiteSpace(user.Address) || user.Address == "Address on file"))
+                user.Address = clean;
+        }
+    }
     public void SetAdminActive(Guid admin, bool active, Guid actor)
     {
         lock (Gate)

@@ -382,6 +382,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
     public Booking Create(Guid userId, Guid serviceId, Guid[] addOnIds, DateTime start, string address, string area, decimal deposit, string method, string reference, string? proof, bool agreed, int people = 1, string package = "auto", bool travelAcknowledged = false, decimal? expectedTotal = null, decimal? expectedMinimum = null, decimal? latitude = null, decimal? longitude = null)
     {
         if (!BookingLocation.IsValid(latitude, longitude)) throw new InvalidOperationException(BookingLocation.Message);
+        if (ProfanityFilter.ValidateAddress(address) is { } addressProfanityError) throw new InvalidOperationException(addressProfanityError);
         if (store is IPersistentStudioStore database)
         {
             if (!expectedTotal.HasValue || !expectedMinimum.HasValue) throw new InvalidOperationException("Review the current price before submitting.");
@@ -662,6 +663,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
     {
         // Phase 6: every package needs the customer's pin; the live site stores it as one mixed booking.
         if (!BookingLocation.IsValid(latitude, longitude)) throw new InvalidOperationException(BookingLocation.Message);
+        if (ProfanityFilter.ValidateAddress(address) is { } mixedAddressProfanityError) throw new InvalidOperationException(mixedAddressProfanityError);
         if (store is PublicStudioStore live)
         {
             var liveQuote = QuoteMixed(people, start);
