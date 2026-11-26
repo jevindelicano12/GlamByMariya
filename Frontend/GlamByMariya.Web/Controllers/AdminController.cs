@@ -421,13 +421,49 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
         var owed = b.RefundDue - b.Refunded;
         if (owed <= 0) return null;
         if (!PaidThroughXendit(b.Id)) return null;
+
+        // Live site with a Xendit TEST key: ask Xendit for a real (test-mode) refund first, so it appears in the
+        // Xendit dashboard under Transactions → Refund. Anything Xendit cannot do falls back to the simulated refund.
+        string? fallbackReason = null;
+        var xendit = HttpContext.RequestServices.GetService<XenditClient>();
+        var log = HttpContext.RequestServices.GetService<ILogger<AdminController>>();
+        if (store.IsPersistent && xendit?.IsTestMode == true)
+        {
+            try
+            {
+                var invoice = store.PaidXenditInvoiceId(b.Id) ?? throw new InvalidOperationException("no paid Xendit invoice is saved for this booking");
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+                var (paymentId, channel, fields) = xendit.InvoicePaymentAsync(invoice, timeout.Token).GetAwaiter().GetResult();
+                if (string.IsNullOrWhiteSpace(paymentId))
+                {
+                    log?.LogWarning("Xendit invoice {Invoice} has no payment_id. Fields: {Fields}", invoice, fields);
+                    throw new InvalidOperationException("Xendit did not return a payment ID for this invoice");
+                }
+                if (string.Equals(channel, "QRPH", StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("QR Ph payments cannot be refunded through Xendit");
+                var refund = xendit.CreateRefundAsync(paymentId, owed, $"glam-{b.Reference}-{Guid.NewGuid().ToString("N")[..8]}", "CANCELLATION", timeout.Token).GetAwaiter().GetResult();
+                if (refund.Status == "FAILED") throw new InvalidOperationException($"Xendit marked the refund failed ({refund.FailureCode ?? "no reason given"})");
+                workflow.AdminAction(b, "refund", UserId, "", owed, $"Xendit refund {refund.Id} ({refund.Status})", false, null, null, null, false);
+                log?.LogInformation("Xendit refund {Refund} {Status} for {Booking}", refund.Id, refund.Status, b.Reference);
+                EmailCustomer(b.CustomerId, $"Glam by Mariya {b.Reference}: your refund was sent",
+                    $"We refunded ₱{owed:N2} for {b.Reference} to your original payment method through Xendit (refund {refund.Id}). E-wallet refunds can take a few days to appear.");
+                return $"₱{owed:N2} refund requested from Xendit: {refund.Id} ({refund.Status}). It appears in the Xendit dashboard under Transactions → Refund.";
+            }
+            catch (Exception e) when (e is InvalidOperationException or HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
+            {
+                fallbackReason = e is TaskCanceledException ? "Xendit did not answer in time" : e.Message.TrimEnd('.');
+                log?.LogWarning("Xendit refund for {Booking} fell back to simulated: {Reason}", b.Reference, fallbackReason);
+            }
+        }
+
         var refundId = "rfd-test-" + Guid.NewGuid().ToString("N")[..12];
         workflow.AdminAction(b, "refund", UserId, "", owed, $"Xendit test refund {refundId}", false, null, null, null, false);
         if (!store.IsPersistent) store.Notifications.Add(new(b.CustomerId, $"Xendit test refund of ₱{owed:N2} for {b.Reference} was sent back to your original payment method (refund {refundId}).", store.Now));
         if (store is DemoStore demo) demo.RecordAdminActivity(UserId, $"Refund sent via Xendit (test): ₱{owed:N2} for {b.Reference} · {refundId}", "Booking", b.Id);
         EmailCustomer(b.CustomerId, $"Glam by Mariya {b.Reference}: your refund was sent",
             $"We refunded ₱{owed:N2} for {b.Reference} to your original payment method through Xendit (test refund {refundId}).");
-        return $"₱{owed:N2} was refunded automatically through Xendit (test refund {refundId}).";
+        return (fallbackReason != null ? $"Xendit could not refund this ({fallbackReason}), so it was recorded as a simulated test refund. " : "")
+            + $"₱{owed:N2} was refunded automatically through Xendit (test refund {refundId}).";
     }
 
     // A down payment made through Xendit: method "Xendit", or the XENDIT- reference the checkout creates.

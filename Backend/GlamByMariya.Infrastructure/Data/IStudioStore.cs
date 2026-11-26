@@ -45,6 +45,8 @@ public interface IStudioStore : IServiceRepository, IAddOnRepository, IBookingRe
     // Permanent delete of a Customer or Admin with no booking/payment history. Accounts with
     // history are refused (deactivate them instead) so past records keep their owner.
     void DeleteUser(Guid user, Guid actor);
+    // The Xendit invoice that paid this booking's down payment (database mode only).
+    string? PaidXenditInvoiceId(Guid booking) => null;
     // One booking by id (customers only see their own in database mode). Use this
     // instead of scanning Bookings, which loads every reservation in database mode.
     Booking? FindBooking(Guid id);

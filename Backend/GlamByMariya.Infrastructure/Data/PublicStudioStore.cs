@@ -765,6 +765,12 @@ public sealed class PublicStudioStore(
         if (updated != 1) throw new InvalidOperationException("The Xendit invoice could not be linked to this booking.");
     });
 
+    public string? PaidXenditInvoiceId(Guid booking) => pdb.Database.SqlQuery<string>($"""
+        SELECT p.provider_invoice_id AS "Value" FROM public.payments p JOIN public.reservations r ON r.id = p.reservation_id
+        WHERE r.app_id = {booking} AND p.provider_invoice_id IS NOT NULL AND p.status = 'Paid'
+        ORDER BY p.id LIMIT 1
+        """).AsEnumerable().FirstOrDefault();
+
     public override string XenditPaid(string invoiceId, decimal amount, string eventKey) =>
         Transaction(null, () => pdb.Database.SqlQuery<string>($"SELECT public.mvc_xendit_paid({invoiceId}, {amount}, {eventKey}) AS \"Value\"").AsEnumerable().Single());
 
