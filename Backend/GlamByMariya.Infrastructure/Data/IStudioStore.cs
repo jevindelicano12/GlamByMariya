@@ -19,6 +19,8 @@ public interface IStudioStore : IServiceRepository, IAddOnRepository, IBookingRe
         Users.Where(u => u.CreatedAt.HasValue).ToDictionary(u => u.Id, u => u.CreatedAt!.Value);
     List<Notification> Notifications { get; }
     List<AuditLog> AuditLogs { get; }
+    // Owner → Audit Logs: the newest audit rows (database mode reads more than the 100 in AuditLogs).
+    IReadOnlyList<AuditLog> RecentAuditLogs(int max) => AuditLogs.OrderByDescending(x => x.Created).Take(max).ToList();
     List<AvailabilityBlock> Blocks { get; }
     BusinessSettings Settings { get; }
     AppUser AddUser(string firstName, string lastName, string email, string password, string role = "Customer", int age = 0, string gender = "", string address = "");

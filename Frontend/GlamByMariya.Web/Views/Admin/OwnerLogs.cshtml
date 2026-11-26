@@ -1,0 +1,56 @@
+@model GlamByMariya.Web.ViewModels.OwnerLogPage
+@{
+    ViewData["Title"] = Model.Title;
+    var f = Model.Filter;
+    string Tone(string result) => result switch
+    {
+        "Succeeded" or "Verified" or "Sent" or "Confirmed" or "Completed" or "Recorded" => "ok",
+        "Pending" or "Waiting" or "Pending Payment" or "Paid · waiting" or "Correction Requested" => "wait",
+        "Cancelled" or "Rejected" or "Expired" or "Not paid" or "Incomplete" => "bad",
+        _ => "neutral"
+    };
+}
+<div class="activity-page owner-logs">
+<div class="page-heading"><div><div class="eyebrow">SYSTEM OWNER</div><h1>@Model.Title</h1><p>@Model.Intro</p></div></div>
+<nav class="log-tabs" aria-label="Log type">
+    <a asp-action="AuditLogs" class="@(Model.Transactions ? null : "is-active")" aria-current="@(Model.Transactions ? null : "page")">Audit Logs <small>All activity</small></a>
+    <a asp-action="TransactionLogs" class="@(Model.Transactions ? "is-active" : null)" aria-current="@(Model.Transactions ? "page" : null)">Transaction Logs <small>Bookings &amp; payments</small></a>
+</nav>
+@if (!DataStore.IsPersistent) { <div class="notice">Demo mode: administrative activity is held in memory and disappears on restart. Transaction rows are rebuilt from the current bookings and payments.</div> }
+<form method="get" asp-action="@Model.ActionName" class="panel activity-filter log-filter">
+    <label>Search<input name="q" value="@f.Q" maxlength="100" placeholder="@(Model.Transactions ? "Reference, customer, method or status" : "Person, action, record or status")" /></label>
+    <label>@(Model.Transactions ? "Type" : "Category")<select name="category"><option value="">All</option>@foreach (var c in Model.Categories) { <option value="@c" selected="@(f.Category == c)">@c</option> }</select></label>
+    <label>From<input type="date" name="from" value="@f.From?.ToString("yyyy-MM-dd")" /></label>
+    <label>To<input type="date" name="to" value="@f.To?.ToString("yyyy-MM-dd")" /></label>
+    <button class="button" type="submit">Filter</button><a asp-action="@Model.ActionName">Clear</a>
+</form>
+<section class="activity-list" aria-labelledby="log-title">
+    <div class="activity-list-head"><h2 id="log-title">@(Model.Transactions ? "Transactions" : "Recorded actions")</h2>
+        <span class="activity-count">@(Model.Total > Model.Shown ? $"Newest {Model.Shown} of {Model.Total}" : $"{Model.Total} {(Model.Total == 1 ? "entry" : "entries")}") · times in Manila</span></div>
+    @if (!Model.Entries.Any()) { <p class="activity-empty">No matching entries. Try clearing the filters.</p> }
+    else {
+    <div class="activity-table-wrap" tabindex="0" role="region" aria-labelledby="log-title">
+        <table class="activity-table log-table">
+            <thead><tr><th scope="col">When</th><th scope="col">@(Model.Transactions ? "Type" : "Category")</th><th scope="col">Action</th><th scope="col">Done by</th><th scope="col">Record</th><th scope="col" class="num">Amount</th><th scope="col">Result</th></tr></thead>
+            <tbody>
+            @foreach (var e in Model.Entries) {
+                <tr>
+                    <td class="activity-when"><time datetime="@e.At.ToString("yyyy-MM-ddTHH:mm")"><b>@e.At.ToString("MMM d, yyyy")</b><small>@e.At.ToString("h:mm tt")</small></time></td>
+                    <td><span class="log-cat @(e.IsTransaction ? "is-txn" : null)">@e.Category</span></td>
+                    <td>@{ var act = e.Action.Split(" · Ref ", 2); }<b>@act[0]</b>@if (act.Length > 1) { <small>Ref @act[1]</small> }@if (e.Archive is { Count: > 0 } archive) {
+                        <details class="activity-archive"><summary>View archived account</summary>
+                            <dl>@foreach (var item in archive) { <dt>@item.Key</dt><dd>@item.Value</dd> }</dl>
+                        </details>
+                    }</td>
+                    <td>@e.ActorName<small>@e.ActorRole</small></td>
+                    <td class="log-record">@{ var parts = e.Record.Split(" · ", 2); }@parts[0]@if (parts.Length > 1) { <small>@parts[1]</small> }</td>
+                    <td class="num">@(e.Amount ?? "—")</td>
+                    <td><span class="log-result tone-@Tone(e.Result)">@e.Result</span></td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+    }
+</section>
+</div>

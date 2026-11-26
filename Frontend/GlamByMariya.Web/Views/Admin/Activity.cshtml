@@ -21,7 +21,11 @@
                 var at = TimeZoneInfo.ConvertTime(entry.OccurredAt, zone);
                 <tr>
                     <td class="activity-when"><time datetime="@entry.OccurredAt.ToString("o")"><b>@at.ToString("MMM d, yyyy")</b><small>@at.ToString("h:mm tt")</small></time></td>
-                    <td><b>@entry.Action</b></td>
+                    <td><b>@entry.Action</b>@if (entry.Archive is { Count: > 0 } archive) {
+                        <details class="activity-archive"><summary>View archived account</summary>
+                            <dl>@foreach (var item in archive) { <dt>@item.Key</dt><dd>@item.Value</dd> }</dl>
+                        </details>
+                    }</td>
                     <td>@entry.ActorName<small>@entry.Role · <span class="activity-id" title="Actor @entry.ActorId">@Short(entry.ActorId)</span></small></td>
                     <td>@entry.TargetType<small>@if (entry.TargetId == Guid.Empty) { <span aria-label="No record ID">—</span> } else { <span class="activity-id" title="@entry.TargetType @entry.TargetId">@Short(entry.TargetId)</span> }</small></td>
                     <td><span class="activity-result">Succeeded</span></td>

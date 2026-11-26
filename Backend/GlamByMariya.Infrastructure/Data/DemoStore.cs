@@ -30,12 +30,12 @@ public class DemoStore : IStudioStore
     public List<AuditLog> AuditLogs { get; } = [];
     private readonly List<DemoAdminActivity> adminActivity = [];
     public IReadOnlyList<DemoAdminActivity> AdminActivity() { lock (Gate) return adminActivity.ToArray(); }
-    public void RecordAdminActivity(Guid actor, string action, string targetType, Guid targetId)
+    public void RecordAdminActivity(Guid actor, string action, string targetType, Guid targetId, IReadOnlyList<KeyValuePair<string, string>>? archive = null)
     {
         lock (Gate)
         {
             var user = Users.SingleOrDefault(u => u.Id == actor && u.IsActive && u.Role is Roles.Admin or Roles.SuperAdmin);
-            if (user != null) adminActivity.Add(new(actor, user.Name, user.Role, action, targetType, targetId, DateTimeOffset.UtcNow));
+            if (user != null) adminActivity.Add(new(actor, user.Name, user.Role, action, targetType, targetId, DateTimeOffset.UtcNow, archive));
         }
     }
     public List<AvailabilityBlock> Blocks { get; } = [];

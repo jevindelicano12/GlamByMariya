@@ -186,6 +186,8 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
             Gender=u.Gender,Address=u.Address,Email=u.Email,PasswordHash=u.PasswordHash,Role=r.Name,IsActive=u.IsActive && (u.LockedUntil==null || u.LockedUntil<=DateTime.UtcNow) }).SingleOrDefault();
     public List<Notification> Notifications => db.Set<NotificationRow>().AsNoTracking().Where(x=>x.UserId==Actor)
         .OrderByDescending(x=>x.CreatedAt).Take(100).ToList().Select(x=>new Notification(x.UserId,x.Message,Local(x.CreatedAt))).ToList();
+    public IReadOnlyList<AuditLog> RecentAuditLogs(int max) => db.Set<AuditRow>().AsNoTracking().OrderByDescending(x=>x.CreatedAt).Take(max)
+        .ToList().Select(x=>new AuditLog(x.ActorId??Guid.Empty,$"{x.EntityType}: {x.Event}",Local(x.CreatedAt))).ToList();
     public List<AuditLog> AuditLogs => db.Set<AuditRow>().AsNoTracking().OrderByDescending(x=>x.CreatedAt).Take(100)
         .ToList().Select(x=>new AuditLog(x.ActorId??Guid.Empty,$"{x.EntityType}: {x.Event}",Local(x.CreatedAt))).ToList();
     public List<AvailabilityBlock> Blocks => cachedBlocks ??= db.Set<BlockRow>().AsNoTracking().Where(x=>x.ArtistId==Artist())

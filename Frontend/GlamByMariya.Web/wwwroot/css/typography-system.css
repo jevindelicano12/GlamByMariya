@@ -4986,3 +4986,43 @@ dialog.policies-modal {
         padding: 22px 20px;
     }
 }
+
+/* Activity Logs: archived copy of a deleted record. */
+.staff-layout .activity-archive { margin-top: 8px; font-family: var(--sans); }
+.staff-layout .activity-archive summary { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12.5px !important; font-weight: 600; color: #8E445B; list-style: none; border-radius: 6px; }
+.staff-layout .activity-archive summary::-webkit-details-marker { display: none; }
+.staff-layout .activity-archive summary::before { content: ''; width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); transition: transform .15s ease-out; }
+.staff-layout .activity-archive[open] summary::before { transform: rotate(45deg); }
+.staff-layout .activity-archive summary:hover { text-decoration: underline; text-underline-offset: 3px; }
+.staff-layout .activity-archive summary:focus-visible { outline: 2px solid #D7A9BA; outline-offset: 2px; }
+.staff-layout .activity-archive dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 5px 14px; margin: 8px 0 0; padding: 12px 14px; border: 1px solid #EADDD7; border-radius: 10px; background: #FAF7F4; }
+.staff-layout .activity-archive dt { margin: 0; font-size: 12px !important; font-weight: 600; color: #7C6B70; white-space: nowrap; }
+.staff-layout .activity-archive dd { margin: 0; font-size: 12.5px !important; color: #49363D; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+
+/* Owner → Audit Logs / Transaction Logs (shares the Activity Logs table styles). */
+.staff-layout .log-tabs { display: inline-flex; gap: 4px; padding: 4px; margin: 0 0 16px; border: 1px solid #EADDD7; border-radius: 12px; background: #FFFDFB; }
+.staff-layout .log-tabs a { display: flex; flex-direction: column; gap: 1px; padding: 8px 16px; border-radius: 9px; font-family: var(--sans); font-size: 13.5px !important; font-weight: 600; color: #6B575E; text-decoration: none; transition: background-color .15s ease-out, color .15s ease-out; }
+.staff-layout .log-tabs a small { font-size: 11.5px !important; font-weight: 500; color: #8E7D83; }
+.staff-layout .log-tabs a:hover { background: #FAF1EE; color: #49363D; }
+.staff-layout .log-tabs a.is-active { background: #A6536B; color: #FFFDFB; }
+.staff-layout .log-tabs a.is-active small { color: #F6E3E9; }
+.staff-layout .log-tabs a:focus-visible { outline: 2px solid #D7A9BA; outline-offset: 2px; }
+.staff-layout .activity-filter.log-filter { grid-template-columns: minmax(200px, 1fr) minmax(150px, 190px) 150px 150px auto auto; }
+.staff-layout .log-table { min-width: 980px; }
+.staff-layout .log-table .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.staff-layout .log-record { color: #6B575E !important; overflow-wrap: anywhere; }
+.staff-layout .log-cat { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 11.5px !important; font-weight: 600; white-space: nowrap; background: #F3ECEA; color: #5C464D; }
+.staff-layout .log-cat.is-txn { background: #F8E8EE; color: #8E445B; }
+.staff-layout .log-result { display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 11.5px !important; font-weight: 600; white-space: nowrap; }
+.staff-layout .log-result.tone-ok { background: #EDF1EA; color: #4F6446; }
+.staff-layout .log-result.tone-wait { background: #FBF1DF; color: #7A5A1E; }
+.staff-layout .log-result.tone-bad { background: #FBEDED; color: #8A2C2C; }
+.staff-layout .log-result.tone-neutral { background: #F3ECEA; color: #5C464D; }
+@media (max-width: 1100px) { .staff-layout .activity-filter.log-filter { grid-template-columns: 1fr 1fr; } .staff-layout .activity-filter.log-filter label:first-child { grid-column: 1 / -1; } }
+@media (max-width: 580px) { .staff-layout .activity-filter.log-filter { grid-template-columns: 1fr; } .staff-layout .log-tabs { display: flex; } .staff-layout .log-tabs a { flex: 1; } }
+.staff-layout .log-table { min-width: 900px; }
+.staff-layout .log-table th, .staff-layout .log-table td { padding-left: 12px; padding-right: 12px; }
+.staff-layout .log-table td:nth-child(3) { max-width: 320px; }
+.staff-layout .log-table .log-record { max-width: 170px; }
+.staff-layout .log-table td:nth-child(3), .staff-layout .log-table td:nth-child(4), .staff-layout .log-table .log-record { overflow-wrap: anywhere; word-break: normal; }
+.staff-layout .log-table .log-record small { display: block; }

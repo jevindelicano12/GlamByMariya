@@ -205,23 +205,44 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
             if (!string.Equals((confirmText ?? "").Trim(), "yes im sure", StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("Type \"yes im sure\" to confirm the delete. Nothing was deleted.");
             string label;
+            List<KeyValuePair<string, string>> archive;
             lock (store.Gate)
             {
-                // Capture who it was before the row disappears, so the log still names them.
+                // Archive a copy of the account before the row disappears, so the log keeps who it was.
                 var user = store.Users.FirstOrDefault(u => u.Id == id) ?? throw new InvalidOperationException("That account no longer exists.");
                 label = $"{user.Name} ({user.Email}, {user.Role})";
+                archive = ArchiveOf(user);
                 store.DeleteUser(id, UserId);
             }
-            LogAccount($"User account deleted: {label}", id, $"Deleted user account {label}.");
+            LogAccount($"User account deleted: {label}", id,
+                $"Deleted user account. Archived copy: {string.Join("; ", archive.Select(x => $"{x.Key}: {x.Value}"))}.", archive);
             TempData["Success"] = $"{label} was permanently deleted.";
         }
         catch (InvalidOperationException e) { TempData["Error"] = e.Message; }
         return RedirectToAction(nameof(UserAccounts));
     }
 
-    private void LogAccount(string action, Guid target, string audit)
+    private static List<KeyValuePair<string, string>> ArchiveOf(AppUser u)
     {
-        if (store is DemoStore demo) demo.RecordAdminActivity(UserId, action, "User account", target);
+        static string Or(string? v) => string.IsNullOrWhiteSpace(v) ? "Not provided" : v.Trim();
+        return
+        [
+            new("Account ID", u.Id.ToString()),
+            new("Name", Or(u.Name)),
+            new("Email", Or(u.Email)),
+            new("Role", u.Role),
+            new("Status at delete", u.IsActive ? "Active" : "Deactivated"),
+            new("Age", u.Age > 0 ? u.Age.ToString() : "Not provided"),
+            new("Birthday", u.Birthday?.ToString("MMM d, yyyy") ?? "Not provided"),
+            new("Gender", Or(u.Gender)),
+            new("Address", Or(u.Address)),
+            new("Account created", u.CreatedAt?.ToString("MMM d, yyyy h:mm tt") ?? "Not recorded"),
+        ];
+    }
+
+    private void LogAccount(string action, Guid target, string audit, IReadOnlyList<KeyValuePair<string, string>>? archive = null)
+    {
+        if (store is DemoStore demo) demo.RecordAdminActivity(UserId, action, "User account", target, archive);
         try { store.RecordAudit(UserId, audit); } catch (InvalidOperationException) { }
     }
 
@@ -417,20 +438,40 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
         }
     }
 
+    // Old Demo-only page; the owner's logs now live in Audit Logs and Transaction Logs (both modes).
+    [Authorize(Roles = "SuperAdmin")]
+    public IActionResult Activity(string? search, string? category) => RedirectToAction(nameof(AuditLogs), new { q = search, category });
+
+    // Owner → Audit Logs: everything (transactions + administrative/system activity).
     [Authorize(Roles = "SuperAdmin")]
     [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
-    public IActionResult Activity(string? search, string? category)
+    public IActionResult AuditLogs(string? q, string? category, DateOnly? from, DateOnly? to) =>
+        OwnerLogView(transactions: false, q, category, from, to);
+
+    // Owner → Transaction Logs: bookings, payments, refunds, cancellations and completions only.
+    [Authorize(Roles = "SuperAdmin")]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    public IActionResult TransactionLogs(string? q, string? category, DateOnly? from, DateOnly? to) =>
+        OwnerLogView(transactions: true, q, category, from, to);
+
+    private IActionResult OwnerLogView(bool transactions, string? q, string? category, DateOnly? from, DateOnly? to)
     {
-        if (store.IsPersistent || store is not DemoStore demo) return NotFound();
-        search = (search ?? "").Trim(); category = (category ?? "").Trim();
-        if (search.Length > 100 || category.Length > 30) return BadRequest();
-        var items = demo.AdminActivity().Where(x => (category.Length == 0 || x.TargetType == category) &&
-            (search.Length == 0 || x.ActorName.Contains(search, StringComparison.OrdinalIgnoreCase) ||
-             x.Action.Contains(search, StringComparison.OrdinalIgnoreCase) || x.ActorId.ToString().Contains(search, StringComparison.OrdinalIgnoreCase) ||
-             x.TargetId.ToString().Contains(search, StringComparison.OrdinalIgnoreCase))).OrderByDescending(x => x.OccurredAt).ToList();
-        ViewBag.Search = search; ViewBag.Category = category;
-        return View(items);
+        q = (q ?? "").Trim(); category = (category ?? "").Trim();
+        if (q.Length > 100 || category.Length > 30) return BadRequest();
+        if (from is { } f && to is { } t && f > t) (from, to) = (to, from);
+        List<OwnerLogEntry> source;
+        lock (store.Gate) source = transactions ? OwnerLogs.Transactions(store) : OwnerLogs.All(store);
+        var categories = (transactions ? OwnerLogs.TransactionCategories : source.Select(e => e.Category).Distinct().OrderBy(c => c).ToArray()).ToList();
+        if (category.Length > 0 && !categories.Contains(category)) categories.Add(category);
+        var filter = new OwnerLogFilter(q, category, from, to);
+        var (rows, total) = OwnerLogs.Apply(source, filter);
+        return View("OwnerLogs", new OwnerLogPage(
+            transactions ? "Transaction Logs" : "Audit Logs",
+            transactions ? "Money and booking events only: bookings placed, payments, refunds, cancellations and completed appointments."
+                         : "Everything recorded in the system: transactions plus account, catalog, settings, schedule and content changes.",
+            transactions ? nameof(TransactionLogs) : nameof(AuditLogs), transactions, categories, filter, rows, total, rows.Count));
     }
+
     // Customers: every customer with when they last booked; one customer's page lists every booking with its time of booking.
     public IActionResult Customers(string? q, string? sort)
     {

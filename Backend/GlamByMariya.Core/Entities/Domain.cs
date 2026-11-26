@@ -141,7 +141,8 @@ public record ApprovedReschedule(RescheduleQuote Quote, RescheduleConsent Consen
 public record PaymentProofRevision(string Reference, string? ProofPath, string? ProofKey, DateTime ChangedAt);
 public record Notification(Guid UserId, string Message, DateTime Created);
 public record AuditLog(Guid ActorId, string Event, DateTime Created);
-public record DemoAdminActivity(Guid ActorId, string ActorName, string Role, string Action, string TargetType, Guid TargetId, DateTimeOffset OccurredAt);
+// Archive: an optional saved copy of the record (label/value pairs), e.g. a deleted user account.
+public record DemoAdminActivity(Guid ActorId, string ActorName, string Role, string Action, string TargetType, Guid TargetId, DateTimeOffset OccurredAt, IReadOnlyList<KeyValuePair<string, string>>? Archive = null);
 public record AvailabilityBlock(Guid Id, DateTime From, DateTime To, string Reason);
 public record ScheduleWindow(DateTime From, DateTime To);
 public class BusinessSettings
