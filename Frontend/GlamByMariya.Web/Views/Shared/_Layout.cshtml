@@ -16,7 +16,7 @@
 <aside class="sidebar" id="studio-sidebar">
     <button class="brand" type="button" id="sidebar-toggle" aria-controls="studio-sidebar" aria-expanded="true" aria-label="Collapse sidebar" title="Collapse sidebar"><span class="brand-mark">G<span>✦</span></span><span class="brand-name">GLAM BY MARIYA<small>HOME SERVICE</small></span></button>
     <div class="nav-label">@(staff ? "MAKEUP ARTIST WORKSPACE" : "MY BOOKINGS")</div>
-    <div class="staff-menu" id="staff-mobile-menu" data-mobile-menu="(max-width: 850px)"><button type="button" class="menu-toggle" aria-expanded="false" aria-controls="staff-menu-panel" aria-label="Open menu"><span class="menu-icon" aria-hidden="true"><span></span><span></span><span></span></span></button><div class="menu-backdrop" data-menu-close></div><nav id="staff-menu-panel" aria-label="@(staff ? "Staff navigation" : "Customer navigation")">
+    <div class="staff-menu" id="staff-mobile-menu" data-mobile-menu="(max-width: 850px)"><button type="button" class="menu-toggle" aria-expanded="false" aria-controls="staff-menu-panel" aria-label="Open menu"><span class="menu-icon" aria-hidden="true"><span></span><span></span><span></span></span></button><div class="menu-backdrop" data-menu-close></div><nav id="staff-menu-panel" aria-label="@(staff ? "Staff navigation" : "Customer navigation")"><partial name="_MenuProfile" />
     @if (staff) {
         <a class="@(activeNav == "overview" ? "selected" : null)" aria-current="@(activeNav == "overview" ? "page" : null)" asp-controller="Admin" asp-action="Index"><span>▦</span> Overview</a>
         <a class="@(activeNav == "appointments" ? "selected" : null)" aria-current="@(activeNav == "appointments" ? "page" : null)" asp-controller="Admin" asp-action="Appointments"><span>▤</span> Appointments</a>
@@ -36,8 +36,7 @@
         <a class="@(activeNav == "public-gallery" ? "selected" : null)" aria-current="@(activeNav == "public-gallery" ? "page" : null)" asp-controller="Home" asp-action="Gallery"><span>▧</span> Gallery</a>
         <a class="@(activeNav == "about" ? "selected" : null)" aria-current="@(activeNav == "about" ? "page" : null)" asp-controller="Home" asp-action="About"><span>☺</span> About</a>
     }
-    @if (staff) { <a class="@(activeNav == "account-settings" ? "selected" : null)" aria-current="@(activeNav == "account-settings" ? "page" : null)" asp-controller="Account" asp-action="Settings"><span>⚙</span> Account settings</a> }
-    else { <div class="sidebar-account-links"><a class="@(activeNav == "account-settings" ? "selected" : null)" aria-current="@(activeNav == "account-settings" ? "page" : null)" asp-controller="Account" asp-action="Settings"><span>⚙</span> Account settings</a><form asp-controller="Account" asp-action="Logout" method="post" class="sidebar-logout"><button type="submit"><span aria-hidden="true">⎋</span> Log out</button></form></div> }
+    <div class="sidebar-account-links"><a class="@(activeNav == "account-settings" ? "selected" : null)" aria-current="@(activeNav == "account-settings" ? "page" : null)" asp-controller="Account" asp-action="Settings"><span>⚙</span> Account settings</a><form asp-controller="Account" asp-action="Logout" method="post" class="sidebar-logout"><button type="submit"><span aria-hidden="true">⎋</span> Log out</button></form></div>
     </nav></div>
     @if (staff) { <div class="sidebar-bottom"><div class="studio-note"><span>✦</span><strong>Beauty, on your terms.</strong><p>Your makeup artist travels<br />to your chosen location.</p></div></div> }
 </aside>

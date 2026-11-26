@@ -5007,7 +5007,7 @@ dialog.policies-modal {
 .staff-layout .log-tabs a.is-active { background: #A6536B; color: #FFFDFB; }
 .staff-layout .log-tabs a.is-active small { color: #F6E3E9; }
 .staff-layout .log-tabs a:focus-visible { outline: 2px solid #D7A9BA; outline-offset: 2px; }
-.staff-layout .activity-filter.log-filter { grid-template-columns: minmax(200px, 1fr) minmax(150px, 190px) 150px 150px auto auto; }
+.staff-layout .activity-filter.log-filter { grid-template-columns: minmax(200px, 1fr) minmax(150px, 190px) 150px 150px 120px auto auto; }
 .staff-layout .log-table { min-width: 980px; }
 .staff-layout .log-table .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .staff-layout .log-record { color: #6B575E !important; overflow-wrap: anywhere; }
@@ -5030,3 +5030,39 @@ dialog.policies-modal {
 /* Refunds: one-click Xendit test refund (demo mode). */
 .refund-xendit-form { margin: 8px 0 0; }
 .refund-xendit-form .button { width: 100%; min-height: 38px; font-size: 12.5px !important; white-space: nowrap; }
+
+/* Audit / Transaction Logs: page navigation under the table. */
+.staff-layout .log-pager { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; margin-top: 18px; }
+.staff-layout .log-pager ol { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.staff-layout .log-pager-page, .staff-layout .log-pager-step { display: inline-flex; align-items: center; justify-content: center; min-width: 40px; min-height: 40px; padding: 0 12px; border: 1px solid #EADDD7; border-radius: 10px; background: #FFFDFB; color: #49363D; font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums; text-decoration: none; }
+.staff-layout a.log-pager-page:hover, .staff-layout a.log-pager-step:hover { background: #FAF1EE; border-color: #D9B3BB; }
+.staff-layout .log-pager a:focus-visible { outline: 2px solid #A6536B; outline-offset: 2px; }
+.staff-layout .log-pager-page.is-current { background: #A6536B; border-color: #A6536B; color: #FFFDFB; font-weight: 600; }
+.staff-layout .log-pager-step.is-disabled { color: #B3A3A8; background: transparent; cursor: default; }
+.staff-layout .log-pager-gap { min-width: 20px; text-align: center; color: #8E7D83; }
+@media (max-width: 580px) {
+    .staff-layout .log-pager { justify-content: space-between; }
+    .staff-layout .log-pager ol { order: -1; width: 100%; justify-content: center; }
+}
+
+/* Page-to-page navigation: keep the current page visible until the next one is ready, then cross-fade
+   (Chrome/Edge cross-document view transitions; other browsers navigate as before). */
+@view-transition { navigation: auto; }
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: 160ms; animation-timing-function: cubic-bezier(.2, 0, 0, 1); }
+@media (prefers-reduced-motion: reduce) { @view-transition { navigation: none; } }
+/* The "…" in the pager is a jump-to-page box. */
+.staff-layout .log-pager-jump { margin: 0; }
+.staff-layout .log-pager-jump input[type=number] { width: 48px; min-height: 40px; padding: 0 4px !important; border: 1px dashed #D9B3BB; border-radius: 10px; background: #FFFDFB; color: #49363D; font-size: 13px !important; font-weight: 600; text-align: center; font-variant-numeric: tabular-nums; -moz-appearance: textfield; appearance: textfield; }
+.staff-layout .log-pager-jump input[type=number]::-webkit-inner-spin-button,
+.staff-layout .log-pager-jump input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.staff-layout .log-pager-jump input[type=number]::placeholder { color: #8E7D83; font-weight: 500; opacity: 1; }
+.staff-layout .log-pager-jump input[type=number]:hover { border-color: #A6536B; background: #FAF1EE; }
+.staff-layout .log-pager-jump input[type=number]:focus { width: 64px; border-style: solid; border-color: #A6536B; outline: 2px solid #A6536B; outline-offset: 2px; }
+@media (max-width: 580px) {
+    .staff-layout .log-pager ol { gap: 2px; flex-wrap: nowrap; }
+    .staff-layout .log-pager ol > li { flex: 0 0 auto; }
+    .staff-layout .log-pager-page { min-width: 32px; padding: 0 4px; }
+    .staff-layout .log-pager-gap { min-width: 0; }
+    .staff-layout .log-pager-jump input[type=number] { width: 32px; min-width: 0; }
+    .staff-layout .log-pager-jump input[type=number]:focus { width: 44px; }
+}

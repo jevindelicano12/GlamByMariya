@@ -548,16 +548,16 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
     // Owner → Audit Logs: everything (transactions + administrative/system activity).
     [Authorize(Roles = "SuperAdmin")]
     [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
-    public IActionResult AuditLogs(string? q, string? category, DateOnly? from, DateOnly? to) =>
-        OwnerLogView(transactions: false, q, category, from, to);
+    public IActionResult AuditLogs(string? q, string? category, DateOnly? from, DateOnly? to, int page = 1, int? rows = null) =>
+        OwnerLogView(transactions: false, q, category, from, to, page, rows);
 
     // Owner → Transaction Logs: bookings, payments, refunds, cancellations and completions only.
     [Authorize(Roles = "SuperAdmin")]
     [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
-    public IActionResult TransactionLogs(string? q, string? category, DateOnly? from, DateOnly? to) =>
-        OwnerLogView(transactions: true, q, category, from, to);
+    public IActionResult TransactionLogs(string? q, string? category, DateOnly? from, DateOnly? to, int page = 1, int? rows = null) =>
+        OwnerLogView(transactions: true, q, category, from, to, page, rows);
 
-    private IActionResult OwnerLogView(bool transactions, string? q, string? category, DateOnly? from, DateOnly? to)
+    private IActionResult OwnerLogView(bool transactions, string? q, string? category, DateOnly? from, DateOnly? to, int page, int? rows)
     {
         q = (q ?? "").Trim(); category = (category ?? "").Trim();
         if (q.Length > 100 || category.Length > 30) return BadRequest();
@@ -566,13 +566,13 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
         lock (store.Gate) source = transactions ? OwnerLogs.Transactions(store) : OwnerLogs.All(store);
         var categories = (transactions ? OwnerLogs.TransactionCategories : source.Select(e => e.Category).Distinct().OrderBy(c => c).ToArray()).ToList();
         if (category.Length > 0 && !categories.Contains(category)) categories.Add(category);
-        var filter = new OwnerLogFilter(q, category, from, to);
-        var (rows, total) = OwnerLogs.Apply(source, filter);
+        var filter = new OwnerLogFilter(q, category, from, to, OwnerLogs.NormalizePageSize(rows));
+        var (entries, total, current) = OwnerLogs.Apply(source, filter, page);
         return View("OwnerLogs", new OwnerLogPage(
             transactions ? "Transaction Logs" : "Audit Logs",
             transactions ? "Money and booking events only: bookings placed, payments, refunds, cancellations and completed appointments."
                          : "Everything recorded in the system: transactions plus account, catalog, settings, schedule and content changes.",
-            transactions ? nameof(TransactionLogs) : nameof(AuditLogs), transactions, categories, filter, rows, total, rows.Count));
+            transactions ? nameof(TransactionLogs) : nameof(AuditLogs), transactions, categories, filter, entries, total, current));
     }
 
     // Customers: every customer with when they last booked; one customer's page lists every booking with its time of booking.

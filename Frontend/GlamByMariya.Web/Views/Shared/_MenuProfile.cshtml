@@ -1,0 +1,13 @@
+@using System.Security.Claims
+@inject GlamByMariya.Infrastructure.Services.AccountSettingsService AccountSettings
+@* Phone ☰ menu: who is signed in. Replaces the separate profile bar on small screens. *@
+@{
+    var id = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+    var preferences = AccountSettings.Get(id);
+    var name = User.Identity?.Name ?? "Member";
+    var role = GlamByMariya.Core.Entities.Roles.IsSuperAdmin(User) ? "System owner" : User.IsInRole("Admin") ? "Business administrator" : "Customer account";
+}
+<div class="menu-profile">
+    <span class="avatar" aria-hidden="true">@if (preferences.AvatarUrl != null) { <img src="@preferences.AvatarUrl" alt="" /> } else { @(name.Length > 0 ? name[..1] : "G") }</span>
+    <span class="menu-profile-text"><strong>@name</strong><small>@role · @User.FindFirstValue(ClaimTypes.Email)</small></span>
+</div>

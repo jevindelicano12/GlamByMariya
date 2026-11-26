@@ -9,6 +9,20 @@
         "Cancelled" or "Rejected" or "Expired" or "Not paid" or "Incomplete" => "bad",
         _ => "neutral"
     };
+    // Page links keep the current filters and row limit.
+    Dictionary<string, string> PageRoute(int page)
+    {
+        var route = new Dictionary<string, string> { ["page"] = page.ToString() };
+        if (f.Q.Length > 0) route["q"] = f.Q;
+        if (f.Category.Length > 0) route["category"] = f.Category;
+        if (f.From is { } from) route["from"] = from.ToString("yyyy-MM-dd");
+        if (f.To is { } to) route["to"] = to.ToString("yyyy-MM-dd");
+        if (f.PageSize != OwnerLogs.DefaultPageSize) route["rows"] = f.PageSize.ToString();
+        return route;
+    }
+    // First, last, and two pages either side of the current one; gaps become an ellipsis.
+    var pageNumbers = Enumerable.Range(1, Model.TotalPages)
+        .Where(n => n == 1 || n == Model.TotalPages || Math.Abs(n - Model.Page) <= 2).ToList();
 }
 <div class="activity-page owner-logs">
 <div class="page-heading"><div><div class="eyebrow">SYSTEM OWNER</div><h1>@Model.Title</h1><p>@Model.Intro</p></div></div>
@@ -22,11 +36,12 @@
     <label>@(Model.Transactions ? "Type" : "Category")<select name="category"><option value="">All</option>@foreach (var c in Model.Categories) { <option value="@c" selected="@(f.Category == c)">@c</option> }</select></label>
     <label>From<input type="date" name="from" value="@f.From?.ToString("yyyy-MM-dd")" /></label>
     <label>To<input type="date" name="to" value="@f.To?.ToString("yyyy-MM-dd")" /></label>
+    <label>Rows per page<select name="rows">@foreach (var size in OwnerLogs.PageSizes) { <option value="@size" selected="@(f.PageSize == size)">@size</option> }</select></label>
     <button class="button" type="submit">Filter</button><a asp-action="@Model.ActionName">Clear</a>
 </form>
 <section class="activity-list" aria-labelledby="log-title">
     <div class="activity-list-head"><h2 id="log-title">@(Model.Transactions ? "Transactions" : "Recorded actions")</h2>
-        <span class="activity-count">@(Model.Total > Model.Shown ? $"Newest {Model.Shown} of {Model.Total}" : $"{Model.Total} {(Model.Total == 1 ? "entry" : "entries")}") · times in Manila</span></div>
+        <span class="activity-count">@(Model.TotalPages > 1 ? $"Showing {Model.FirstShown}–{Model.LastShown} of {Model.Total}" : $"{Model.Total} {(Model.Total == 1 ? "entry" : "entries")}") · times in Manila</span></div>
     @if (!Model.Entries.Any()) { <p class="activity-empty">No matching entries. Try clearing the filters.</p> }
     else {
     <div class="activity-table-wrap" tabindex="0" role="region" aria-labelledby="log-title">
@@ -35,7 +50,7 @@
             <tbody>
             @foreach (var e in Model.Entries) {
                 <tr>
-                    <td class="activity-when"><time datetime="@e.At.ToString("yyyy-MM-ddTHH:mm")"><b>@e.At.ToString("MMM d, yyyy")</b><small>@e.At.ToString("h:mm tt")</small></time></td>
+                    <td class="activity-when"><time datetime="@e.At.ToString("yyyy-MM-ddTHH:mm:ss")"><b>@e.At.ToString("MMM d, yyyy")</b><small>@e.At.ToString("h:mm:ss tt")</small></time></td>
                     <td><span class="log-cat @(e.IsTransaction ? "is-txn" : null)">@e.Category</span></td>
                     <td>@{ var act = e.Action.Split(" · Ref ", 2); }<b>@act[0]</b>@if (act.Length > 1) { <small>Ref @act[1]</small> }@if (e.Archive is { Count: > 0 } archive) {
                         <details class="activity-archive"><summary>View archived account</summary>
@@ -51,6 +66,33 @@
             </tbody>
         </table>
     </div>
+    @if (Model.TotalPages > 1)
+    {
+        <nav class="log-pager" aria-label="@(Model.Transactions ? "Transaction log pages" : "Audit log pages")">
+            @if (Model.Page > 1) { <a class="log-pager-step" asp-action="@Model.ActionName" asp-all-route-data="PageRoute(Model.Page - 1)" rel="prev">← Previous</a> }
+            else { <span class="log-pager-step is-disabled" aria-disabled="true">← Previous</span> }
+            <ol>
+            @for (var i = 0; i < pageNumbers.Count; i++)
+            {
+                var n = pageNumbers[i];
+                if (i > 0 && n - pageNumbers[i - 1] > 1)
+                {
+                    // The gap is a jump box: type a page number and press Enter. Filters ride along as hidden fields.
+                    <li class="log-pager-gap">
+                        <form method="get" asp-action="@Model.ActionName" class="log-pager-jump">
+                            @foreach (var kv in PageRoute(1).Where(kv => kv.Key != "page")) { <input type="hidden" name="@kv.Key" value="@kv.Value" /> }
+                            <input type="number" name="page" inputmode="numeric" min="1" max="@Model.TotalPages" required placeholder="…" title="Type a page number (1–@Model.TotalPages) and press Enter" aria-label="Go to page, 1 to @Model.TotalPages" />
+                        </form>
+                    </li>
+                }
+                <li>@if (n == Model.Page) { <span class="log-pager-page is-current" aria-current="page">@n</span> }
+                    else { <a class="log-pager-page" asp-action="@Model.ActionName" asp-all-route-data="PageRoute(n)" aria-label="Page @n">@n</a> }</li>
+            }
+            </ol>
+            @if (Model.Page < Model.TotalPages) { <a class="log-pager-step" asp-action="@Model.ActionName" asp-all-route-data="PageRoute(Model.Page + 1)" rel="next">Next →</a> }
+            else { <span class="log-pager-step is-disabled" aria-disabled="true">Next →</span> }
+        </nav>
+    }
     }
 </section>
 </div>

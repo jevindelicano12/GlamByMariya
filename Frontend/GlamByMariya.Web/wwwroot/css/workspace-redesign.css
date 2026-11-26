@@ -305,13 +305,29 @@ main label { color:#49363D; }
 @media (max-width:900px) { .dash-grid { grid-template-columns:1fr; } .dash-donut-layout { grid-template-columns:1fr; justify-items:center; } .dash-legend { width:100%; } }
 
 /* Customer sidebar: account settings and log out sit under the main links. */
-.customer-layout .sidebar-account-links { display:grid; gap:2px; margin-top:14px; padding-top:12px; border-top:1px solid #EADDD7; }
-.customer-layout .sidebar-logout { margin:0; }
-.customer-layout .sidebar-logout button { display:flex; align-items:center; gap:10px; width:100%; min-height:40px; padding:9px 11px; background:none; border:0; border-radius:9px; color:#8E455C; font:inherit; font-size:13.5px; font-weight:500; line-height:1.25; text-align:left; cursor:pointer; }
-.customer-layout .sidebar-logout button span { width:18px; font-size:14px; text-align:center; flex-shrink:0; line-height:1; }
-.customer-layout .sidebar-logout button:hover { background:#FAEAEB; }
-.customer-layout .sidebar-logout button:focus-visible { outline:3px solid #B77F89; outline-offset:2px; }
-.customer-layout .topbar { justify-content:space-between; }
-.sidebar-collapsed.customer-layout .sidebar-account-links { border-top:0; padding-top:0; }
-.sidebar-collapsed.customer-layout .sidebar-logout button { font-size:0; gap:0; justify-content:center; padding:12px; }
-.sidebar-collapsed.customer-layout .sidebar-logout button span { font-size:19px; width:auto; }
+.has-sidebar .sidebar-account-links { display:grid; gap:2px; margin-top:14px; padding-top:12px; border-top:1px solid #EADDD7; }
+.has-sidebar .sidebar-logout { margin:0; }
+.has-sidebar .sidebar-logout button { display:flex; align-items:center; gap:10px; width:100%; min-height:40px; padding:9px 11px; background:none; border:0; border-radius:9px; color:#8E455C; font:inherit; font-size:13.5px; font-weight:500; line-height:1.25; text-align:left; cursor:pointer; }
+.has-sidebar .sidebar-logout button span { width:18px; font-size:14px; text-align:center; flex-shrink:0; line-height:1; }
+.has-sidebar .sidebar-logout button:hover { background:#FAEAEB; }
+.has-sidebar .sidebar-logout button:focus-visible { outline:3px solid #B77F89; outline-offset:2px; }
+.has-sidebar .topbar { justify-content:space-between; }
+.sidebar-collapsed.has-sidebar .sidebar-account-links { border-top:0; padding-top:0; }
+.sidebar-collapsed.has-sidebar .sidebar-logout button { font-size:0; gap:0; justify-content:center; padding:12px; }
+.sidebar-collapsed.has-sidebar .sidebar-logout button span { font-size:19px; width:auto; }
+
+/* Staff keep Log out in the top-right account menu on desktop; the sidebar copy is for the phone ☰ menu. */
+@media (min-width:851px) { .staff-layout .sidebar-logout { display:none; } }
+
+/* Phones: no separate profile bar. Who is signed in sits at the top of the ☰ menu instead. */
+.menu-profile { display:none; }
+@media (max-width:850px) {
+  .has-sidebar .workspace > .topbar { display:none; }
+  .has-sidebar .menu-profile { display:flex; align-items:center; gap:12px; margin:0 0 6px; padding:6px 12px 14px; border-bottom:1px solid #EADDD7; }
+  .has-sidebar .menu-profile .avatar { flex:0 0 auto; display:grid; place-items:center; width:40px; height:40px; border-radius:50%; overflow:hidden; background:#E9BEC3; color:#49363B; font-family:var(--serif); font-size:17px; }
+  .has-sidebar .menu-profile .avatar img { width:100%; height:100%; object-fit:cover; }
+  .has-sidebar .menu-profile-text { display:grid; min-width:0; }
+  .has-sidebar .menu-profile-text strong { color:#3D2B31; font-size:14px; font-weight:600; line-height:1.3; }
+  .has-sidebar .menu-profile-text small { overflow:hidden; color:#705b5f; font-size:12px; line-height:1.35; text-overflow:ellipsis; white-space:nowrap; }
+  .has-sidebar .sidebar-account-links { margin-top:6px; }
+}

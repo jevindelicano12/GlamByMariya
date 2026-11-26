@@ -9,17 +9,28 @@ public sealed record OwnerLogEntry(
     string Record, string? Amount, string Result, bool IsTransaction,
     IReadOnlyList<KeyValuePair<string, string>>? Archive = null);
 
-public sealed record OwnerLogFilter(string Q, string Category, DateOnly? From, DateOnly? To);
+public sealed record OwnerLogFilter(string Q, string Category, DateOnly? From, DateOnly? To, int PageSize = OwnerLogs.DefaultPageSize);
 
+// One page of matching entries. Page is 1-based and already clamped to 1..TotalPages.
 public sealed record OwnerLogPage(string Title, string Intro, string ActionName, bool Transactions,
-    IReadOnlyList<string> Categories, OwnerLogFilter Filter, IReadOnlyList<OwnerLogEntry> Entries, int Total, int Shown);
+    IReadOnlyList<string> Categories, OwnerLogFilter Filter, IReadOnlyList<OwnerLogEntry> Entries, int Total, int Page)
+{
+    public int TotalPages => Math.Max(1, (Total + Filter.PageSize - 1) / Filter.PageSize);
+    public int FirstShown => Total == 0 ? 0 : (Page - 1) * Filter.PageSize + 1;
+    public int LastShown => (Page - 1) * Filter.PageSize + Entries.Count;
+}
 
 // Builds the owner's log views from what the store already records:
 //  • transactions — derived from bookings and payments, so they work in Demo and database mode alike;
 //  • everything else — Demo admin activity, or the database audit_logs table.
 public static class OwnerLogs
 {
-    public const int MaxRows = 500;
+    // Rows per page the owner can choose; the default keeps a page short enough to scan.
+    public static readonly int[] PageSizes = [10, 25, 50, 100];
+    public const int DefaultPageSize = 25;
+    // The most recent audit records read from the database for paging (older ones stay in the table).
+    public const int MaxSourceRows = 5000;
+    public static int NormalizePageSize(int? size) => size is { } s && PageSizes.Contains(s) ? s : DefaultPageSize;
     public static readonly string[] TransactionCategories = ["Booking", "Payment", "Refund", "Cancellation", "Completion"];
 
     private static readonly TimeZoneInfo Manila = TimeZoneInfo.FindSystemTimeZoneById("Asia/Manila");
@@ -81,7 +92,7 @@ public static class OwnerLogs
         }
         else
         {
-            foreach (var log in store.RecentAuditLogs(MaxRows))
+            foreach (var log in store.RecentAuditLogs(MaxSourceRows).Reverse()) // oldest first, like the other sources
             {
                 var (category, action) = Describe(log.Event);
                 if (category is null) continue; // covered by the readable transaction rows above
@@ -124,16 +135,21 @@ public static class OwnerLogs
         : m.Contains("polic", StringComparison.OrdinalIgnoreCase) || m.Contains("setting", StringComparison.OrdinalIgnoreCase) ? "Settings"
         : "System";
 
-    public static (List<OwnerLogEntry> Rows, int Total) Apply(IEnumerable<OwnerLogEntry> source, OwnerLogFilter f)
+    // Filters newest first, then returns one page of rows, the match count and the clamped page number.
+    public static (List<OwnerLogEntry> Rows, int Total, int Page) Apply(IEnumerable<OwnerLogEntry> source, OwnerLogFilter f, int page = 1)
     {
-        var rows = source.Where(e =>
+        // Newest exact timestamp first. Entries with the very same time keep the newest-recorded one on top
+        // (sources append in the order things happened), so the order never falls back to the date alone.
+        var rows = source.Select((e, index) => (e, index)).Where(x => x.e is var e &&
             (f.Category.Length == 0 || e.Category == f.Category) &&
             (f.From is not { } from || DateOnly.FromDateTime(e.At) >= from) &&
             (f.To is not { } to || DateOnly.FromDateTime(e.At) <= to) &&
             (f.Q.Length == 0 || e.Action.Contains(f.Q, StringComparison.OrdinalIgnoreCase) || e.ActorName.Contains(f.Q, StringComparison.OrdinalIgnoreCase)
                 || e.Record.Contains(f.Q, StringComparison.OrdinalIgnoreCase) || e.Result.Contains(f.Q, StringComparison.OrdinalIgnoreCase)
-                || (e.Archive?.Any(x => x.Value.Contains(f.Q, StringComparison.OrdinalIgnoreCase)) ?? false)))
-            .OrderByDescending(e => e.At).ToList();
-        return (rows.Take(MaxRows).ToList(), rows.Count);
+                || (e.Archive?.Any(kv => kv.Value.Contains(f.Q, StringComparison.OrdinalIgnoreCase)) ?? false)))
+            .OrderByDescending(x => x.e.At).ThenByDescending(x => x.index).Select(x => x.e).ToList();
+        var pages = Math.Max(1, (rows.Count + f.PageSize - 1) / f.PageSize);
+        page = Math.Clamp(page, 1, pages);
+        return (rows.Skip((page - 1) * f.PageSize).Take(f.PageSize).ToList(), rows.Count, page);
     }
 }
