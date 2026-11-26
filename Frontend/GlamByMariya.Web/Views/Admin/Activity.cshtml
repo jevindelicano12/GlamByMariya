@@ -1,10 +1,35 @@
 @model IReadOnlyList<GlamByMariya.Core.Entities.DemoAdminActivity>
-@{ ViewData["Title"] = "Activity Logs"; var zone = TimeZoneInfo.FindSystemTimeZoneById("Asia/Manila"); }
+@{
+    ViewData["Title"] = "Activity Logs";
+    var zone = TimeZoneInfo.FindSystemTimeZoneById("Asia/Manila");
+    // IDs are long GUIDs; the table shows the first 8 characters and keeps the full value on hover.
+    string Short(Guid id) => id.ToString()[..8] + "…";
+}
 <div class="activity-page">
 <div class="page-heading"><div><div class="eyebrow">SYSTEM OWNER</div><h1>Activity Logs</h1><p>Administrative activity recorded during this Demo process.</p></div></div>
 <div class="notice">Demo only: this history is held in memory and disappears on restart. It is not complete, durable or tamper-resistant. File-backed gallery and content changes can survive after these entries are lost.</div>
-<form method="get" class="panel activity-filter"><label>Search actor, action or ID<input name="search" value="@ViewBag.Search" maxlength="100" placeholder="Actor, action or ID" /></label><label>Category<select name="category"><option value="">All</option>@foreach (var category in new[] { "Booking", "Service", "Add-on", "Settings", "Schedule", "Gallery", "Website Content" }) { <option value="@category" selected="@((string)ViewBag.Category == category)">@category</option> }</select></label><button class="button" type="submit">Filter</button><a asp-action="Activity">Clear</a></form>
-<section class="panel activity-list"><h2>Recorded actions</h2>@if (!Model.Any()) { <p class="activity-empty">No matching activity is available.</p> }
-@foreach (var entry in Model) { <div class="activity"><strong>@entry.Action</strong><p>@entry.ActorName · @entry.Role</p><small>Actor @entry.ActorId · @entry.TargetType @entry.TargetId · @TimeZoneInfo.ConvertTime(entry.OccurredAt, zone).ToString("MMM d, yyyy h:mm tt") Manila · Succeeded</small></div> }
+<form method="get" class="panel activity-filter"><label>Search actor, action or ID<input name="search" value="@ViewBag.Search" maxlength="100" placeholder="Actor, action or ID" /></label><label>Category<select name="category"><option value="">All</option>@foreach (var category in new[] { "Booking", "Service", "Add-on", "Settings", "Schedule", "Gallery", "Website Content", "User account" }) { <option value="@category" selected="@((string)ViewBag.Category == category)">@category</option> }</select></label><button class="button" type="submit">Filter</button><a asp-action="Activity">Clear</a></form>
+<section class="activity-list" aria-labelledby="activity-list-title">
+    <div class="activity-list-head"><h2 id="activity-list-title">Recorded actions</h2><span class="activity-count">@Model.Count @(Model.Count == 1 ? "entry" : "entries") · times in Manila</span></div>
+    @if (!Model.Any()) { <p class="activity-empty">No matching activity is available.</p> }
+    else {
+    <div class="activity-table-wrap" tabindex="0" role="region" aria-labelledby="activity-list-title">
+        <table class="activity-table">
+            <thead><tr><th scope="col">When</th><th scope="col">Action</th><th scope="col">Done by</th><th scope="col">Record</th><th scope="col">Result</th></tr></thead>
+            <tbody>
+            @foreach (var entry in Model) {
+                var at = TimeZoneInfo.ConvertTime(entry.OccurredAt, zone);
+                <tr>
+                    <td class="activity-when"><time datetime="@entry.OccurredAt.ToString("o")"><b>@at.ToString("MMM d, yyyy")</b><small>@at.ToString("h:mm tt")</small></time></td>
+                    <td><b>@entry.Action</b></td>
+                    <td>@entry.ActorName<small>@entry.Role · <span class="activity-id" title="Actor @entry.ActorId">@Short(entry.ActorId)</span></small></td>
+                    <td>@entry.TargetType<small>@if (entry.TargetId == Guid.Empty) { <span aria-label="No record ID">—</span> } else { <span class="activity-id" title="@entry.TargetType @entry.TargetId">@Short(entry.TargetId)</span> }</small></td>
+                    <td><span class="activity-result">Succeeded</span></td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+    }
 </section>
 </div>

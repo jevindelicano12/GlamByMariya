@@ -1,21 +1,6 @@
 @inject GlamByMariya.Infrastructure.Services.EmailVerificationService EmailCodes
 @{ var register = ViewContext.RouteData.Values["action"]?.ToString() == "Register"; var selectedGender = ViewBag.Gender as string; var today = DateOnly.FromDateTime(DateTime.Today); var minBirthday = today.AddYears(-(GlamByMariya.Core.BusinessRules.RegistrationRules.MaximumAge + 1)).AddDays(1).ToString("yyyy-MM-dd"); var maxBirthday = today.AddYears(-GlamByMariya.Core.BusinessRules.RegistrationRules.MinimumAge).ToString("yyyy-MM-dd"); ViewData["Title"] = register ? "Join Glam by Mariya" : "Welcome back"; }
-<div class="auth-wrap auth-split @(register ? "auth-register" : null)">
-<aside class="auth-showcase" aria-hidden="true">
-    <img src="@Url.Content(register ? "~/images/looks/bridal.jpg" : "~/images/looks/full-glam.jpg")" alt="" loading="eager" />
-    <div class="auth-showcase-overlay">
-        <span class="auth-showcase-tag">GLAM BY MARIYA · HOME SERVICE</span>
-        <div class="auth-showcase-copy">
-            <h2>@(register ? "Your beauty ritual, effortlessly reserved." : "Luxury glam, brought to your doorstep.")</h2>
-            <p>@(register ? "Book bridal, soft glam, or group sessions with live travel-aware scheduling across Metro Manila and Rizal." : "Sign in to check your upcoming appointments, request a new time, or book your next session.")</p>
-            <ul class="auth-showcase-points">
-                <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span>One dedicated artist at your chosen address</span></li>
-                <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span>Real-time calendar &amp; transparent down payment</span></li>
-                <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span>Easy reschedule &amp; booking updates via email</span></li>
-            </ul>
-        </div>
-    </div>
-</aside>
+<div class="auth-wrap @(register ? "auth-register" : null)">
 <section class="panel auth-form-pane">
 <div class="auth-tabs" role="tablist" aria-label="Account access">
     <a class="@(!register ? "is-active" : null)" asp-action="Login" asp-route-returnUrl="@ViewBag.ReturnUrl" role="tab" aria-selected="@(!register ? "true" : "false")">Sign in</a>

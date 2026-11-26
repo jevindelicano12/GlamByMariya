@@ -35,6 +35,14 @@ public interface IStudioStore : IServiceRepository, IAddOnRepository, IBookingRe
     void RecordAudit(Guid actor, string message);
     // SuperAdmin-only Disable/Enable of an Admin account. Never a SuperAdmin or a customer.
     void SetAdminActive(Guid admin, bool active, Guid actor);
+    // SuperAdmin-only (Admin → User accounts). Edits the profile of a Customer or Admin, or turns the
+    // account off/on. "Delete" is this soft switch so bookings and payments keep their owner.
+    // Never targets a SuperAdmin.
+    void UpdateUserByOwner(Guid user, string firstName, string lastName, int age, string gender, string address, Guid actor);
+    void SetUserActive(Guid user, bool active, Guid actor);
+    // Permanent delete of a Customer or Admin with no booking/payment history. Accounts with
+    // history are refused (deactivate them instead) so past records keep their owner.
+    void DeleteUser(Guid user, Guid actor);
     // One booking by id (customers only see their own in database mode). Use this
     // instead of scanning Bookings, which loads every reservation in database mode.
     Booking? FindBooking(Guid id);

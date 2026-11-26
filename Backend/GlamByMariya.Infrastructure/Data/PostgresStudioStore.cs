@@ -337,6 +337,13 @@ public class PostgresStudioStore(MakeupDbContext db, IHttpContextAccessor http,
     public virtual void SetAdminActive(Guid admin,bool active,Guid actor) =>
         throw new InvalidOperationException("Admin Disable/Enable needs the public schema, where the SuperAdmin lives.");
 
+    public virtual void UpdateUserByOwner(Guid user,string firstName,string lastName,int age,string gender,string address,Guid actor) =>
+        throw new InvalidOperationException("User account management needs the public schema, where the SuperAdmin lives.");
+    public virtual void SetUserActive(Guid user,bool active,Guid actor) =>
+        throw new InvalidOperationException("User account management needs the public schema, where the SuperAdmin lives.");
+    public virtual void DeleteUser(Guid user,Guid actor) =>
+        throw new InvalidOperationException("User account management needs the public schema, where the SuperAdmin lives.");
+
     public virtual void ResetPassword(string email, string newPassword)
     {
         var passwordError = PasswordPolicy.ValidateNewPassword(newPassword);

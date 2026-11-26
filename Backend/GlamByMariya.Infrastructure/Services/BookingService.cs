@@ -613,6 +613,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
                     if (b.Status is not ("Pending Payment" or "Confirmed")) throw new InvalidOperationException("Only pending or confirmed appointments can be cancelled by the business.");
                     if (string.IsNullOrWhiteSpace(reason)) throw new InvalidOperationException("Enter a reason for cancelling this appointment.");
                     b.Status = "Cancelled"; b.StaffCancelledBy = actor; b.StaffCancelledAt = store.Now; b.StaffCancellationReason = reason;
+                    b.CancellationFee = 0; b.RefundDue = Paid(b);
                     b.RequestedStart = null; b.PendingReschedule = null; b.RescheduleOffer = null;
                     b.Note = "Glam by Mariya has cancelled this appointment. Mariya will contact you about verified payments and any applicable refund. Refund arrangements are handled personally.";
                     break;
@@ -696,7 +697,7 @@ public class BookingService(IStudioStore store, IServiceRepository services, IAd
             if (policyVersion != store.Settings.PolicyVersion || travelReminderVersion != store.Settings.TravelReminderVersion)
                 throw new InvalidOperationException("The booking policies changed. Reload and review them before submitting.");
             if (!agreed || !travelAcknowledged) throw new InvalidOperationException("Read and accept the Transportation Fee Policy before submitting payment.");
-            if (string.IsNullOrWhiteSpace(proof)) throw new InvalidOperationException("Upload a payment screenshot to submit your booking.");
+            if (method != "Xendit" && string.IsNullOrWhiteSpace(proof)) throw new InvalidOperationException("Upload a payment screenshot to submit your booking.");
             if (string.IsNullOrWhiteSpace(address) || address.Length < 8 || address.Length > 500) throw new InvalidOperationException("Enter your complete home-service address (8–500 characters).");
             if (!store.Settings.ServiceAreas.Split(',').Any(x => x.Trim().Equals(area, StringComparison.OrdinalIgnoreCase)) || area is null) throw new InvalidOperationException("The address must be within our service area.");
             if (BookingLocation.AddressCoverageError(address, store.Settings.ServiceAreas) is { } mixedCoverageErr) throw new InvalidOperationException(mixedCoverageErr);

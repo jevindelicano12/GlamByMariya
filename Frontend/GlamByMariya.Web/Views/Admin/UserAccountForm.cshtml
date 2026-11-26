@@ -1,0 +1,38 @@
+@model GlamByMariya.Core.Entities.AppUser
+@{
+    var isNew = Model.Id == Guid.Empty;
+    ViewData["Title"] = isNew ? "Add account" : "Edit account";
+}
+<link rel="stylesheet" href="~/css/user-accounts.css" asp-append-version="true" />
+<div class="activity-page ua-page ua-form-page">
+<a class="ua-back" asp-action="UserAccounts">← User accounts</a>
+<div class="page-heading"><div><div class="eyebrow">SYSTEM OWNER</div><h1>@(isNew ? "Add account" : "Edit account")</h1><p>@(isNew ? "Create a customer or administrator account. Give the person the temporary password privately; they can change it in Account settings." : $"Update {Model.Name}'s profile. Email and role stay the same.")</p></div></div>
+<section class="panel settings-card ua-card">
+    @if (ViewBag.Error != null) { <div class="alert error" role="alert">@ViewBag.Error</div> }
+    <form asp-action="SaveUserAccount" method="post" class="stack">
+        @if (!isNew) { <input type="hidden" name="id" value="@Model.Id" /> }
+        <div class="form-grid">
+            <label>First name<input name="firstName" value="@Model.FirstName" required maxlength="50" autocomplete="off" /></label>
+            <label>Last name<input name="lastName" value="@Model.LastName" required maxlength="50" autocomplete="off" /></label>
+        </div>
+        <div class="form-grid">
+            @if (isNew) {
+                <label>Email address<input name="email" type="email" value="@Model.Email" required maxlength="254" autocomplete="off" /></label>
+                <label>Role<select name="role" required>@foreach (var r in new[] { "Customer", "Admin" }) { <option value="@r" selected="@(Model.Role == r)">@r</option> }</select></label>
+            } else {
+                <label>Email address<input value="@Model.Email" readonly /><input type="hidden" name="email" value="@Model.Email" /></label>
+                <label>Role<input value="@Model.Role" readonly /><input type="hidden" name="role" value="@Model.Role" /></label>
+            }
+        </div>
+        <div class="form-grid">
+            <label>Age<input name="age" type="number" min="@GlamByMariya.Core.BusinessRules.RegistrationRules.MinimumAge" max="@GlamByMariya.Core.BusinessRules.RegistrationRules.MaximumAge" value="@(Model.Age > 0 ? Model.Age : null)" required /></label>
+            <label>Gender<select name="gender"><option value="">Prefer not to say</option>@foreach (var g in GlamByMariya.Core.BusinessRules.RegistrationRules.Genders) { <option value="@g" selected="@(Model.Gender == g)">@g</option> }</select></label>
+        </div>
+        <label>Address<textarea name="address" required minlength="8" maxlength="500" rows="2">@Model.Address</textarea></label>
+        @if (isNew) {
+            <label>Temporary password<input name="password" type="password" required minlength="8" maxlength="128" autocomplete="new-password" /></label>
+        }
+        <div class="ua-form-actions"><button class="button" type="submit">@(isNew ? "Create account" : "Save changes")</button><a class="ua-btn" asp-action="UserAccounts">Cancel</a></div>
+    </form>
+</section>
+</div>

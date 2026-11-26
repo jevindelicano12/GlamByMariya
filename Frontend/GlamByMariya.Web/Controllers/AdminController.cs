@@ -104,6 +104,127 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
         return RedirectToAction(nameof(Users));
     }
 
+    // ── User accounts (SuperAdmin only): list, add, edit, deactivate/reactivate ──
+    // Deactivating is the delete: the account can no longer sign in, but its bookings and
+    // payments keep their owner. The SuperAdmin account itself is never listed for changes.
+    [Authorize(Roles = "SuperAdmin")]
+    public IActionResult UserAccounts(string? q, string? role, string? status)
+    {
+        q = (q ?? "").Trim(); role = (role ?? "").Trim(); status = (status ?? "").Trim();
+        if (q.Length > 100 || role is not ("" or "Customer" or "Admin") || status is not ("" or "active" or "inactive")) return BadRequest();
+        lock (store.Gate)
+        {
+            var users = store.Users.Where(u => u.Role is Roles.Customer or Roles.Admin)
+                .Where(u => role.Length == 0 || u.Role == role)
+                .Where(u => status.Length == 0 || u.IsActive == (status == "active"))
+                .Where(u => q.Length == 0 || u.Name.Contains(q, StringComparison.OrdinalIgnoreCase) || u.Email.Contains(q, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(u => u.IsActive ? 0 : 1).ThenBy(u => u.Role).ThenBy(u => u.Name).ToList();
+            ViewBag.Q = q; ViewBag.Role = role; ViewBag.Status = status;
+            return View(users);
+        }
+    }
+
+    [Authorize(Roles = "SuperAdmin"), HttpGet]
+    public IActionResult UserAccountForm(Guid? id)
+    {
+        // AppUser.Id defaults to a new GUID; Guid.Empty is what marks the form as "Add".
+        if (id is null) return View(new AppUser { Id = Guid.Empty, Role = Roles.Customer });
+        lock (store.Gate)
+        {
+            var user = store.Users.FirstOrDefault(u => u.Id == id && u.Role is Roles.Customer or Roles.Admin);
+            return user == null ? NotFound() : View(user);
+        }
+    }
+
+    [Authorize(Roles = "SuperAdmin"), HttpPost]
+    public IActionResult SaveUserAccount(Guid? id, string firstName, string lastName, string email, string role, int age, string? gender, string address, string? password)
+    {
+        firstName = (firstName ?? "").Trim(); lastName = (lastName ?? "").Trim(); email = (email ?? "").Trim();
+        address = (address ?? "").Trim(); gender ??= "";
+        var draft = new AppUser { Id = id ?? Guid.Empty, FirstName = firstName, LastName = lastName, Email = email, Role = role ?? "", Age = age, Gender = gender, Address = address };
+        try
+        {
+            if (id is null)
+            {
+                if (role is not (Roles.Customer or Roles.Admin)) throw new InvalidOperationException("Choose Customer or Admin.");
+                var error = RegistrationRules.Validate(firstName, lastName, email, age, gender, address, password ?? "");
+                if (error != null) throw new InvalidOperationException(error);
+                AppUser created;
+                lock (store.Gate)
+                {
+                    if (store is PostgresStudioStore database ? database.FindUser(email) != null
+                        : store.Users.Any(u => u.Email.Equals(email, StringComparison.OrdinalIgnoreCase)))
+                        throw new InvalidOperationException("This email is already registered.");
+                    created = store.AddUser(firstName, lastName, email, password!, role, age, gender, address);
+                }
+                LogAccount($"{role} account created: {created.Name} ({email})", created.Id, $"Created {role.ToLowerInvariant()} account {email}.");
+                TempData["Success"] = $"{created.Name}'s account was created. Share the temporary password with them privately.";
+            }
+            else
+            {
+                var error = RegistrationRules.ValidateProfile(firstName, lastName, "placeholder@example.com", age, gender, address);
+                if (error != null) throw new InvalidOperationException(error);
+                lock (store.Gate) store.UpdateUserByOwner(id.Value, firstName, lastName, age, gender, address, UserId);
+                LogAccount($"User account updated: {firstName} {lastName}", id.Value, $"Updated user account {id}.");
+                TempData["Success"] = $"{firstName} {lastName}'s account was updated.";
+            }
+            return RedirectToAction(nameof(UserAccounts));
+        }
+        catch (InvalidOperationException e)
+        {
+            if (id is { } existing) lock (store.Gate) draft.Email = store.Users.FirstOrDefault(u => u.Id == existing)?.Email ?? email;
+            ViewBag.Error = e.Message;
+            return View("UserAccountForm", draft);
+        }
+    }
+
+    [Authorize(Roles = "SuperAdmin"), HttpPost]
+    public IActionResult SetUserAccountActive(Guid id, bool active)
+    {
+        try
+        {
+            string who;
+            lock (store.Gate)
+            {
+                store.SetUserActive(id, active, UserId);
+                who = store.Users.FirstOrDefault(u => u.Id == id) is { } u ? $"{u.Name} ({u.Email})" : id.ToString();
+            }
+            LogAccount(active ? $"User account reactivated: {who}" : $"User account deactivated: {who}", id, active ? $"Reactivated user account {id}." : $"Deactivated user account {id}.");
+            TempData["Success"] = active ? "Account reactivated. They can sign in again." : "Account deactivated. They are signed out and can no longer sign in. Their bookings are kept.";
+        }
+        catch (InvalidOperationException e) { TempData["Error"] = e.Message; }
+        return RedirectToAction(nameof(UserAccounts));
+    }
+
+    [Authorize(Roles = "SuperAdmin"), HttpPost]
+    public IActionResult DeleteUserAccount(Guid id, string? confirmText)
+    {
+        try
+        {
+            // The pop-up requires typing this phrase; checked here too so a direct request cannot skip it.
+            if (!string.Equals((confirmText ?? "").Trim(), "yes im sure", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Type \"yes im sure\" to confirm the delete. Nothing was deleted.");
+            string label;
+            lock (store.Gate)
+            {
+                // Capture who it was before the row disappears, so the log still names them.
+                var user = store.Users.FirstOrDefault(u => u.Id == id) ?? throw new InvalidOperationException("That account no longer exists.");
+                label = $"{user.Name} ({user.Email}, {user.Role})";
+                store.DeleteUser(id, UserId);
+            }
+            LogAccount($"User account deleted: {label}", id, $"Deleted user account {label}.");
+            TempData["Success"] = $"{label} was permanently deleted.";
+        }
+        catch (InvalidOperationException e) { TempData["Error"] = e.Message; }
+        return RedirectToAction(nameof(UserAccounts));
+    }
+
+    private void LogAccount(string action, Guid target, string audit)
+    {
+        if (store is DemoStore demo) demo.RecordAdminActivity(UserId, action, "User account", target);
+        try { store.RecordAudit(UserId, audit); } catch (InvalidOperationException) { }
+    }
+
     public IActionResult Index(string? status)
     {
         lock (store.Gate)
@@ -135,8 +256,10 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
         }
     }
     [HttpPost, ValidateAntiForgeryToken]
-    public IActionResult Action(Guid id, string operation, string reason = "", decimal amount = 0, string reference = "", Guid? paymentId = null, int? paymentRevision = null, bool reviewed = false, DateTime? requestedStart = null, Guid? rescheduleQuoteId = null, bool confirmed = false, long? reviewRevision = null, string? reviewVersion = null, bool travelOverride = false)
+    public IActionResult Action(Guid id, string operation, string? reason = "", decimal amount = 0, string? reference = "", Guid? paymentId = null, int? paymentRevision = null, bool reviewed = false, DateTime? requestedStart = null, Guid? rescheduleQuoteId = null, bool confirmed = false, long? reviewRevision = null, string? reviewVersion = null, bool travelOverride = false, string? returnTo = null)
     {
+        reason ??= "";
+        reference ??= "";
         lock (store.Gate)
         {
             var b = store.FindBooking(id); if (b == null) return NotFound();
@@ -220,7 +343,31 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
                             : string.Format(BookingService.EarlyRequestDeclinedMessage, reason.Trim()));
             }
             catch (InvalidOperationException e) { TempData["Error"] = e.Message; }
-            return RedirectToAction("Details", new { id });
+            return string.Equals(returnTo, "refunds", StringComparison.OrdinalIgnoreCase)
+                ? RedirectToAction("Refunds")
+                : RedirectToAction("Details", new { id });
+        }
+    }
+    public IActionResult Refunds(string? filter = null)
+    {
+        lock (store.Gate)
+        {
+            var all = store.Bookings
+                .Where(b => b.RefundDue > 0)
+                .OrderByDescending(b => b.RefundDue > b.Refunded)
+                .ThenByDescending(b => b.CreatedAt ?? b.Start)
+                .ThenByDescending(b => b.Start)
+                .ToList();
+            var normalized = filter?.ToLowerInvariant() is "waiting" or "sent" or "all" ? filter.ToLowerInvariant() : "all";
+            ViewBag.AllRefunds = all;
+            ViewBag.Filter = normalized;
+            var filtered = normalized switch
+            {
+                "waiting" => all.Where(b => b.RefundDue > b.Refunded).ToList(),
+                "sent" => all.Where(b => b.Refunded >= b.RefundDue).ToList(),
+                _ => all
+            };
+            return View(filtered);
         }
     }
     // Best-effort email after an early request is decided; the in-app notification is already saved,

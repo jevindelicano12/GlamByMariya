@@ -3683,11 +3683,19 @@ fieldset.ph-address > legend { padding: 0 6px; font-weight: 600; color: #49363D;
     border-color: #A6536B;
 }
 .staff-layout .activity-list {
-    padding: 20px 22px !important;
-    border-radius: 14px !important;
-    border: 1px solid #EADDD7 !important;
-    background: #FFFDFB !important;
-    box-shadow: 0 12px 32px -24px rgba(73, 54, 61, 0.2) !important;
+    padding: 0 !important;
+    margin: 0;
+    border: 0 !important;
+    background: none !important;
+    box-shadow: none !important;
+}
+.staff-layout .activity-list-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 4px 16px;
+    margin: 6px 0 12px;
 }
 .staff-layout .activity-list h2 {
     font-family: var(--serif);
@@ -3695,37 +3703,96 @@ fieldset.ph-address > legend { padding: 0 6px; font-weight: 600; color: #49363D;
     line-height: 1.25;
     font-weight: 500;
     color: #49363D;
-    margin: 0 0 14px;
+    margin: 0;
+}
+.staff-layout .activity-count {
+    font-family: var(--sans);
+    font-size: 12.5px !important;
+    color: #7C6B70;
+    font-variant-numeric: tabular-nums;
 }
 .staff-layout .activity-empty {
     font-family: var(--sans);
     font-size: 13px !important;
     color: #6B575E;
-    padding: 12px 14px;
-    border-radius: 10px;
-    background: #FAF7F4;
+    padding: 16px 18px;
+    border-radius: 14px;
+    background: #FFFDFB;
     border: 1px solid #EADDD7;
 }
-.staff-layout .activity-list .activity {
-    padding: 13px 0;
-    border-top: 1px solid #F1E7E2;
-    border-bottom: 0;
-    font-family: var(--sans);
+.staff-layout .activity-table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    scrollbar-color: #D8BFC4 transparent;
+    border: 1px solid #EADDD7;
+    border-radius: 14px;
+    background: #FFFDFB;
+    box-shadow: 0 12px 32px -24px rgba(73, 54, 61, 0.2);
 }
-.staff-layout .activity-list .activity strong {
-    display: block;
-    font-size: 13.5px !important;
-    font-weight: 600;
+.staff-layout .activity-table-wrap:focus-visible {
+    outline: 2px solid #D7A9BA;
+    outline-offset: 2px;
+}
+.staff-layout .activity-table {
+    width: 100%;
+    min-width: 720px;
+    border-collapse: collapse;
+    font-family: var(--sans);
     color: #49363D;
 }
-.staff-layout .activity-list .activity p {
-    margin: 3px 0 4px;
-    font-size: 13px !important;
-    color: #5C464D;
-}
-.staff-layout .activity-list .activity small {
+.staff-layout .activity-table th {
+    text-align: left;
     font-size: 12px !important;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: none;
+    color: #5C464D;
+    background: #FAF1EE;
+    padding: 13px 16px;
+    white-space: nowrap;
+}
+.staff-layout .activity-table td {
+    padding: 15px 16px;
+    border-bottom: 1px solid #F3ECEA;
+    vertical-align: top;
+    font-size: 13px !important;
+    line-height: 1.45;
+    color: #49363D;
+}
+.staff-layout .activity-table tbody tr:last-child td { border-bottom: 0; }
+.staff-layout .activity-table tbody tr:hover td { background: #FDF8F7; }
+.staff-layout .activity-table td b {
+    color: #49363D;
+    font-weight: 600;
+}
+.staff-layout .activity-table td small {
+    display: block;
+    margin-top: 4px;
+    font-size: 12px !important;
+    line-height: 1.4;
     color: #7C6B70;
+}
+.staff-layout .activity-when {
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+.staff-layout .activity-when time { display: block; }
+.staff-layout .activity-id {
+    font-variant-numeric: tabular-nums;
+    cursor: help;
+    text-decoration: underline dotted #C9AEB5;
+    text-underline-offset: 3px;
+}
+.staff-layout .activity-result {
+    display: inline-block;
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: 11.5px !important;
+    font-weight: 600;
+    white-space: nowrap;
+    background: #EDF1EA;
+    color: #4F6446;
 }
 @media (max-width: 720px) {
     .staff-layout .activity-filter { grid-template-columns: 1fr; }
@@ -4856,6 +4923,53 @@ dialog.policies-modal {
     line-height: 1.4;
     color: #7A636A;
     margin-top: 4px;
+}
+.refunds-table td small {
+    display: block;
+    font-size: 12px;
+    color: #7A636A;
+    margin-top: 2px;
+}
+.refund-outstanding {
+    font-weight: 700;
+    color: #8E445B;
+}
+.refund-settled {
+    color: #7A636A;
+}
+.refund-inline-form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+}
+.refund-inline-form input[name="amount"] {
+    width: 96px;
+    min-height: 34px !important;
+    height: 34px !important;
+    padding: 4px 8px !important;
+    font-size: 12.5px !important;
+}
+.refund-inline-form input[name="reference"] {
+    width: 145px;
+    min-height: 34px !important;
+    height: 34px !important;
+    padding: 4px 8px !important;
+    font-size: 12.5px !important;
+}
+.refund-inline-form .button {
+    min-height: 34px !important;
+    height: 34px !important;
+    padding: 0 12px !important;
+    font-size: 12.5px !important;
+    border-radius: 8px !important;
+    white-space: nowrap;
+}
+.refund-done-meta {
+    display: grid;
+    gap: 2px;
+    font-size: 12.5px;
 }
 @media (max-width: 720px) {
     .public-page {

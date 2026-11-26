@@ -294,4 +294,42 @@ public class DemoStore : IStudioStore
             target.IsActive = active;
         }
     }
+    private AppUser ManagedUser(Guid user, Guid actor)
+    {
+        if (!Users.Any(u => u.Id == actor && u.IsActive && u.Role == Roles.SuperAdmin))
+            throw new InvalidOperationException("Only the Super Admin can manage user accounts.");
+        return Users.SingleOrDefault(u => u.Id == user && u.Role is Roles.Customer or Roles.Admin)
+            ?? throw new InvalidOperationException("That account cannot be changed here.");
+    }
+    public void UpdateUserByOwner(Guid user, string firstName, string lastName, int age, string gender, string address, Guid actor)
+    {
+        lock (Gate)
+        {
+            var target = ManagedUser(user, actor);
+            target.FirstName = firstName.Trim(); target.LastName = lastName.Trim();
+            target.Name = $"{target.FirstName} {target.LastName}";
+            target.Age = age; target.Gender = gender; target.Address = address.Trim();
+        }
+    }
+    public void SetUserActive(Guid user, bool active, Guid actor)
+    {
+        lock (Gate)
+        {
+            if (user == actor) throw new InvalidOperationException("You cannot deactivate your own account.");
+            ManagedUser(user, actor).IsActive = active;
+        }
+    }
+    public void DeleteUser(Guid user, Guid actor)
+    {
+        lock (Gate)
+        {
+            if (user == actor) throw new InvalidOperationException("You cannot delete your own account.");
+            var target = ManagedUser(user, actor);
+            var bookings = Bookings.Count(b => b.CustomerId == user);
+            if (bookings > 0) throw new InvalidOperationException($"This customer has {bookings} booking(s), so the account cannot be deleted. Deactivate it instead to keep their booking and payment history.");
+            if (Payments.Any(p => p.VerifiedBy == user))
+                throw new InvalidOperationException("This administrator reviewed payments, so the account cannot be deleted. Deactivate it instead to keep the payment history.");
+            Users.Remove(target);
+        }
+    }
 }

@@ -1,0 +1,108 @@
+@model List<Booking>
+@{
+    ViewData["Title"] = "Refunds";
+    var all = (List<Booking>)(ViewBag.AllRefunds ?? Model);
+    var filter = (string)(ViewBag.Filter ?? "all");
+    var waiting = all.Where(b => b.RefundDue > b.Refunded).ToList();
+    var sent = all.Where(b => b.Refunded >= b.RefundDue).ToList();
+    var outstandingTotal = waiting.Sum(b => Math.Max(0m, b.RefundDue - b.Refunded));
+    var sentTotal = all.Sum(b => b.Refunded);
+}
+<div class="page-heading">
+    <div>
+        <div class="eyebrow">REFUND MANAGEMENT</div>
+        <h1>Refunds</h1>
+        <p>Track rejected or cancelled customer bookings with a verified payment balance due back, and record manual refunds once sent.</p>
+    </div>
+</div>
+
+<div class="stats three">
+    <a class="stat stat-link" asp-action="Refunds" asp-route-filter="waiting">
+        <span>OUTSTANDING REFUNDS</span>
+        <strong class="money">₱@outstandingTotal.ToString("N2")</strong>
+        <small>@waiting.Count booking(s) waiting for refund</small>
+    </a>
+    <a class="stat stat-link" asp-action="Refunds" asp-route-filter="sent">
+        <span>REFUNDS SENT</span>
+        <strong class="money">₱@sentTotal.ToString("N2")</strong>
+        <small>@sent.Count fully settled booking(s)</small>
+    </a>
+    <a class="stat stat-link" asp-action="Refunds" asp-route-filter="all">
+        <span>TOTAL REFUND CASES</span>
+        <strong>@all.Count</strong>
+        <small>Rejected &amp; cancelled with verified payment</small>
+    </a>
+</div>
+
+<div class="tabs" role="tablist" aria-label="Filter refunds" style="margin-bottom:16px;">
+    <a class="@(filter == "all" ? "selected" : null)" asp-action="Refunds" asp-route-filter="all">All (@all.Count)</a>
+    <a class="@(filter == "waiting" ? "selected" : null)" asp-action="Refunds" asp-route-filter="waiting">Refund waiting (@waiting.Count)</a>
+    <a class="@(filter == "sent" ? "selected" : null)" asp-action="Refunds" asp-route-filter="sent">Refunded (@sent.Count)</a>
+</div>
+
+@if (!Model.Any())
+{
+    <section class="panel"><p>No refund records match this filter.</p></section>
+}
+else
+{
+    <section class="panel">
+        <div class="table-wrap">
+            <table class="refunds-table">
+                <thead>
+                    <tr>
+                        <th>Booking &amp; Customer</th>
+                        <th>Status</th>
+                        <th>Refund due</th>
+                        <th>Sent</th>
+                        <th>Outstanding</th>
+                        <th>Record sent refund</th>
+                    </tr>
+                </thead>
+                <tbody>
+                @foreach (var b in Model)
+                {
+                    var remaining = Math.Max(0m, b.RefundDue - b.Refunded);
+                    var settled = remaining <= 0m;
+                    <tr>
+                        <td>
+                            <strong><a asp-action="Details" asp-route-id="@b.Id">@b.Reference</a> · @b.CustomerName</strong>
+                            <small>@b.ServiceDescription · @b.Start.ToString("MMM d, yyyy h:mm tt")</small>
+                        </td>
+                        <td>
+                            <span class="badge @(settled ? "confirmed" : "pending")">@(settled ? "Refunded" : "Refund waiting")</span>
+                            <small>@b.Status</small>
+                        </td>
+                        <td class="money">
+                            ₱@b.RefundDue.ToString("N2")
+                            @if (b.CancellationFee > 0) { <small>After ₱@b.CancellationFee.ToString("N2") fee</small> }
+                        </td>
+                        <td class="money">₱@b.Refunded.ToString("N2")</td>
+                        <td class="money @(settled ? "refund-settled" : "refund-outstanding")">₱@remaining.ToString("N2")</td>
+                        <td>
+                            @if (!settled)
+                            {
+                                <form asp-action="Action" method="post" class="refund-inline-form">
+                                    <input type="hidden" name="id" value="@b.Id" />
+                                    <input type="hidden" name="returnTo" value="refunds" />
+                                    <input name="amount" type="number" step="0.01" min="0.01" max="@remaining.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)" value="@remaining.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)" aria-label="Refund amount sent (₱)" required />
+                                    <input name="reference" type="text" maxlength="150" placeholder="Transfer reference" aria-label="Refund transfer reference" required />
+                                    <button name="operation" value="refund" type="submit" class="button secondary">Record sent</button>
+                                </form>
+                            }
+                            else
+                            {
+                                <div class="refund-done-meta">
+                                    <strong>Sent</strong>
+                                    @if (!string.IsNullOrWhiteSpace(b.RefundReference)) { <small>Ref: @b.RefundReference</small> }
+                                    <a asp-action="Details" asp-route-id="@b.Id">View details</a>
+                                </div>
+                            }
+                        </td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    </section>
+}

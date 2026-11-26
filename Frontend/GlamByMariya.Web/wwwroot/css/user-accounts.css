@@ -1,0 +1,59 @@
+/* Admin → User accounts. Builds on the Activity Logs table and filter styles. */
+.staff-layout .ua-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.staff-layout .ua-heading .button { height: 42px; display: inline-flex; align-items: center; padding: 0 20px; border-radius: 10px; font-size: 13.5px; font-weight: 600; white-space: nowrap; }
+.staff-layout .activity-filter.ua-filter { grid-template-columns: minmax(220px, 1fr) minmax(150px, 180px) minmax(150px, 180px) auto auto; }
+.staff-layout .ua-table { min-width: 760px; }
+.staff-layout .ua-table td small { max-width: 34ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.staff-layout .ua-email { color: #8E445B !important; overflow-wrap: anywhere; }
+.staff-layout .ua-inactive td { color: #7C6B70; }
+.staff-layout .ua-inactive td b { color: #6B575E; }
+.staff-layout .ua-status-off { display: inline-block; border-radius: 999px; padding: 4px 10px; font-size: 11.5px !important; font-weight: 600; white-space: nowrap; background: #F3ECEA; color: #6B575E; }
+.staff-layout .ua-actions { white-space: nowrap; text-align: right; }
+.staff-layout .ua-actions form { display: inline; margin: 0; }
+.staff-layout .ua-btn { display: inline-flex; align-items: center; justify-content: center; height: 34px; padding: 0 14px; margin-left: 6px; border-radius: 9px; border: 1px solid #D8BFC4; background: #FFFDFB; color: #76394D; font-family: var(--sans); font-size: 12.5px !important; font-weight: 600; cursor: pointer; text-decoration: none; transition: background-color .15s ease-out, border-color .15s ease-out; }
+.staff-layout .ua-btn:hover { background: #FAF1EE; border-color: #A6536B; }
+.staff-layout .ua-btn:focus-visible { outline: 2px solid #D7A9BA; outline-offset: 2px; }
+.staff-layout .ua-btn.ua-danger { color: #9B2C2C; border-color: #E3C3C3; }
+.staff-layout .ua-btn.ua-danger:hover { background: #FBEDED; border-color: #B54848; }
+.staff-layout .ua-btn.ua-delete { color: #FFFDFB; background: #A33A3A; border-color: #A33A3A; }
+.staff-layout .ua-btn.ua-delete:hover { background: #8A2C2C; border-color: #8A2C2C; }
+.staff-layout .ua-table { min-width: 860px; }
+.staff-layout .ua-form-page { max-width: 760px; }
+.staff-layout .ua-back { display: inline-block; margin-bottom: 14px; font-size: 13px; font-weight: 600; color: #8E445B; }
+.staff-layout .ua-card { padding: 24px !important; border-radius: 14px !important; border: 1px solid #EADDD7 !important; background: #FFFDFB !important; box-shadow: 0 12px 32px -24px rgba(73, 54, 61, 0.2) !important; }
+.staff-layout .ua-card .stack { display: flex; flex-direction: column; gap: 16px; margin: 0; }
+.staff-layout .ua-card label { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; font-weight: 600; color: #49363D; }
+.staff-layout .ua-card label small { font-weight: 400; color: #7C6B70; font-size: 12px; }
+.staff-layout .ua-card input[readonly] { background: #FAF7F4; color: #6B575E; }
+.staff-layout .ua-card textarea { resize: vertical; }
+.staff-layout .ua-form-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.staff-layout .ua-form-actions .ua-btn { height: 42px; margin: 0; }
+@media (max-width: 900px) {
+    .staff-layout .activity-filter.ua-filter { grid-template-columns: 1fr 1fr; }
+    .staff-layout .activity-filter.ua-filter label:first-child { grid-column: 1 / -1; }
+}
+@media (max-width: 580px) {
+    .staff-layout .activity-filter.ua-filter { grid-template-columns: 1fr; }
+}
+
+/* Delete confirmation dialog */
+.ua-dialog { width: min(440px, calc(100vw - 32px)); padding: 0; border: 1px solid #EADDD7; border-radius: 16px; background: #FFFDFB; color: #49363D; box-shadow: 0 24px 60px -20px rgba(73, 54, 61, 0.45); }
+.ua-dialog::backdrop { background: rgba(43, 30, 35, 0.45); }
+.ua-dialog[open] { animation: ua-dialog-in .18s cubic-bezier(.16, 1, .3, 1); }
+@keyframes ua-dialog-in { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .ua-dialog[open] { animation: none; } }
+.ua-dialog-form { display: flex; flex-direction: column; gap: 12px; padding: 24px; margin: 0; font-family: var(--sans); }
+.ua-dialog h2 { margin: 0; font-family: var(--serif); font-weight: 500; font-size: 22px !important; color: #49363D; }
+.ua-dialog p { margin: 0; font-size: 13.5px !important; line-height: 1.5; color: #5C464D; }
+.ua-dialog p b { color: #49363D; overflow-wrap: anywhere; }
+.ua-dialog .ua-dialog-note { padding: 10px 12px; border-radius: 10px; background: #FBEDED; color: #7A2828; font-size: 12.5px !important; }
+.ua-dialog label { display: block; margin-top: 4px; font-size: 12.5px; font-weight: 600; color: #49363D; }
+.ua-dialog input { height: 42px; padding: 0 12px; border: 1px solid #E5D7D1; border-radius: 10px; background: #FFFDFB; font-family: var(--sans); font-size: 14px; color: #49363D; }
+.ua-dialog input:focus { outline: 2px solid #F3DDE5; border-color: #C992A4; }
+.ua-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+.ua-dialog-actions .ua-btn { height: 40px; margin: 0; }
+.staff-layout .ua-btn.ua-delete:disabled, .ua-dialog .ua-btn.ua-delete:disabled { background: #D9B8B8; border-color: #D9B8B8; cursor: not-allowed; }
+.ua-dialog .ua-btn { display: inline-flex; align-items: center; justify-content: center; padding: 0 16px; border-radius: 9px; border: 1px solid #D8BFC4; background: #FFFDFB; color: #76394D; font-family: var(--sans); font-size: 13px; font-weight: 600; cursor: pointer; }
+.ua-dialog .ua-btn.ua-delete { color: #FFFDFB; background: #A33A3A; border-color: #A33A3A; }
+.ua-dialog .ua-btn.ua-delete:not(:disabled):hover { background: #8A2C2C; }
+.ua-dialog .ua-btn:focus-visible { outline: 2px solid #D7A9BA; outline-offset: 2px; }

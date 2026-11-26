@@ -1,0 +1,74 @@
+@model List<GlamByMariya.Core.Entities.AppUser>
+@{ ViewData["Title"] = "User accounts"; }
+<link rel="stylesheet" href="~/css/user-accounts.css" asp-append-version="true" />
+<div class="activity-page ua-page">
+<div class="page-heading ua-heading"><div><div class="eyebrow">SYSTEM OWNER</div><h1>User accounts</h1><p>Add, edit, deactivate and delete customer and administrator accounts. Deactivated accounts cannot sign in but keep their history; Delete is permanent and only works for accounts with no bookings or payments.</p></div><a class="button" asp-action="UserAccountForm">Add account</a></div>
+<form method="get" class="panel activity-filter ua-filter">
+    <label>Search name or email<input name="q" value="@ViewBag.Q" maxlength="100" placeholder="Name or email" /></label>
+    <label>Role<select name="role"><option value="">All roles</option>@foreach (var r in new[] { "Customer", "Admin" }) { <option value="@r" selected="@((string)ViewBag.Role == r)">@r</option> }</select></label>
+    <label>Status<select name="status"><option value="">All</option><option value="active" selected="@((string)ViewBag.Status == "active")">Active</option><option value="inactive" selected="@((string)ViewBag.Status == "inactive")">Deactivated</option></select></label>
+    <button class="button" type="submit">Filter</button><a asp-action="UserAccounts">Clear</a>
+</form>
+<section class="activity-list" aria-labelledby="ua-title">
+    <div class="activity-list-head"><h2 id="ua-title">Accounts</h2><span class="activity-count">@Model.Count @(Model.Count == 1 ? "account" : "accounts")</span></div>
+    @if (!Model.Any()) { <p class="activity-empty">No accounts match. Clear the filters or add an account.</p> }
+    else {
+    <div class="activity-table-wrap" tabindex="0" role="region" aria-labelledby="ua-title">
+        <table class="activity-table ua-table">
+            <thead><tr><th scope="col">Name</th><th scope="col">Email</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+            <tbody>
+            @foreach (var u in Model) {
+                <tr class="@(u.IsActive ? null : "ua-inactive")">
+                    <td><b>@u.Name</b>@if (!string.IsNullOrWhiteSpace(u.Address)) { <small>@u.Address</small> }</td>
+                    <td class="ua-email">@u.Email</td>
+                    <td>@u.Role</td>
+                    <td>@if (u.IsActive) { <span class="activity-result">Active</span> } else { <span class="ua-status-off">Deactivated</span> }</td>
+                    <td class="ua-actions">
+                        <a class="ua-btn" asp-action="UserAccountForm" asp-route-id="@u.Id" aria-label="Edit @u.Name">Edit</a>
+                        <form asp-action="SetUserAccountActive" method="post" data-confirm="@(u.IsActive ? $"Deactivate {u.Name}? They will be signed out and cannot sign in until reactivated." : null)">
+                            <input type="hidden" name="id" value="@u.Id" /><input type="hidden" name="active" value="@(u.IsActive ? "false" : "true")" />
+                            <button class="ua-btn @(u.IsActive ? "ua-danger" : null)" type="submit" aria-label="@(u.IsActive ? "Deactivate" : "Reactivate") @u.Name">@(u.IsActive ? "Deactivate" : "Reactivate")</button>
+                        </form>
+                        <button class="ua-btn ua-delete" type="button" data-delete-id="@u.Id" data-delete-name="@u.Name" data-delete-email="@u.Email" aria-haspopup="dialog" aria-label="Delete @u.Name">Delete</button>
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+    }
+</section>
+</div>
+<dialog class="ua-dialog" id="ua-delete-dialog" aria-labelledby="ua-delete-title" aria-describedby="ua-delete-desc">
+    <form asp-action="DeleteUserAccount" method="post" class="ua-dialog-form">
+        <input type="hidden" name="id" id="ua-delete-id" />
+        <h2 id="ua-delete-title">Delete account</h2>
+        <p id="ua-delete-desc">You are about to permanently delete <b id="ua-delete-who"></b>. This cannot be undone.</p>
+        <p class="ua-dialog-note">Accounts with bookings or payment history cannot be deleted. Deactivate those instead.</p>
+        <label for="ua-delete-confirm">Type <b>yes im sure</b> to confirm</label>
+        <input id="ua-delete-confirm" name="confirmText" autocomplete="off" spellcheck="false" required placeholder="yes im sure" />
+        <div class="ua-dialog-actions">
+            <button type="button" class="ua-btn" id="ua-delete-cancel">Cancel</button>
+            <button type="submit" class="ua-btn ua-delete" id="ua-delete-submit" disabled>Delete account</button>
+        </div>
+    </form>
+</dialog>
+@{ var cspNonce = Context.Items["csp-nonce"] as string; }
+<script nonce="@cspNonce">
+document.querySelectorAll('form[data-confirm]').forEach(f => f.addEventListener('submit', e => { if (f.dataset.confirm && !confirm(f.dataset.confirm)) e.preventDefault(); }));
+(() => {
+  const dlg = document.getElementById('ua-delete-dialog'); if (!dlg) return;
+  const input = document.getElementById('ua-delete-confirm'), submit = document.getElementById('ua-delete-submit');
+  const ok = () => input.value.trim().toLowerCase() === 'yes im sure';
+  input.addEventListener('input', () => { submit.disabled = !ok(); });
+  document.querySelectorAll('[data-delete-id]').forEach(btn => btn.addEventListener('click', () => {
+    document.getElementById('ua-delete-id').value = btn.dataset.deleteId;
+    document.getElementById('ua-delete-who').textContent = btn.dataset.deleteName + ' (' + btn.dataset.deleteEmail + ')';
+    input.value = ''; submit.disabled = true; dlg.returnFocus = btn; dlg.showModal(); input.focus();
+  }));
+  document.getElementById('ua-delete-cancel').addEventListener('click', () => dlg.close());
+  dlg.addEventListener('click', e => { if (e.target === dlg) dlg.close(); });
+  dlg.addEventListener('close', () => dlg.returnFocus?.focus());
+  dlg.querySelector('form').addEventListener('submit', e => { if (!ok()) { e.preventDefault(); input.focus(); } });
+})();
+</script>

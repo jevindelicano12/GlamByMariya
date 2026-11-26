@@ -511,6 +511,50 @@ public sealed class PublicStudioStore(
             throw new InvalidOperationException("Only Admin accounts can be disabled or enabled.");
     });
 
+    private void RequireOwner(Guid actor)
+    {
+        if (pdb.Database.SqlQuery<int>($"SELECT count(*)::int AS \"Value\" FROM public.admin_users WHERE app_id={actor} AND role='SuperAdmin' AND is_active").Single() == 0)
+            throw new InvalidOperationException("Only the Super Admin can manage user accounts.");
+    }
+
+    public override void UpdateUserByOwner(Guid user, string firstName, string lastName, int age, string gender, string address, Guid actor) => Transaction(actor, () =>
+    {
+        RequireOwner(actor);
+        var f = firstName.Trim(); var l = lastName.Trim();
+        var updated = pdb.Database.ExecuteSqlInterpolated($"UPDATE public.customers SET first_name={f}, last_name={l}, full_name={f + " " + l}, age_at_registration={age}, gender={gender}, address={address.Trim()} WHERE app_id={user}");
+        if (updated == 0)
+            updated = pdb.Database.ExecuteSqlInterpolated($"UPDATE public.admin_users SET first_name={f}, last_name={l}, age_at_registration={age}, gender={gender}, address={address.Trim()} WHERE app_id={user} AND role='Admin'");
+        if (updated == 0) throw new InvalidOperationException("That account cannot be edited here.");
+    });
+
+    public override void SetUserActive(Guid user, bool active, Guid actor) => Transaction(actor, () =>
+    {
+        RequireOwner(actor);
+        if (user == actor) throw new InvalidOperationException("You cannot deactivate your own account.");
+        // A new security stamp ends the account's sessions on its next request.
+        var updated = pdb.Database.ExecuteSqlInterpolated($"UPDATE public.customers SET is_active={active}, security_stamp=gen_random_uuid() WHERE app_id={user}");
+        if (updated == 0)
+            updated = pdb.Database.ExecuteSqlInterpolated($"UPDATE public.admin_users SET is_active={active}, security_stamp=gen_random_uuid() WHERE app_id={user} AND role='Admin'");
+        if (updated == 0) throw new InvalidOperationException("That account cannot be changed here.");
+    });
+
+    public override void DeleteUser(Guid user, Guid actor) => Transaction(actor, () =>
+    {
+        RequireOwner(actor);
+        if (user == actor) throw new InvalidOperationException("You cannot delete your own account.");
+        var bookings = pdb.Database.SqlQuery<int>($"SELECT count(*)::int AS \"Value\" FROM public.reservations r JOIN public.customers c ON c.id = r.customer_id WHERE c.app_id = {user}").Single();
+        if (bookings > 0) throw new InvalidOperationException($"This customer has {bookings} booking(s), so the account cannot be deleted. Deactivate it instead to keep their booking and payment history.");
+        var isCustomer = pdb.Database.SqlQuery<int>($"SELECT count(*)::int AS \"Value\" FROM public.customers WHERE app_id = {user}").Single() > 0;
+        var isAdmin = !isCustomer && pdb.Database.SqlQuery<int>($"SELECT count(*)::int AS \"Value\" FROM public.admin_users WHERE app_id = {user} AND role = 'Admin'").Single() > 0;
+        if (!isCustomer && !isAdmin) throw new InvalidOperationException("That account cannot be deleted here.");
+        // The login identity and preferences rows point at the account; remove them in the same transaction.
+        // Any other remaining reference makes the database refuse the delete (friendly FK message).
+        pdb.Database.ExecuteSqlInterpolated($"DELETE FROM public.account_identities WHERE id = {user}");
+        pdb.Database.ExecuteSqlInterpolated($"DELETE FROM public.account_preferences WHERE user_id = {user}");
+        if (isCustomer) pdb.Database.ExecuteSqlInterpolated($"DELETE FROM public.customers WHERE app_id = {user}");
+        else pdb.Database.ExecuteSqlInterpolated($"DELETE FROM public.admin_users WHERE app_id = {user} AND role = 'Admin'");
+    });
+
     public override void ResetPassword(string email, string newPassword)
     {
         var passwordError = PasswordPolicy.ValidateNewPassword(newPassword);
