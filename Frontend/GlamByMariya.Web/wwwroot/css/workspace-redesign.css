@@ -6,7 +6,7 @@
 }
 .member-layout { background:#FFF8F4; color:#49363D; }
 .member-layout .sidebar { background:#fff5f2; border-color:#EADDD7; }
-@media (min-width:851px) { .staff-layout .sidebar { max-height:100dvh; overflow-y:auto; overscroll-behavior:contain; } }
+@media (min-width:851px) { .has-sidebar .sidebar { max-height:100dvh; overflow-y:auto; overscroll-behavior:contain; } }
 .member-layout .topbar { background:#FFF8F4; border-color:#EADDD7; }
 .member-layout .brand-mark { border-color:#A6536B; color:#49363D; }
 .member-layout .sidebar nav a { color:#49363D; border-radius:8px; }
@@ -172,7 +172,7 @@
 @media (prefers-reduced-motion:reduce) { .member-layout *, .guest-layout * { transition-duration:0.01ms !important; } }
 
 /* Customer pages use a public-style top bar; staff keep their desktop sidebar. */
-.customer-layout .workspace,.customer-layout.sidebar-collapsed .workspace { margin-left:0; }
+/* Customers now share the staff sidebar shell (.has-sidebar). */
 .customer-layout .topbar { display:flex; gap:18px; position:relative; }
 .customer-layout .customer-desktop-nav { display:flex; align-items:center; gap:2px; margin:0 0 0 auto; overflow:visible; }
 .customer-desktop-nav a { color:#49363D; white-space:nowrap; padding:10px; }
@@ -191,14 +191,14 @@
   .customer-mobile-menu { display:block; margin-left:auto; }
 }
 @media (max-width:850px) {
-  .staff-layout .sidebar { position:relative; display:flex; flex-direction:row; align-items:center; flex-wrap:wrap; justify-content:space-between; }
-  .staff-layout .staff-menu { margin-left:auto; }
-  .staff-layout .staff-menu>.menu-toggle { display:inline-flex; }
-  .staff-layout .staff-menu:not(.is-open) nav { display:none; }
-  .staff-layout .staff-menu.is-open nav,.staff-layout.sidebar-collapsed .staff-menu.is-open nav { z-index:41; position:absolute; top:100%; left:0; right:0; display:grid; gap:2px; margin:0; padding:10px 20px; background:#fff8f4; border-bottom:1px solid #EADDD7; box-shadow:0 8px 24px #49363d1a; max-height:calc(100dvh - 80px); overflow-y:auto; overscroll-behavior:contain; }
-  .staff-layout .staff-menu nav a,.staff-layout.sidebar-collapsed .staff-menu nav a { justify-content:flex-start; gap:12px; min-height:44px; padding:10px 12px; font-size:13px; }
-  .staff-layout.sidebar-collapsed .sidebar .brand-name { display:block; }
-  .staff-layout .sidebar .brand { width:auto; }
+  .has-sidebar .sidebar { position:relative; display:flex; flex-direction:row; align-items:center; flex-wrap:wrap; justify-content:space-between; }
+  .has-sidebar .staff-menu { margin-left:auto; }
+  .has-sidebar .staff-menu>.menu-toggle { display:inline-flex; }
+  .has-sidebar .staff-menu:not(.is-open) nav { display:none; }
+  .has-sidebar .staff-menu.is-open nav,.has-sidebar.sidebar-collapsed .staff-menu.is-open nav { z-index:41; position:absolute; top:100%; left:0; right:0; display:grid; gap:2px; margin:0; padding:10px 20px; background:#fff8f4; border-bottom:1px solid #EADDD7; box-shadow:0 8px 24px #49363d1a; max-height:calc(100dvh - 80px); overflow-y:auto; overscroll-behavior:contain; }
+  .has-sidebar .staff-menu nav a,.has-sidebar.sidebar-collapsed .staff-menu nav a { justify-content:flex-start; gap:12px; min-height:44px; padding:10px 12px; font-size:13px; }
+  .has-sidebar.sidebar-collapsed .sidebar .brand-name { display:block; }
+  .has-sidebar .sidebar .brand { width:auto; }
 }
 @media (max-width:580px) {
   .customer-layout .topbar { justify-content:space-between; gap:6px; padding:0 12px; }
@@ -208,7 +208,7 @@
   .customer-layout .account-menu-name { display:none; }
   .customer-layout .look-options { padding:20px 14px; }
   .customer-layout .service-grid { grid-template-columns:1fr; }
-  .staff-layout .sidebar { padding:12px 16px; }
+  .has-sidebar .sidebar { padding:12px 16px; }
 }
 .policy-launcher { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:14px; padding:16px 18px; border:1px solid #EADDD7; border-radius:12px; background:#FFFBF8; }
 .policy-launcher strong { display:block; color:#49363D; font-size:1rem; }
@@ -237,8 +237,8 @@ main label { color:#49363D; }
 .settings-card .preference-toggle input, .notification-switch input:checked + .switch-track { accent-color:#A6536B; background:#A6536B; }
 .account-link { color:#8E455C; }
 .otp-input { padding:12px 16px!important; font-size:1.35rem!important; letter-spacing:.28em!important; }
-.staff-layout.sidebar-collapsed .sidebar { scrollbar-width:none; }
-.staff-layout.sidebar-collapsed .sidebar::-webkit-scrollbar { display:none; }
+.has-sidebar.sidebar-collapsed .sidebar { scrollbar-width:none; }
+.has-sidebar.sidebar-collapsed .sidebar::-webkit-scrollbar { display:none; }
 .customer-desktop-nav { gap:4px; }
 .customer-desktop-nav a { padding:8px 10px; font-size:.9rem; }
 .account-menu summary { white-space:nowrap; }
@@ -303,3 +303,15 @@ main label { color:#49363D; }
 .dash-service-track { height:10px; border-radius:999px; background:#F3E7EA; overflow:hidden; }
 .dash-service-fill { display:block; height:100%; border-radius:999px; background:linear-gradient(90deg, #B77F89, #A6536B); transition:width .25s ease; }
 @media (max-width:900px) { .dash-grid { grid-template-columns:1fr; } .dash-donut-layout { grid-template-columns:1fr; justify-items:center; } .dash-legend { width:100%; } }
+
+/* Customer sidebar: account settings and log out sit under the main links. */
+.customer-layout .sidebar-account-links { display:grid; gap:2px; margin-top:14px; padding-top:12px; border-top:1px solid #EADDD7; }
+.customer-layout .sidebar-logout { margin:0; }
+.customer-layout .sidebar-logout button { display:flex; align-items:center; gap:10px; width:100%; min-height:40px; padding:9px 11px; background:none; border:0; border-radius:9px; color:#8E455C; font:inherit; font-size:13.5px; font-weight:500; line-height:1.25; text-align:left; cursor:pointer; }
+.customer-layout .sidebar-logout button span { width:18px; font-size:14px; text-align:center; flex-shrink:0; line-height:1; }
+.customer-layout .sidebar-logout button:hover { background:#FAEAEB; }
+.customer-layout .sidebar-logout button:focus-visible { outline:3px solid #B77F89; outline-offset:2px; }
+.customer-layout .topbar { justify-content:space-between; }
+.sidebar-collapsed.customer-layout .sidebar-account-links { border-top:0; padding-top:0; }
+.sidebar-collapsed.customer-layout .sidebar-logout button { font-size:0; gap:0; justify-content:center; padding:12px; }
+.sidebar-collapsed.customer-layout .sidebar-logout button span { font-size:19px; width:auto; }

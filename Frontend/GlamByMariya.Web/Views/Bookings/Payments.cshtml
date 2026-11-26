@@ -1,0 +1,31 @@
+@model List<CustomerPaymentRow>
+@{ ViewData["Title"] = "Payment transactions"; }
+<link rel="stylesheet" href="~/css/customer-payments.css" asp-append-version="true" />
+<div class="page-heading"><div><h1>Payment transactions</h1><p>Every payment on your bookings, newest first.</p></div></div>
+<section class="panel customer-payments">
+@if (Model.Count == 0)
+{
+    <div class="empty"><span aria-hidden="true">₱</span><h3>No payments yet.</h3><p>Your down payments and balances appear here once you book.</p><a asp-controller="Bookings" asp-action="Create" class="button">Book an appointment <span aria-hidden="true">→</span></a></div>
+}
+else
+{
+    <div class="customer-payments-wrap">
+        <table class="customer-payments-table">
+            <thead><tr><th scope="col">Date &amp; time</th><th scope="col">Booking</th><th scope="col">Payment</th><th scope="col" class="amount">Amount</th><th scope="col">Status</th></tr></thead>
+            <tbody>
+            @foreach (var row in Model)
+            {
+                var b = row.Booking; var status = row.Status;
+                <tr>
+                    <td data-label="Date &amp; time">@if (row.At is { } at) { <b>@at.ToString("MMM d, yyyy")</b><small>@at.ToString("h:mm tt")</small> } else { <span>—</span> }</td>
+                    <td data-label="Booking"><a asp-action="Details" asp-route-id="@b.Id"><b>@b.Reference</b></a><small>@(b.MixedPeople.Count > 0 ? "Mixed-service group" : b.Service.Name) · @b.Start.ToString("MMM d, h:mm tt")</small></td>
+                    <td data-label="Payment"><b>@row.Purpose</b><small>@row.Payment.Method@(string.IsNullOrWhiteSpace(row.Payment.Reference) ? "" : " · " + row.Payment.Reference)</small></td>
+                    <td data-label="Amount" class="amount"><b>₱@row.Payment.Amount.ToString("N2")</b></td>
+                    <td data-label="Status"><span class="payment-pill @status.Tone">@status.Label</span>@if (row.RefundNote is { } refund) { <small>@refund</small> }</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+}
+</section>

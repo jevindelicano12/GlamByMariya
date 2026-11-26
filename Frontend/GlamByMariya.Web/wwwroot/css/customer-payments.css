@@ -1,0 +1,32 @@
+/* Customer Payment transactions page. */
+.customer-payments { padding: 0; overflow: hidden; }
+.customer-payments .empty { padding: 40px 24px; }
+.customer-payments-wrap { overflow-x: auto; }
+.customer-payments-table { width: 100%; border-collapse: collapse; font-size: 13.5px; color: #49363D; }
+.customer-payments-table th { text-align: left; font-size: 12px; font-weight: 700; letter-spacing: .02em; color: #5C464D; background: #FAF1EE; padding: 13px 18px; white-space: nowrap; }
+.customer-payments-table td { padding: 15px 18px; border-bottom: 1px solid #F3ECEA; vertical-align: top; line-height: 1.45; }
+.customer-payments-table tr:last-child td { border-bottom: 0; }
+.customer-payments-table tbody tr:hover td { background: #FDF8F7; }
+.customer-payments-table td b { color: #3D2B31; font-weight: 600; font-size: 14px; }
+.customer-payments-table td small { display: block; margin-top: 3px; color: #705b5f; font-size: 12px; }
+.customer-payments-table td a { color: inherit; text-decoration: underline; text-decoration-color: #D9B3BB; text-underline-offset: 3px; }
+.customer-payments-table td a:hover { text-decoration-color: #A6536B; }
+.customer-payments-table td a:focus-visible { outline: 3px solid #B77F89; outline-offset: 2px; border-radius: 3px; }
+.customer-payments-table .amount { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.payment-pill { display: inline-block; border-radius: 999px; padding: 4px 10px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.payment-pill.paid { background: #EDF1EA; color: #4E6344; }
+.payment-pill.pending { background: #FFF0C8; color: #5E4709; }
+.payment-pill.attention { background: #FAEAEB; color: #76394D; }
+.payment-pill.closed { background: #F2EEEC; color: #6F6266; }
+
+@media (max-width: 640px) {
+    .customer-payments-table thead { display: none; }
+    .customer-payments-table, .customer-payments-table tbody, .customer-payments-table tr, .customer-payments-table td { display: block; width: 100%; }
+    .customer-payments-table tr { padding: 14px 16px; border-bottom: 1px solid #F3ECEA; }
+    .customer-payments-table tr:last-child { border-bottom: 0; }
+    .customer-payments-table td { display: grid; grid-template-columns: 7.5rem 1fr; gap: 2px 10px; padding: 6px 0; border: 0; text-align: left; }
+    .customer-payments-table td::before { content: attr(data-label); color: #705b5f; font-size: 12px; }
+    .customer-payments-table td.amount { text-align: left; }
+    .customer-payments-table td > * { grid-column: 2; justify-self: start; }
+    .customer-payments-table tbody tr:hover td { background: none; }
+}

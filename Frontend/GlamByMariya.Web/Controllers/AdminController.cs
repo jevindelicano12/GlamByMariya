@@ -111,7 +111,7 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
     public IActionResult UserAccounts(string? q, string? role, string? status)
     {
         q = (q ?? "").Trim(); role = (role ?? "").Trim(); status = (status ?? "").Trim();
-        if (q.Length > 100 || role is not ("" or "Customer" or "Admin") || status is not ("" or "active" or "inactive")) return BadRequest();
+        if (q.Length > 100 || role is not ("" or "Customer" or "Admin") || status is not ("" or "active" or "archived" or "inactive")) return BadRequest();
         lock (store.Gate)
         {
             var users = store.Users.Where(u => u.Role is Roles.Customer or Roles.Admin)
@@ -119,7 +119,9 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
                 .Where(u => status.Length == 0 || u.IsActive == (status == "active"))
                 .Where(u => q.Length == 0 || u.Name.Contains(q, StringComparison.OrdinalIgnoreCase) || u.Email.Contains(q, StringComparison.OrdinalIgnoreCase))
                 .OrderBy(u => u.IsActive ? 0 : 1).ThenBy(u => u.Role).ThenBy(u => u.Name).ToList();
-            ViewBag.Q = q; ViewBag.Role = role; ViewBag.Status = status;
+            ViewBag.Q = q; ViewBag.Role = role; ViewBag.Status = status == "inactive" ? "archived" : status;
+            // Accounts with bookings or reviewed payments can only be archived; the rest can also be deleted.
+            ViewBag.WithHistory = UsersWithTransactions();
             return View(users);
         }
     }
@@ -183,14 +185,21 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
     {
         try
         {
+            // Archive = the account is switched off (cannot sign in) and a copy is saved in the logs;
+            // its bookings and payments stay linked. Restore switches it back on.
             string who;
+            List<KeyValuePair<string, string>>? archive = null;
             lock (store.Gate)
             {
+                var user = store.Users.FirstOrDefault(u => u.Id == id) ?? throw new InvalidOperationException("That account no longer exists.");
+                who = $"{user.Name} ({user.Email}, {user.Role})";
+                if (!active) archive = ArchiveOf(user);
                 store.SetUserActive(id, active, UserId);
-                who = store.Users.FirstOrDefault(u => u.Id == id) is { } u ? $"{u.Name} ({u.Email})" : id.ToString();
             }
-            LogAccount(active ? $"User account reactivated: {who}" : $"User account deactivated: {who}", id, active ? $"Reactivated user account {id}." : $"Deactivated user account {id}.");
-            TempData["Success"] = active ? "Account reactivated. They can sign in again." : "Account deactivated. They are signed out and can no longer sign in. Their bookings are kept.";
+            if (active) LogAccount($"User account restored: {who}", id, $"Restored user account {who}.");
+            else LogAccount($"User account archived: {who}", id, $"Archived user account. Archived copy: {string.Join("; ", archive!.Select(x => $"{x.Key}: {x.Value}"))}.", archive);
+            TempData["Success"] = active ? $"{who} was restored and can sign in again."
+                : $"{who} was archived. They are signed out and cannot sign in; their bookings and payments are kept. A copy is saved in Audit Logs.";
         }
         catch (InvalidOperationException e) { TempData["Error"] = e.Message; }
         return RedirectToAction(nameof(UserAccounts));
@@ -222,6 +231,16 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
         return RedirectToAction(nameof(UserAccounts));
     }
 
+    private HashSet<Guid> UsersWithTransactions()
+    {
+        lock (store.Gate)
+        {
+            var ids = store.Bookings.Select(b => b.CustomerId).ToHashSet();
+            foreach (var p in store.Payments) if (p.VerifiedBy is { } v) ids.Add(v);
+            return ids;
+        }
+    }
+
     private static List<KeyValuePair<string, string>> ArchiveOf(AppUser u)
     {
         static string Or(string? v) => string.IsNullOrWhiteSpace(v) ? "Not provided" : v.Trim();
@@ -231,7 +250,7 @@ public class AdminController(IStudioStore store, BookingService workflow, Catalo
             new("Name", Or(u.Name)),
             new("Email", Or(u.Email)),
             new("Role", u.Role),
-            new("Status at delete", u.IsActive ? "Active" : "Deactivated"),
+            new("Status before", u.IsActive ? "Active" : "Archived"),
             new("Age", u.Age > 0 ? u.Age.ToString() : "Not provided"),
             new("Birthday", u.Birthday?.ToString("MMM d, yyyy") ?? "Not provided"),
             new("Gender", Or(u.Gender)),

@@ -372,7 +372,7 @@ input:not([type=checkbox]):not([type=radio]):not([type=file]), select, textarea 
 
 /* Touch targets >= 44x44px (iOS HIG & Material Design). */
 .guest-brand,
-.staff-layout .sidebar .brand,
+.has-sidebar .sidebar .brand,
 .public-footer nav a,
 .environment-info summary,
 .dash-card-head a,
@@ -426,12 +426,12 @@ footer,
         padding-left: max(14px, env(safe-area-inset-left));
         padding-right: max(14px, env(safe-area-inset-right));
     }
-    .staff-layout .sidebar {
+    .has-sidebar .sidebar {
         padding-top: max(12px, env(safe-area-inset-top));
         padding-left: max(16px, env(safe-area-inset-left));
         padding-right: max(16px, env(safe-area-inset-right));
     }
-    .staff-layout .staff-menu.is-open nav {
+    .has-sidebar .staff-menu.is-open nav {
         padding-bottom: max(18px, env(safe-area-inset-bottom));
     }
 }
@@ -1595,70 +1595,70 @@ fieldset.ph-address > legend { padding: 0 6px; font-weight: 600; color: #49363D;
 }
 
 /* Admin Business Overview Dashboard UI/UX Polish */
-.staff-layout .topbar {
+.has-sidebar .topbar {
     height: 64px;
     min-height: 64px;
     padding-inline: clamp(18px, 3.2vw, 40px);
 }
-.staff-layout .topbar > span {
+.has-sidebar .topbar > span {
     font-size: 13px !important;
     font-weight: 500;
     letter-spacing: 0.04em;
     color: #5C464D;
     line-height: 1.2;
 }
-.staff-layout .topbar > span .divider {
+.has-sidebar .topbar > span .divider {
     margin: 0 10px;
     color: #C9B5BA;
 }
 /* Staff Sidebar UI/UX Polish */
 @media (min-width: 851px) {
-    .staff-layout:not(.sidebar-collapsed) .sidebar {
+    .has-sidebar:not(.sidebar-collapsed) .sidebar {
         width: 268px;
         padding: 20px 14px 16px;
         background: #FFFDFB;
         border-right: 1px solid #EADDD7;
     }
-    .staff-layout:not(.sidebar-collapsed) .workspace {
+    .has-sidebar:not(.sidebar-collapsed) .workspace {
         margin-left: 268px;
     }
-    .staff-layout .sidebar .brand {
+    .has-sidebar .sidebar .brand {
         min-height: 44px;
         gap: 10px;
         padding: 4px 6px;
     }
-    .staff-layout .sidebar .brand-mark {
+    .has-sidebar .sidebar .brand-mark {
         width: 34px;
         height: 40px;
         font-size: 29px;
         line-height: 36px;
     }
-    .staff-layout .sidebar .brand-mark span {
+    .has-sidebar .sidebar .brand-mark span {
         font-size: 12px;
         top: -9px;
         right: -5px;
     }
-    .staff-layout .sidebar .brand-name {
+    .has-sidebar .sidebar .brand-name {
         font-size: 14px;
         letter-spacing: 0.7px;
     }
-    .staff-layout .sidebar .brand-name small {
+    .has-sidebar .sidebar .brand-name small {
         font-size: 7.5px !important;
         letter-spacing: 1.6px;
         margin-top: 2px;
     }
-    .staff-layout .sidebar .nav-label {
+    .has-sidebar .sidebar .nav-label {
         margin: 18px 10px 8px;
         font-size: 10.5px !important;
         font-weight: 700;
         letter-spacing: 0.11em;
         color: #8E6E76;
     }
-    .staff-layout .sidebar nav {
+    .has-sidebar .sidebar nav {
         display: grid;
         gap: 3px;
     }
-    .staff-layout:not(.sidebar-collapsed) .sidebar nav a {
+    .has-sidebar:not(.sidebar-collapsed) .sidebar nav a {
         padding: 9px 11px !important;
         gap: 10px;
         border-radius: 9px;
@@ -1670,52 +1670,52 @@ fieldset.ph-address > legend { padding: 0 6px; font-weight: 600; color: #49363D;
         text-overflow: ellipsis;
         color: #49363D;
     }
-    .staff-layout:not(.sidebar-collapsed) .sidebar nav a span {
+    .has-sidebar:not(.sidebar-collapsed) .sidebar nav a span {
         width: 18px;
         font-size: 14px;
         text-align: center;
         flex-shrink: 0;
         line-height: 1;
     }
-    .staff-layout .sidebar nav a.selected {
+    .has-sidebar .sidebar nav a.selected {
         background: #A6536B !important;
         color: #FFFDFB !important;
         font-weight: 600;
         box-shadow: 0 4px 12px -4px rgba(142, 68, 91, 0.45);
     }
-    .staff-layout .sidebar nav a:not(.selected):hover {
+    .has-sidebar .sidebar nav a:not(.selected):hover {
         background: #F6EAE6 !important;
         color: #3D2B31 !important;
     }
-    .staff-layout .sidebar .sidebar-bottom {
+    .has-sidebar .sidebar .sidebar-bottom {
         margin-top: auto;
         padding-top: 16px;
     }
-    .staff-layout .sidebar .studio-note {
+    .has-sidebar .sidebar .studio-note {
         padding: 12px 14px;
         border-radius: 12px;
         background: #FAF4F1;
         border: 1px solid #EADDD7;
     }
-    .staff-layout .sidebar .studio-note > span { font-size: 16px; margin-bottom: 4px; }
-    .staff-layout .sidebar .studio-note strong { font-size: 13px; }
-    .staff-layout .sidebar .studio-note p { font-size: 11.5px !important; line-height: 1.4; margin-top: 4px; color: #7C6B70; }
-    .staff-layout.sidebar-collapsed .sidebar {
+    .has-sidebar .sidebar .studio-note > span { font-size: 16px; margin-bottom: 4px; }
+    .has-sidebar .sidebar .studio-note strong { font-size: 13px; }
+    .has-sidebar .sidebar .studio-note p { font-size: 11.5px !important; line-height: 1.4; margin-top: 4px; color: #7C6B70; }
+    .has-sidebar.sidebar-collapsed .sidebar {
         width: 80px;
         padding: 20px 12px;
         background: #FFFDFB;
         border-right: 1px solid #EADDD7;
     }
-    .staff-layout.sidebar-collapsed .workspace { margin-left: 80px; }
-    .staff-layout.sidebar-collapsed .sidebar nav { margin-top: 22px; gap: 4px; }
-    .staff-layout.sidebar-collapsed .sidebar nav a {
+    .has-sidebar.sidebar-collapsed .workspace { margin-left: 80px; }
+    .has-sidebar.sidebar-collapsed .sidebar nav { margin-top: 22px; gap: 4px; }
+    .has-sidebar.sidebar-collapsed .sidebar nav a {
         font-size: 0 !important;
         gap: 0;
         justify-content: center;
         padding: 10px !important;
         border-radius: 9px;
     }
-    .staff-layout.sidebar-collapsed .sidebar nav a span { font-size: 19px; width: auto; }
+    .has-sidebar.sidebar-collapsed .sidebar nav a span { font-size: 19px; width: auto; }
 }
 .staff-layout main {
     padding: clamp(22px, 3vw, 34px) clamp(18px, 3.2vw, 40px) 48px;

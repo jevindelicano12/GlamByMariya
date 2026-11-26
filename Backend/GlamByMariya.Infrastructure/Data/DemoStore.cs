@@ -315,7 +315,7 @@ public class DemoStore : IStudioStore
     {
         lock (Gate)
         {
-            if (user == actor) throw new InvalidOperationException("You cannot deactivate your own account.");
+            if (user == actor) throw new InvalidOperationException("You cannot archive your own account.");
             ManagedUser(user, actor).IsActive = active;
         }
     }
@@ -326,9 +326,9 @@ public class DemoStore : IStudioStore
             if (user == actor) throw new InvalidOperationException("You cannot delete your own account.");
             var target = ManagedUser(user, actor);
             var bookings = Bookings.Count(b => b.CustomerId == user);
-            if (bookings > 0) throw new InvalidOperationException($"This customer has {bookings} booking(s), so the account cannot be deleted. Deactivate it instead to keep their booking and payment history.");
+            if (bookings > 0) throw new InvalidOperationException($"This customer has {bookings} booking(s), so the account cannot be deleted. Archive it instead to keep their booking and payment history.");
             if (Payments.Any(p => p.VerifiedBy == user))
-                throw new InvalidOperationException("This administrator reviewed payments, so the account cannot be deleted. Deactivate it instead to keep the payment history.");
+                throw new InvalidOperationException("This administrator reviewed payments, so the account cannot be deleted. Archive it instead to keep the payment history.");
             Users.Remove(target);
         }
     }

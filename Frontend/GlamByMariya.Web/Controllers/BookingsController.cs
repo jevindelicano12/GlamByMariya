@@ -142,6 +142,21 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
             return View(store.Bookings.Where(b => b.CustomerId == UserId).OrderByDescending(b => b.Start).ToList());
         }
     }
+    // Every payment on the customer's own bookings, newest first by its exact time
+    // (verified time, or when the booking and its payment were submitted).
+    [HttpGet, ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    public IActionResult Payments()
+    {
+        lock (store.Gate)
+        {
+            var bookings = store.Bookings.Where(b => b.CustomerId == UserId).ToDictionary(b => b.Id);
+            var rows = store.Payments.Where(p => bookings.ContainsKey(p.BookingId))
+                .Select(p => new CustomerPaymentRow(p, bookings[p.BookingId], p.VerifiedAt ?? bookings[p.BookingId].CreatedAt))
+                .OrderByDescending(r => r.At ?? DateTime.MinValue).ThenByDescending(r => r.Booking.Start)
+                .ToList();
+            return View(rows);
+        }
+    }
     public IActionResult Create(Guid? serviceId)
     {
         ViewBag.XenditEnabled = UsesXendit;
@@ -196,7 +211,7 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
         // The amount the customer chose to pay online (from the down payment up to the total).
         ViewBag.PayAmount = ((List<Payment>)ViewBag.Payments).Select(p => (decimal?)p.Amount).FirstOrDefault() ?? booking.RequiredDownPayment;
         ViewBag.CheckoutUrl = UsesXendit && booking.Status == "Pending Payment"
-            ? ((IPersistentStudioStore)store).PendingCheckoutUrl(booking.Id) : null;
+            ? (UsesDemoXendit ? Url.Action("DemoXenditCheckout", new { id = booking.Id }) : ((IPersistentStudioStore)store).PendingCheckoutUrl(booking.Id)) : null;
         // An approved early request has no Xendit page yet: the customer opens it with "Pay down payment".
         ViewBag.PayApprovedRequest = UsesXendit && booking.IsEarlyRequest && booking.Status == "Pending Payment" && ViewBag.CheckoutUrl == null;
     }
@@ -241,8 +256,11 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
             return RedirectToAction("Details", new { id });
         }
     }
-    // Database mode with Xendit configured: the down payment is paid on Xendit's checkout.
-    private bool UsesXendit => xendit?.Enabled == true && store is IPersistentStudioStore;
+    // Local Development + Demo mode opt-in Xendit test simulator (never enabled in Production or Postgres).
+    private bool UsesDemoXendit => environment.IsDevelopment() && !store.IsPersistent
+        && HttpContext.RequestServices.GetRequiredService<IConfiguration>().GetValue<bool>("Xendit:DemoTestCheckout");
+    // Database mode with Xendit configured (or local Demo test checkout): the down payment is paid via Xendit checkout.
+    private bool UsesXendit => (xendit?.Enabled == true && store is IPersistentStudioStore) || UsesDemoXendit;
 
     // Saves the booking as Pending Payment, opens a Xendit invoice for the exact down payment
     // and sends the customer to it. Only the Xendit webhook confirms the booking. If the invoice
@@ -298,12 +316,14 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
     // (free) so the slot is released at once.
     private async Task<string> NextStepUrl(Booking booking, decimal amount)
     {
-        var database = (IPersistentStudioStore)store;
         if (booking.IsEarlyRequest)
         {
             TempData["Success"] = BookingService.EarlyRequestSentMessage;
             return Url.Action("Confirmation", new { id = booking.Id })!;
         }
+        if (UsesDemoXendit)
+            return Url.Action("DemoXenditCheckout", new { id = booking.Id })!;
+        var database = (IPersistentStudioStore)store;
         try
         {
             var email = User.FindFirstValue(ClaimTypes.Email) ?? "";
@@ -317,6 +337,56 @@ public class BookingsController(IStudioStore store, BookingService workflow, IWe
         {
             try { database.CancelBooking(booking.Id, UserId, true); } catch (InvalidOperationException) { }
             throw new InvalidOperationException("We could not open the Xendit payment page, so nothing was charged and the time was released. Please try again.");
+        }
+    }
+
+    [HttpGet]
+    public IActionResult DemoXenditCheckout(Guid id)
+    {
+        if (!UsesDemoXendit) return NotFound();
+        lock (store.Gate)
+        {
+            var booking = store.Bookings.FirstOrDefault(b => b.Id == id && b.CustomerId == UserId);
+            if (booking == null) return NotFound();
+            if (booking.Status != "Pending Payment") return RedirectToAction("Confirmation", new { id });
+            var payment = store.Payments.FirstOrDefault(p => p.BookingId == booking.Id && p.Method == "Xendit");
+            ViewBag.PaymentAmount = payment?.Amount ?? booking.RequiredDownPayment;
+            ViewBag.PaymentReference = payment?.Reference ?? booking.Reference;
+            return View(booking);
+        }
+    }
+    [HttpPost, ValidateAntiForgeryToken]
+    public IActionResult CompleteDemoXendit(Guid id, string outcome, string? channel)
+    {
+        if (!UsesDemoXendit) return NotFound();
+        lock (store.Gate)
+        {
+            var booking = store.Bookings.FirstOrDefault(b => b.Id == id && b.CustomerId == UserId);
+            if (booking == null) return NotFound();
+            if (booking.Status != "Pending Payment") return RedirectToAction("Confirmation", new { id });
+            var payment = store.Payments.FirstOrDefault(p => p.BookingId == booking.Id && p.Method == "Xendit");
+            if (string.Equals(outcome, "paid", StringComparison.OrdinalIgnoreCase))
+            {
+                var via = string.IsNullOrWhiteSpace(channel) ? "GCash" : channel.Trim();
+                if (payment != null)
+                {
+                    payment.Verified = true;
+                    payment.ReviewStatus = "Approved";
+                    payment.VerifiedAt = store.Now;
+                }
+                booking.Status = "Confirmed";
+                booking.PaymentStatus = payment != null && payment.Amount >= booking.Total ? "Paid in Full" : "Down Payment Paid";
+                booking.PaymentDueAt = null;
+                store.Notifications.Add(new(UserId, $"Xendit test payment ({via}) confirmed for {booking.Reference}. Your appointment is confirmed.", store.Now));
+                TempData["Success"] = $"Xendit test payment ({via}) succeeded! Your appointment is confirmed.";
+                return RedirectToAction("Confirmation", new { id });
+            }
+            booking.Status = "Expired";
+            booking.PaymentStatus = "Expired";
+            booking.PaymentDueAt = null;
+            if (payment != null) { payment.Verified = false; payment.ReviewStatus = "Rejected"; }
+            TempData["Error"] = "Xendit test payment expired or was cancelled. Your time slot was released.";
+            return RedirectToAction("Details", new { id });
         }
     }
 

@@ -530,7 +530,7 @@ public sealed class PublicStudioStore(
     public override void SetUserActive(Guid user, bool active, Guid actor) => Transaction(actor, () =>
     {
         RequireOwner(actor);
-        if (user == actor) throw new InvalidOperationException("You cannot deactivate your own account.");
+        if (user == actor) throw new InvalidOperationException("You cannot archive your own account.");
         // A new security stamp ends the account's sessions on its next request.
         var updated = pdb.Database.ExecuteSqlInterpolated($"UPDATE public.customers SET is_active={active}, security_stamp=gen_random_uuid() WHERE app_id={user}");
         if (updated == 0)
@@ -543,7 +543,7 @@ public sealed class PublicStudioStore(
         RequireOwner(actor);
         if (user == actor) throw new InvalidOperationException("You cannot delete your own account.");
         var bookings = pdb.Database.SqlQuery<int>($"SELECT count(*)::int AS \"Value\" FROM public.reservations r JOIN public.customers c ON c.id = r.customer_id WHERE c.app_id = {user}").Single();
-        if (bookings > 0) throw new InvalidOperationException($"This customer has {bookings} booking(s), so the account cannot be deleted. Deactivate it instead to keep their booking and payment history.");
+        if (bookings > 0) throw new InvalidOperationException($"This customer has {bookings} booking(s), so the account cannot be deleted. Archive it instead to keep their booking and payment history.");
         var isCustomer = pdb.Database.SqlQuery<int>($"SELECT count(*)::int AS \"Value\" FROM public.customers WHERE app_id = {user}").Single() > 0;
         var isAdmin = !isCustomer && pdb.Database.SqlQuery<int>($"SELECT count(*)::int AS \"Value\" FROM public.admin_users WHERE app_id = {user} AND role = 'Admin'").Single() > 0;
         if (!isCustomer && !isAdmin) throw new InvalidOperationException("That account cannot be deleted here.");

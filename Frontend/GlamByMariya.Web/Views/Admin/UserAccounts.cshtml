@@ -1,12 +1,12 @@
 @model List<GlamByMariya.Core.Entities.AppUser>
-@{ ViewData["Title"] = "User accounts"; }
+@{ ViewData["Title"] = "User accounts"; var withHistory = (HashSet<Guid>)ViewBag.WithHistory; }
 <link rel="stylesheet" href="~/css/user-accounts.css" asp-append-version="true" />
 <div class="activity-page ua-page">
-<div class="page-heading ua-heading"><div><div class="eyebrow">SYSTEM OWNER</div><h1>User accounts</h1><p>Add, edit, deactivate and delete customer and administrator accounts. Deactivated accounts cannot sign in but keep their history; Delete is permanent and only works for accounts with no bookings or payments.</p></div><a class="button" asp-action="UserAccountForm">Add account</a></div>
+<div class="page-heading ua-heading"><div><div class="eyebrow">SYSTEM OWNER</div><h1>User accounts</h1><p>Add, edit, archive and delete customer and administrator accounts. Archived accounts cannot sign in but keep all their bookings and payments, and can be restored. Delete is permanent and only for accounts with no transactions.</p></div><a class="button" asp-action="UserAccountForm">Add account</a></div>
 <form method="get" class="panel activity-filter ua-filter">
     <label>Search name or email<input name="q" value="@ViewBag.Q" maxlength="100" placeholder="Name or email" /></label>
     <label>Role<select name="role"><option value="">All roles</option>@foreach (var r in new[] { "Customer", "Admin" }) { <option value="@r" selected="@((string)ViewBag.Role == r)">@r</option> }</select></label>
-    <label>Status<select name="status"><option value="">All</option><option value="active" selected="@((string)ViewBag.Status == "active")">Active</option><option value="inactive" selected="@((string)ViewBag.Status == "inactive")">Deactivated</option></select></label>
+    <label>Status<select name="status"><option value="">All</option><option value="active" selected="@((string)ViewBag.Status == "active")">Active</option><option value="archived" selected="@((string)ViewBag.Status == "archived")">Archived</option></select></label>
     <button class="button" type="submit">Filter</button><a asp-action="UserAccounts">Clear</a>
 </form>
 <section class="activity-list" aria-labelledby="ua-title">
@@ -15,21 +15,23 @@
     else {
     <div class="activity-table-wrap" tabindex="0" role="region" aria-labelledby="ua-title">
         <table class="activity-table ua-table">
-            <thead><tr><th scope="col">Name</th><th scope="col">Email</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+            <thead><tr><th scope="col">Name</th><th scope="col">Email</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col">Transactions</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
             <tbody>
             @foreach (var u in Model) {
                 <tr class="@(u.IsActive ? null : "ua-inactive")">
                     <td><b>@u.Name</b>@if (!string.IsNullOrWhiteSpace(u.Address)) { <small>@u.Address</small> }</td>
                     <td class="ua-email">@u.Email</td>
                     <td>@u.Role</td>
-                    <td>@if (u.IsActive) { <span class="activity-result">Active</span> } else { <span class="ua-status-off">Deactivated</span> }</td>
+                    <td>@if (u.IsActive) { <span class="activity-result">Active</span> } else { <span class="ua-status-off">Archived</span> }</td>
+                    <td>@if (withHistory.Contains(u.Id)) { <span class="ua-history">Has transactions</span> } else { <span class="ua-history is-none">None</span> }</td>
                     <td class="ua-actions">
                         <a class="ua-btn" asp-action="UserAccountForm" asp-route-id="@u.Id" aria-label="Edit @u.Name">Edit</a>
-                        <form asp-action="SetUserAccountActive" method="post" data-confirm="@(u.IsActive ? $"Deactivate {u.Name}? They will be signed out and cannot sign in until reactivated." : null)">
+                        <form asp-action="SetUserAccountActive" method="post" data-confirm="@(u.IsActive ? $"Archive {u.Name}? They will be signed out and cannot sign in until restored. Their bookings and payments are kept, and a copy is saved in Audit Logs." : null)">
                             <input type="hidden" name="id" value="@u.Id" /><input type="hidden" name="active" value="@(u.IsActive ? "false" : "true")" />
-                            <button class="ua-btn @(u.IsActive ? "ua-danger" : null)" type="submit" aria-label="@(u.IsActive ? "Deactivate" : "Reactivate") @u.Name">@(u.IsActive ? "Deactivate" : "Reactivate")</button>
+                            <button class="ua-btn @(u.IsActive ? "ua-danger" : null)" type="submit" aria-label="@(u.IsActive ? "Archive" : "Restore") @u.Name">@(u.IsActive ? "Archive" : "Restore")</button>
                         </form>
-                        <button class="ua-btn ua-delete" type="button" data-delete-id="@u.Id" data-delete-name="@u.Name" data-delete-email="@u.Email" aria-haspopup="dialog" aria-label="Delete @u.Name">Delete</button>
+                        @if (!withHistory.Contains(u.Id)) { <button class="ua-btn ua-delete" type="button" data-delete-id="@u.Id" data-delete-name="@u.Name" data-delete-email="@u.Email" aria-haspopup="dialog" aria-label="Delete @u.Name">Delete</button> }
+                        else { <span class="ua-btn ua-btn-placeholder" aria-hidden="true">Delete</span> }
                     </td>
                 </tr>
             }
@@ -44,7 +46,7 @@
         <input type="hidden" name="id" id="ua-delete-id" />
         <h2 id="ua-delete-title">Delete account</h2>
         <p id="ua-delete-desc">You are about to permanently delete <b id="ua-delete-who"></b>. This cannot be undone.</p>
-        <p class="ua-dialog-note">Accounts with bookings or payment history cannot be deleted. Deactivate those instead.</p>
+        <p class="ua-dialog-note">Only accounts with no bookings or payments can be deleted. To keep someone's history, archive the account instead.</p>
         <label for="ua-delete-confirm">Type <b>yes im sure</b> to confirm</label>
         <input id="ua-delete-confirm" name="confirmText" autocomplete="off" spellcheck="false" required placeholder="yes im sure" />
         <div class="ua-dialog-actions">

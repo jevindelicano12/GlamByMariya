@@ -33,7 +33,7 @@ html.menu-open, html.menu-open body { overflow:hidden; }
 
 /* The panel holds Log in / Sign up and the account links, so the header keeps only brand + ☰. */
 @media (max-width:1050px) { .guest-layout .topbar > .guest-actions { display:none; } }
-@media (max-width:1100px) { .customer-layout .topbar > .account { display:none; } }
+/* Customers keep the account menu in the top bar; their links live in the sidebar. */
 @media (prefers-reduced-motion:reduce) { .menu-icon span { transition:none; } }
 /* Staff: the open menu sits above the account bar (whose dropdown has z-index 30). */
-@media (max-width:850px) { html.menu-open .staff-layout .sidebar { z-index:45; } }
+@media (max-width:850px) { html.menu-open .has-sidebar .sidebar { z-index:45; } }
